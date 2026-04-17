@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<defs>
+	<style>
+		@font-face {
+			font-family: 'ZeldaNES';
+			src: url('file:///C:/Users/bogie/AppData/Local/Microsoft/Windows/Fonts/the-legend-of-zelda-nes.ttf');
+		}
+	</style>
+</defs>
+<rect width="512" height="512" fill="#000000"/>
+<!-- Manually positioned characters for guaranteed mono spacing -->
+<!-- TTP: 3 chars, 120px each, centered in 512 => start at 76 -->
+<text y="224" font-family="ZeldaNES, monospace" font-size="120" fill="#FFFFFF">
+	<tspan x="76">T</tspan>
+	<tspan x="196">T</tspan>
+	<tspan x="316">P</tspan>
+</text>
+<!-- BOT: 3 chars, same grid -->
+<text y="348" font-family="ZeldaNES, monospace" font-size="120" fill="#FFFFFF">
+	<tspan x="76">B</tspan>
+	<tspan x="196">O</tspan>
+	<tspan x="316">T</tspan>
+</text>
+</svg>

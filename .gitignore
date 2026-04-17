@@ -1,0 +1,33 @@
+# Runtime state files
+created_races.json
+sent_webhooks.json
+learned_aliases.json
+
+# Logs
+ttpbot.log
+chat_logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Credentials / environment
+.env
+*.env
+client_id
+client_secret
+credentials.txt
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code / agent metadata
+.claude/
+.agent/
