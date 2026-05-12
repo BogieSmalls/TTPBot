@@ -250,7 +250,7 @@ class TTPRaceHandler(RaceHandler):
             )
             await self.send_message(
                 "For an invite link to the new Z1R Racing Discord where TTP, "
-                "Torneo Corto, Triforce Trials, and more are hosted, type "
+                "Torneo Corto, TriforceTrials, and more are hosted, type "
                 "!discord. We'd love to have you!"
             )
             self.state['welcomed'] = True
