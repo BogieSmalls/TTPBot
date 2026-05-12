@@ -248,11 +248,6 @@ class TTPRaceHandler(RaceHandler):
                 "Type !schedule for today's race times, !info for season details, "
                 "or !ttpflags for Season 4 flag details."
             )
-            await self.send_message(
-                "For an invite link to the new Z1R Racing Discord where TTP, "
-                "Torneo Corto, TriforceTrials, and more are hosted, type "
-                "!discord. We'd love to have you!"
-            )
             self.state['welcomed'] = True
 
     def _determine_scheduled_time(self):
@@ -519,14 +514,7 @@ class TTPRaceHandler(RaceHandler):
             "TTP Season 4 runs Feb 3 - Aug 8, 2026. "
             "Races: Mon-Fri at 8 PM, 10 PM, 12 AM ET | "
             "Sat at 12 PM, 3 PM, 6 PM ET (plus 12 AM from Friday). "
-            "No races on Sunday. 432 total races, 24-week season. "
-            "Join the Z1R Racing Discord with !discord."
-        )
-
-    async def ex_discord(self, args, message):
-        """!discord -- Invite link to the Z1R Racing Discord."""
-        await self.send_message(
-            "Z1R Racing Discord invite: https://discord.gg/MX6EB26HYB"
+            "No races on Sunday. 432 total races, 24-week season."
         )
 
     async def ex_ttpflags(self, args, message):
@@ -678,6 +666,5 @@ class TTPRaceHandler(RaceHandler):
             '    !schedule                   Today\'s remaining race times',
             '    !info                       Season info',
             '    !ttpflags                   TTP Season 4 flagset details',
-            '    !discord                    Z1R Racing Discord invite link',
         ]
         await self.send_message('\n'.join(lines))
