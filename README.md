@@ -62,10 +62,10 @@ Set the Discord webhook URL via environment variable:
 
 ```
 # PowerShell
-$env:TTPBOT_Z1R_WEBHOOK_URL = "https://discord.com/api/webhooks/..."
+$env:TTPBOT_Z1R_WEBHOOK_URL = "<discord-webhook-url>"
 
 # bash
-export TTPBOT_Z1R_WEBHOOK_URL="https://discord.com/api/webhooks/..."
+export TTPBOT_Z1R_WEBHOOK_URL="<discord-webhook-url>"
 ```
 
 If the env var is unset, the bot runs normally but skips Discord announcements (logged as a warning).
@@ -78,9 +78,17 @@ nssm set TTPBot AppParameters -m ttpbot z1r <client_id> "<client_secret>"
 nssm set TTPBot AppDirectory D:\Path\To\TTPBot
 nssm set TTPBot AppStdout D:\Path\To\TTPBot\ttpbot.log
 nssm set TTPBot AppStderr D:\Path\To\TTPBot\ttpbot.log
-nssm set TTPBot AppEnvironmentExtra TTPBOT_Z1R_WEBHOOK_URL=https://discord.com/api/webhooks/...
+nssm set TTPBot AppEnvironmentExtra TTPBOT_Z1R_WEBHOOK_URL=<discord-webhook-url>
 nssm start TTPBot
 ```
+
+### Deployment (Linux systemd on OCI)
+
+Production runs as a standalone `ttpbot.service` on the OCI `coop-relay` VM.
+The Linux service reads credentials from `/etc/ttpbot.env` and writes runtime
+state to `/var/lib/ttpbot` via `TTPBOT_DATA_DIR`.
+
+See [docs/oci-service-runbook.md](docs/oci-service-runbook.md).
 
 ## Configuration
 
