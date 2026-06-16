@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 from datetime import datetime, timedelta
 
 import aiohttp
@@ -16,14 +15,11 @@ from .config import (
     Z1R_DISCORD_WEBHOOK_URL,
 )
 from .handler import TTPRaceHandler
+from .paths import ensure_parent_dir, runtime_path
 from .schedule import get_upcoming_races
 
-CREATED_RACES_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), 'created_races.json'
-)
-SENT_WEBHOOKS_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), 'sent_webhooks.json'
-)
+CREATED_RACES_FILE = runtime_path('created_races.json')
+SENT_WEBHOOKS_FILE = runtime_path('sent_webhooks.json')
 
 
 class TTPBot(Bot):
@@ -52,6 +48,7 @@ class TTPBot(Bot):
     def _save_created_races(self):
         """Persist created_races dict to disk."""
         try:
+            ensure_parent_dir(CREATED_RACES_FILE)
             with open(CREATED_RACES_FILE, 'w') as f:
                 json.dump(self.created_races, f)
         except Exception:
@@ -69,6 +66,7 @@ class TTPBot(Bot):
     def _save_sent_webhooks(self):
         """Persist sent_webhooks set to disk."""
         try:
+            ensure_parent_dir(SENT_WEBHOOKS_FILE)
             with open(SENT_WEBHOOKS_FILE, 'w') as f:
                 json.dump(list(self.sent_webhooks), f)
         except Exception:

@@ -20,12 +20,11 @@ from .config import (
     TTP4_PRESETS,
     TIMEZONE,
 )
+from .paths import ensure_parent_dir, runtime_path
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 
-CHAT_LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'chat_logs')
-LEARNED_ALIASES_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), 'learned_aliases.json'
-)
+CHAT_LOG_DIR = runtime_path('chat_logs')
+LEARNED_ALIASES_FILE = runtime_path('learned_aliases.json')
 
 # Merged alias dict built once at import, extended by learned aliases
 _all_aliases = dict(HASH_ALIASES)
@@ -50,6 +49,7 @@ def _save_learned_alias(typo, canonical):
         except (FileNotFoundError, json.JSONDecodeError):
             learned = {}
         learned[typo] = canonical
+        ensure_parent_dir(LEARNED_ALIASES_FILE)
         with open(LEARNED_ALIASES_FILE, 'w') as f:
             json.dump(learned, f, indent=2)
         _all_aliases[typo] = canonical
