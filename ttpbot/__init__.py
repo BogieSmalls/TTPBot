@@ -3,15 +3,19 @@ import logging
 import sys
 
 from .bot import TTPBot
+from .runtime_config import missing_config_names, resolve_bot_config
 
 
 def main():
     parser = argparse.ArgumentParser(
         description='TTP Season 4 Bot for racetime.gg Z1R races',
     )
-    parser.add_argument('category_slug', help='racetime.gg category slug (z1r)')
-    parser.add_argument('client_id', help='racetime.gg OAuth2 client ID')
-    parser.add_argument('client_secret', help='racetime.gg OAuth2 client secret')
+    parser.add_argument('category_slug', nargs='?',
+                        help='racetime.gg category slug (or TTPBOT_CATEGORY_SLUG)')
+    parser.add_argument('client_id', nargs='?',
+                        help='racetime.gg OAuth2 client ID (or TTPBOT_RACETIME_CLIENT_ID)')
+    parser.add_argument('client_secret', nargs='?',
+                        help='racetime.gg OAuth2 client secret (or TTPBOT_RACETIME_CLIENT_SECRET)')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Enable debug logging')
     parser.add_argument('--host', type=str, default=None,
@@ -20,6 +24,10 @@ def main():
                         help='Use HTTP/WS instead of HTTPS/WSS (debug only)')
 
     args = parser.parse_args()
+    config = resolve_bot_config(args)
+    missing = missing_config_names(config)
+    if missing:
+        parser.error('missing required config: ' + ', '.join(missing))
 
     logger = logging.getLogger('ttpbot')
     handler = logging.StreamHandler(sys.stdout)
@@ -35,9 +43,9 @@ def main():
         TTPBot.racetime_secure = False
 
     bot = TTPBot(
-        category_slug=args.category_slug,
-        client_id=args.client_id,
-        client_secret=args.client_secret,
+        category_slug=config.category_slug,
+        client_id=config.client_id,
+        client_secret=config.client_secret,
         logger=logger,
     )
     bot.run()
