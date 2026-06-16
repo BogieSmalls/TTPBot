@@ -31,3 +31,6 @@ credentials.txt
 # Claude Code / agent metadata
 .claude/
 .agent/
+
+# Local git worktrees
+.worktrees/
