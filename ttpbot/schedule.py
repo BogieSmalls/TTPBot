@@ -1,22 +1,51 @@
 from datetime import datetime, timedelta
 
-from .config import SEASON_START, SEASON_END, TIMEZONE, WEEKLY_SCHEDULE
+from .config import (
+    GOAL_NAME,
+    POST_SEASON_GOAL_NAME,
+    POST_SEASON_ROOM_INFO_PREFIX,
+    REGULAR_SEASON_ROOM_INFO_PREFIX,
+    SEASON_END,
+    SEASON_START,
+    TIMEZONE,
+    WEEKLY_SCHEDULE,
+)
 
 
 def is_within_season(dt):
-    """Check if a datetime falls within the TTP S4 season."""
+    """Check if a datetime falls within the TTP S4 regular season."""
     return SEASON_START <= dt.date() <= SEASON_END
+
+
+def is_scheduled_date(d):
+    """Check if the regular weekly TTP schedule should produce rooms for date d."""
+    return d >= SEASON_START
+
+
+def race_goal_for_time(scheduled_time):
+    """Return the racetime.gg goal for a scheduled TTP room."""
+    if is_within_season(scheduled_time):
+        return GOAL_NAME
+    return POST_SEASON_GOAL_NAME
+
+
+def race_info_for_time(scheduled_time):
+    """Return the room info label for a scheduled TTP room."""
+    if is_within_season(scheduled_time):
+        prefix = REGULAR_SEASON_ROOM_INFO_PREFIX
+    else:
+        prefix = POST_SEASON_ROOM_INFO_PREFIX
+    formatted = scheduled_time.strftime('%a %b %d, %I:%M %p %Z')
+    return f'{prefix} | Scheduled: {formatted}'
 
 
 def get_races_for_date(d):
     """Return a list of timezone-aware datetimes for all races on calendar date d."""
+    if not is_scheduled_date(d):
+        return []
+
     times = WEEKLY_SCHEDULE.get(d.weekday(), [])
-    races = []
-    for t in times:
-        dt = datetime.combine(d, t, tzinfo=TIMEZONE)
-        if is_within_season(dt):
-            races.append(dt)
-    return races
+    return [datetime.combine(d, t, tzinfo=TIMEZONE) for t in times]
 
 
 def get_upcoming_races(now, window_minutes=35):

@@ -2,15 +2,15 @@
 
 <img src="ttpbot.png" alt="TTPBot logo" width="120" align="right" />
 
-A [racetime.gg](https://racetime.gg) category bot for **Zelda 1 Randomizer Triforce Triple Play Season 4** — a 24-week competitive league (Feb 3 – Aug 8, 2026) running weekly race nights across 432 scheduled races on the [z1r](https://racetime.gg/z1r) category.
+A [racetime.gg](https://racetime.gg) category bot for **Zelda 1 Randomizer Triforce Triple Play**. TTP Season 4 regular-season rooms ran Feb 3 - July 4, 2026; normal TTP rooms continue on the same weekly schedule with the `Beat the game` goal until a playoff schedule is configured.
 
-TTPBot handles everything around a TTP Season 4 race: opening the race room on schedule, announcing it in Discord, giving reminders, detecting the ROM hash, rolling seeds when SahasrahBot is offline, and archiving the room's chat log.
+TTPBot handles everything around a scheduled Triforce Triple Play race: opening the race room on schedule, announcing it in Discord, giving reminders, detecting the ROM hash, rolling seeds when SahasrahBot is offline, and archiving the room's chat log.
 
 ## What it does
 
 ### Scheduled race-room creation
 
-TTPBot opens a fresh race room 30 minutes before every scheduled TTP Season 4 race. The schedule (US/Eastern) is:
+TTPBot opens a fresh race room 30 minutes before every scheduled Triforce Triple Play race. The normal schedule (US/Eastern) is:
 
 | Day | Races |
 |-----|-------|
@@ -18,7 +18,7 @@ TTPBot opens a fresh race room 30 minutes before every scheduled TTP Season 4 ra
 | Saturday | 12 PM, 3 PM, 6 PM |
 | Sunday | No races |
 
-Rooms use `streaming_required: true`, a 4-hour time limit, a 15-second start delay, and auto-start when all entrants ready up. Rooms are deduplicated across bot restarts via a persisted `created_races.json` so a service restart mid-slate won't double-open anything.
+Regular-season rooms use the `TTP Season 4` goal through July 4, 2026. Later normal scheduled rooms use the `Beat the game` goal and an `info_bot` label beginning with `Triforce Triple Play | Scheduled:`. Rooms use `streaming_required: true`, a 4-hour time limit, a 15-second start delay, and auto-start when all entrants ready up. Rooms are deduplicated across bot restarts via a persisted `created_races.json` so a service restart mid-slate won't double-open anything.
 
 ### Discord announcements
 

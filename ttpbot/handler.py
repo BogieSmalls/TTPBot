@@ -120,7 +120,7 @@ def parse_hash(text):
 
 class TTPRaceHandler(RaceHandler):
     """
-    Handler for TTP Season 4 race rooms.
+    Handler for Triforce Triple Play race rooms.
 
     Sends timed reminders before the scheduled start and responds to
     informational commands.
@@ -229,7 +229,9 @@ class TTPRaceHandler(RaceHandler):
 
         # Check if we already welcomed this room
         already_welcomed = any(
-            'Welcome to TTP Season 4!' in text for text in bot_messages
+            'Welcome to TTP Season 4!' in text
+            or 'Welcome to Triforce Triple Play!' in text
+            for text in bot_messages
         )
 
         # Check which reminders were already sent
@@ -243,9 +245,9 @@ class TTPRaceHandler(RaceHandler):
 
         if not self.state.get('welcomed'):
             await self.send_message(
-                "Welcome to TTP Season 4! I'll help out with hash "
+                "Welcome to Triforce Triple Play! I'll help out with hash "
                 "confirmation and other bot duties. "
-                "Type !schedule for today's race times, !info for season details, "
+                "Type !schedule for today's race times, !info for TTP details, "
                 "or !ttpflags for Season 4 flag details."
             )
             self.state['welcomed'] = True
@@ -503,7 +505,7 @@ class TTPRaceHandler(RaceHandler):
             await self.send_message("No more TTP races scheduled for today.")
             return
 
-        lines = ["Upcoming TTP Season 4 races (Eastern):"]
+        lines = ["Upcoming Triforce Triple Play races (Eastern):"]
         for race_time in upcoming:
             lines.append(f"  {race_time.strftime('%I:%M %p %Z')}")
         await self.send_message('\n'.join(lines))
@@ -511,10 +513,11 @@ class TTPRaceHandler(RaceHandler):
     async def ex_info(self, args, message):
         """!info - Show TTP Season 4 information."""
         await self.send_message(
-            "TTP Season 4 runs Feb 3 - Aug 8, 2026. "
+            "TTP Season 4 regular season ran Feb 3 - July 4, 2026. "
+            "Normal Triforce Triple Play rooms continue with the Beat the game goal. "
             "Races: Mon-Fri at 8 PM, 10 PM, 12 AM ET | "
             "Sat at 12 PM, 3 PM, 6 PM ET (plus 12 AM from Friday). "
-            "No races on Sunday. 432 total races, 24-week season."
+            "No races on Sunday."
         )
 
     async def ex_ttpflags(self, args, message):

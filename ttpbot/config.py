@@ -3,11 +3,19 @@ from datetime import date, time
 from zoneinfo import ZoneInfo
 
 SEASON_START = date(2026, 2, 3)
-SEASON_END = date(2026, 8, 8)
+SEASON_END = date(2026, 7, 4)
 
 TIMEZONE = ZoneInfo("America/New_York")
 
 GOAL_NAME = "TTP Season 4"
+POST_SEASON_GOAL_NAME = "Beat the game"
+
+REGULAR_SEASON_ROOM_INFO_PREFIX = "TTP Season 4"
+POST_SEASON_ROOM_INFO_PREFIX = "Triforce Triple Play"
+TTP_ROOM_INFO_PREFIXES = (
+    REGULAR_SEASON_ROOM_INFO_PREFIX,
+    POST_SEASON_ROOM_INFO_PREFIX,
+)
 
 ROOM_OPEN_MINUTES_BEFORE = 30
 WEBHOOK_MINUTES_BEFORE = 20  # Post webhook 20 min before race (10 min after room opens)

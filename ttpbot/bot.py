@@ -8,24 +8,60 @@ from racetime_bot import Bot
 
 from .config import (
     GOAL_NAME,
+    POST_SEASON_GOAL_NAME,
     RACE_NUMBER_MAP,
     ROOM_OPEN_MINUTES_BEFORE,
     TIMEZONE,
+    TTP_ROOM_INFO_PREFIXES,
     WEBHOOK_MINUTES_BEFORE,
     Z1R_DISCORD_WEBHOOK_URL,
 )
 from .handler import TTPRaceHandler
 from .paths import ensure_parent_dir, runtime_path
-from .schedule import get_upcoming_races
+from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
 
 CREATED_RACES_FILE = runtime_path('created_races.json')
 SENT_WEBHOOKS_FILE = runtime_path('sent_webhooks.json')
 
 
+def is_ttp_scheduled_room(race_data):
+    """Return True for TTP-managed rooms, including labeled post-season rooms."""
+    goal_name = race_data.get('goal', {}).get('name', '')
+    if goal_name == GOAL_NAME:
+        return True
+    if goal_name != POST_SEASON_GOAL_NAME:
+        return False
+
+    info_bot = race_data.get('info_bot', '') or ''
+    return any(
+        info_bot.startswith(f'{prefix} | Scheduled:')
+        for prefix in TTP_ROOM_INFO_PREFIXES
+    )
+
+
+def race_room_form_data(scheduled_time):
+    """Return racetime.gg form fields for a scheduled TTP room."""
+    return {
+        'goal': race_goal_for_time(scheduled_time),
+        'info_bot': race_info_for_time(scheduled_time),
+        'invitational': 'false',
+        'unlisted': 'false',
+        'start_delay': '15',
+        'time_limit': '4',
+        'streaming_required': 'true',
+        'auto_start': 'true',
+        'allow_prerace_chat': 'true',
+        'allow_midrace_chat': 'true',
+        'allow_non_entrant_chat': 'true',
+        'chat_message_delay': '0',
+        'hide_comments': 'true',
+    }
+
+
 class TTPBot(Bot):
     """
     Extends racetime_bot.Bot with a scheduling loop that creates
-    TTP Season 4 race rooms 30 minutes before their scheduled start.
+    Triforce Triple Play race rooms 30 minutes before their scheduled start.
     """
 
     def __init__(self, *args, **kwargs):
@@ -84,9 +120,8 @@ class TTPBot(Bot):
         }
 
     def should_handle(self, race_data):
-        """Only handle races with the TTP Season 4 goal."""
-        goal_name = race_data.get('goal', {}).get('name', '')
-        if goal_name != GOAL_NAME:
+        """Only handle TTP-managed scheduled rooms."""
+        if not is_ttp_scheduled_room(race_data):
             return False
         return super().should_handle(race_data)
 
@@ -163,21 +198,7 @@ class TTPBot(Bot):
                     'Authorization': f'Bearer {self.access_token}',
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
-                data={
-                    'goal': GOAL_NAME,
-                    'info_bot': f'TTP Season 4 | Scheduled: {formatted}',
-                    'invitational': 'false',
-                    'unlisted': 'false',
-                    'start_delay': '15',
-                    'time_limit': '4',
-                    'streaming_required': 'true',
-                    'auto_start': 'true',
-                    'allow_prerace_chat': 'true',
-                    'allow_midrace_chat': 'true',
-                    'allow_non_entrant_chat': 'true',
-                    'chat_message_delay': '0',
-                    'hide_comments': 'true',
-                },
+                data=race_room_form_data(scheduled_time),
             ) as resp:
                 if resp.status == 201:
                     location = resp.headers.get('Location', '')
