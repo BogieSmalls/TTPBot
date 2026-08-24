@@ -19,6 +19,7 @@ from .paths import data_dir as configured_data_dir
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
 from .state import DestinationStateStore
 
+from .provider import ProviderConfigurationError
 
 def build_state_stores(provider, data_directory=None):
     if provider is None:
@@ -47,7 +48,7 @@ def is_ttp_scheduled_room(race_data):
 
 
 def race_room_form_data(scheduled_time):
-    """Return racetime.gg form fields for a scheduled TTP room."""
+    """Return Racetime form fields for a scheduled TTP room."""
     return {
         'goal': race_goal_for_time(scheduled_time),
         'info_bot': race_info_for_time(scheduled_time),
@@ -178,70 +179,88 @@ class TTPBot(Bot):
                 self._save_sent_webhooks()
 
     async def _create_race_room(self, scheduled_time):
-        """Create a new TTP race room via the racetime.gg API."""
+        """Create a room through the configured Racetime provider."""
         formatted = scheduled_time.strftime('%a %b %d, %I:%M %p %Z')
         self.logger.info('Creating race room for %s', formatted)
 
         try:
             async with aiohttp.request(
                 method='post',
-                url=self.http_uri(f'/o/{self.category_slug}/startrace'),
+                url=self.provider.http_url(
+                    f'/o/{self.provider.category}/startrace'
+                ),
                 headers={
                     'Authorization': f'Bearer {self.access_token}',
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
                 data=race_room_form_data(scheduled_time),
+                timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 if resp.status == 201:
-                    location = resp.headers.get('Location', '')
-                    self.logger.info('Race room created: %s', location)
-                    return f'https://racetime.gg{location}'
-                else:
-                    body = await resp.text()
-                    self.logger.error(
-                        'Failed to create race room (HTTP %d): %s',
-                        resp.status,
-                        body,
+                    room_url = self.provider.resolve_location(
+                        resp.headers.get('Location')
                     )
-        except Exception:
-            self.logger.error('Error creating race room', exc_info=True)
+                    self.logger.info('Race room created: %s', room_url)
+                    return room_url
+                self.logger.error(
+                    'Race provider rejected room creation (HTTP %d)',
+                    resp.status,
+                )
+        except (ProviderConfigurationError, aiohttp.ClientError,
+                asyncio.TimeoutError, TypeError) as exc:
+            self.logger.error(
+                'Race room creation failed safely (%s)', type(exc).__name__
+            )
         return None
 
     async def _send_webhook(self, scheduled_time, race_url):
         """Post Race Seekers announcement to Discord."""
-        if not Z1R_DISCORD_WEBHOOK_URL:
-            self.logger.warning('TTPBOT_Z1R_WEBHOOK_URL not set; skipping announcement')
-            return
+        if not self.discord_webhook_url and not self.race_seekers_role_id:
+            self.logger.warning('Discord announcements are disabled')
+            return False
+        if not self.discord_webhook_url or not self.race_seekers_role_id:
+            self.logger.error('Discord announcement configuration is incomplete')
+            return False
+        try:
+            race_url = self.provider.resolve_location(race_url)
+        except ProviderConfigurationError:
+            self.logger.error('Announcement room URL belongs to another destination')
+            return False
 
         race_time = scheduled_time.time()
         number, use_prev_day = RACE_NUMBER_MAP.get(race_time, (None, False))
         if number is None:
             self.logger.warning('No race number mapping for %s', race_time)
-            return
+            return False
 
         if use_prev_day:
             day_name = (scheduled_time - timedelta(days=1)).strftime('%A')
         else:
             day_name = scheduled_time.strftime('%A')
 
-        message = f'<@&1494076623442542735> {day_name} TTP{number}: {race_url}'
+        message = (
+            f'<@&{self.race_seekers_role_id}> '
+            f'{day_name} TTP{number}: {race_url}'
+        )
         self.logger.info('Sending webhook: %s', message)
 
         try:
             async with aiohttp.request(
                 method='post',
-                url=Z1R_DISCORD_WEBHOOK_URL,
+                url=self.discord_webhook_url,
                 json={
                     'content': message,
-                    'allowed_mentions': {'roles': ['1494076623442542735']},
+                    'allowed_mentions': {
+                        'parse': [],
+                        'roles': [self.race_seekers_role_id],
+                    },
                 },
+                timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status in (200, 204):
                     self.logger.info('Webhook sent successfully')
-                else:
-                    body = await resp.text()
-                    self.logger.error(
-                        'Webhook failed (HTTP %d): %s', resp.status, body,
-                    )
-        except Exception:
-            self.logger.error('Error sending webhook', exc_info=True)
+                    return True
+                self.logger.error('Webhook failed (HTTP %d)', resp.status)
+        except (aiohttp.ClientError, asyncio.TimeoutError, TypeError) as exc:
+            self.logger.error('Webhook failed safely (%s)', type(exc).__name__)
+        return False

@@ -1,4 +1,3 @@
-import os
 from datetime import date, time
 from zoneinfo import ZoneInfo
 
@@ -19,9 +18,6 @@ TTP_ROOM_INFO_PREFIXES = (
 
 ROOM_OPEN_MINUTES_BEFORE = 30
 WEBHOOK_MINUTES_BEFORE = 20  # Post webhook 20 min before race (10 min after room opens)
-
-# Set via TTPBOT_Z1R_WEBHOOK_URL env var. If unset, Discord announcements are skipped.
-Z1R_DISCORD_WEBHOOK_URL = os.environ.get('TTPBOT_Z1R_WEBHOOK_URL')
 
 # Map race time -> (TTP number, day name uses previous day)
 # Evening slate: 8 PM=TTP1, 10 PM=TTP2, 12 AM=TTP3
