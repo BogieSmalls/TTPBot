@@ -8,6 +8,7 @@ setup(
     python_requires='>=3.10',
     install_requires=[
         'racetime_bot==2.3.0',
+        'tzdata>=2026.3; platform_system=="Windows"',
     ],
     packages=find_packages(),
     entry_points={
