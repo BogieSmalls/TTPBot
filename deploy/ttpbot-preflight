@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PYTHON_BIN="${TTPBOT_PYTHON_BIN:-/opt/ttpbot/.venv/bin/python}"
+"${PYTHON_BIN}" -m ttpbot --check-config
+exec "${PYTHON_BIN}" -m ttpbot --probe

@@ -1,5 +1,5 @@
 [Unit]
-Description=TTPBot racetime.gg bot
+Description=TTPBot Racetime scheduler
 Wants=network-online.target
 After=network-online.target
 
@@ -10,9 +10,11 @@ Group=ttpbot
 WorkingDirectory=/opt/ttpbot
 EnvironmentFile=/etc/ttpbot.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/opt/ttpbot/.venv/bin/python -m ttpbot
+ExecStart=/usr/bin/flock --nonblock /run/ttpbot/scheduler.lock /opt/ttpbot/.venv/bin/python -m ttpbot
 Restart=on-failure
 RestartSec=5
+RuntimeDirectory=ttpbot
+RuntimeDirectoryMode=0750
 StateDirectory=ttpbot
 NoNewPrivileges=true
 PrivateTmp=true
