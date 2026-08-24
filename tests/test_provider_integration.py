@@ -110,6 +110,50 @@ class ProviderIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.fake.room_posts), 1)
         self.assertEqual(len(self.fake.webhooks), 1)
 
+    async def test_restart_between_room_and_webhook_sends_once(self):
+        scheduled = datetime(2026, 8, 24, 20, 0, tzinfo=TIMEZONE)
+        before_webhook = scheduled - timedelta(minutes=25)
+        inside_webhook = scheduled - timedelta(minutes=15)
+
+        class FrozenDateTime(datetime):
+            current = before_webhook
+
+            @classmethod
+            def now(cls, tz=None):
+                value = cls.current
+                return value if tz is not None else value.replace(tzinfo=None)
+
+        bot, stores = make_bot(
+            self.provider,
+            self.root,
+            self.fake.origin + "/discord-webhook",
+        )
+        with (
+            patch("ttpbot.bot.datetime", FrozenDateTime),
+            patch("ttpbot.bot.get_upcoming_races", return_value=[scheduled]),
+        ):
+            await bot._check_and_create_races()
+        self.assertEqual(len(self.fake.room_posts), 1)
+        self.assertEqual(self.fake.webhooks, [])
+
+        restarted, _ = make_bot(
+            self.provider,
+            self.root,
+            self.fake.origin + "/discord-webhook",
+            stores=stores,
+        )
+        FrozenDateTime.current = inside_webhook
+        with (
+            patch("ttpbot.bot.datetime", FrozenDateTime),
+            patch("ttpbot.bot.get_upcoming_races", return_value=[scheduled]),
+        ):
+            await restarted._check_and_create_races()
+            await asyncio.sleep(0.05)
+            await restarted._check_and_create_races()
+            await asyncio.sleep(0.05)
+        self.assertEqual(len(self.fake.room_posts), 1)
+        self.assertEqual(len(self.fake.webhooks), 1)
+
     async def test_second_provider_cannot_reuse_first_provider_state(self):
         created, sent = build_state_stores(self.provider, self.root)
         created.save({
@@ -129,6 +173,7 @@ class ProviderIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_wrong_location_and_provider_failure_never_create_state(self):
         for location, status in (
             ("https://evil.example/z1rr/room", 201),
+            ("/z1rr/integration-room", 429),
             ("/z1rr/integration-room", 500),
         ):
             with self.subTest(location=location, status=status):
@@ -149,6 +194,21 @@ class ProviderIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 rendered = repr(bot.logger.method_calls)
                 self.assertNotIn("evil.example", rendered)
                 self.fake.startrace_status = 201
+
+    async def test_invalid_provider_token_never_creates_state(self):
+        bot, stores = make_bot(
+            self.provider,
+            self.root,
+            self.fake.origin + "/discord-webhook",
+        )
+        bot.access_token = "invalid-token"
+        result = await bot._create_race_room(
+            datetime(2026, 8, 24, 20, 0, tzinfo=TIMEZONE)
+        )
+        self.assertIsNone(result)
+        self.assertEqual(stores[0].load(), {})
+        self.assertEqual(self.fake.current_races, [])
+        self.assertEqual(self.fake.webhooks, [])
 
     async def test_state_write_failure_preserves_prior_file(self):
         bot, stores = make_bot(

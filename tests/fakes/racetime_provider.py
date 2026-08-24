@@ -49,10 +49,13 @@ class FakeRacetimeProvider:
         })
 
     async def _startrace(self, request):
+        authorization = request.headers.get("Authorization")
         self.room_posts.append({
-            "authorization": request.headers.get("Authorization"),
+            "authorization": authorization,
             "form": dict(await request.post()),
         })
+        if authorization != "Bearer fixture-token":
+            return web.Response(status=401, text="invalid fixture token")
         if self.startrace_status != 201:
             return web.Response(status=self.startrace_status, text="fixture failure")
         room = {
