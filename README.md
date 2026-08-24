@@ -2,7 +2,7 @@
 
 <img src="ttpbot.png" alt="TTPBot logo" width="120" align="right" />
 
-A [racetime.gg](https://racetime.gg) category bot for **Zelda 1 Randomizer Triforce Triple Play**. TTP Season 4 regular-season rooms ran Feb 3 - July 4, 2026; normal TTP rooms continue on the same weekly schedule with the `Beat the game` goal until a playoff schedule is configured.
+A provider-neutral category bot for **Zelda 1 Randomizer Triforce Triple Play**. The same release can target `https://racetime.gg/z1rr` or `https://racetime.z1rracing.com/z1rr`; its destination is selected only by validated runtime configuration.
 
 TTPBot handles everything around a scheduled Triforce Triple Play race: opening the race room on schedule, announcing it in Discord, giving reminders, detecting the ROM hash, rolling seeds when SahasrahBot is offline, and archiving the room's chat log.
 
@@ -25,7 +25,7 @@ Regular-season rooms use the `TTP Season 4` goal through July 4, 2026. Later nor
 20 minutes before each race (10 minutes after the room opens), TTPBot posts a message to the configured Race Seekers Discord channel with an `@Race Seekers` mention and the room URL:
 
 ```
-@Race Seekers Saturday TTP2: https://racetime.gg/z1r/...
+@Race Seekers Saturday TTP2: https://racetime.gg/z1rr/...
 ```
 
 The TTP number (1/2/3) is derived from the race's scheduled time.
@@ -41,48 +41,59 @@ Once a TTP room is live, TTPBot joins and handles:
 
 ## Requirements
 
-- Python ≥ 3.9 (tested on 3.13)
-- [`racetime_bot`](https://github.com/racetimeGG/racetime-bot) ≥ 2.3
-- A racetime.gg OAuth2 client (client_id + client_secret) with bot permissions on the target category
-- A Discord webhook URL for race announcements
+- Python ≥ 3.10 (tested on 3.13)
+- The exact packages in `requirements.lock`
+- An OAuth2 client with bot permissions on the configured Racetime category
+- Optional paired Discord webhook and Race Seekers role configuration
 
 ## Install
 
 ```
-pip install -e .
+python -m pip install -r requirements.lock
+python -m pip install --no-deps -e .
 ```
+
+## Provider configuration
+
+Approved Racetime.gg category:
+
+```text
+TTPBOT_RACETIME_ORIGIN=https://racetime.gg
+TTPBOT_CATEGORY_SLUG=z1rr
+```
+
+Self-hosted contingency:
+
+```text
+TTPBOT_RACETIME_ORIGIN=https://racetime.z1rracing.com
+TTPBOT_CATEGORY_SLUG=z1rr
+```
+
+The destination-bound `created_races.json` and `sent_webhooks.json` store the
+canonical `destination_key`; a state file from another origin/category fails
+closed. Set every variable shown in `deploy/ttpbot.env.example`. Webhook and role
+must be both set or both empty.
+
+Validate without creating a room or sending a webhook:
+
+```bash
+python -m ttpbot --check-config
+python -m ttpbot --probe
+```
+
+The probe uses only OAuth token and category GET calls. Safe output contains no
+credential, webhook, token, role ID, response body, or filesystem path.
 
 ## Run
 
-```
-python -m ttpbot <category_slug> <client_id> <client_secret>
-```
-
-Set the Discord webhook URL via environment variable:
-
-```
-# PowerShell
-$env:TTPBOT_Z1R_WEBHOOK_URL = "<discord-webhook-url>"
-
-# bash
-export TTPBOT_Z1R_WEBHOOK_URL="<discord-webhook-url>"
+```bash
+python -m ttpbot
 ```
 
-If the env var is unset, the bot runs normally but skips Discord announcements (logged as a warning).
+The service host enforces exactly one scheduler with a nonblocking `flock`.
+Never run a manual scheduler beside the service.
 
-### Deployment (Windows service via NSSM)
-
-```
-nssm install TTPBot C:\Path\To\python.exe
-nssm set TTPBot AppParameters -m ttpbot z1r <client_id> "<client_secret>"
-nssm set TTPBot AppDirectory D:\Path\To\TTPBot
-nssm set TTPBot AppStdout D:\Path\To\TTPBot\ttpbot.log
-nssm set TTPBot AppStderr D:\Path\To\TTPBot\ttpbot.log
-nssm set TTPBot AppEnvironmentExtra TTPBOT_Z1R_WEBHOOK_URL=<discord-webhook-url>
-nssm start TTPBot
-```
-
-### Deployment (Linux systemd on OCI)
+### Deployment (Linux systemd)
 
 Production runs as a standalone `ttpbot.service` on the OCI `coop-relay` VM.
 The Linux service reads credentials from `/etc/ttpbot.env` and writes runtime

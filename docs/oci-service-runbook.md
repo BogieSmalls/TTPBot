@@ -27,7 +27,8 @@ fi
 
 sudo -u ttpbot python3 -m venv /opt/ttpbot/.venv
 sudo -u ttpbot /opt/ttpbot/.venv/bin/pip install -U pip
-sudo -u ttpbot /opt/ttpbot/.venv/bin/pip install -e /opt/ttpbot
+sudo -u ttpbot /opt/ttpbot/.venv/bin/pip install -r /opt/ttpbot/requirements.lock
+sudo -u ttpbot /opt/ttpbot/.venv/bin/pip install --no-deps -e /opt/ttpbot
 sudo cp /opt/ttpbot/deploy/ttpbot.service /etc/systemd/system/ttpbot.service
 sudo systemctl daemon-reload
 ```
@@ -35,36 +36,52 @@ sudo systemctl daemon-reload
 ## Configure Secrets
 
 ```bash
-sudo install -m 600 -o root -g root /opt/ttpbot/deploy/ttpbot.env.example /etc/ttpbot.env
+sudo install -m 0640 -o root -g ttpbot /opt/ttpbot/deploy/ttpbot.env.example /etc/ttpbot.env
 sudoedit /etc/ttpbot.env
 ```
 
-Set the real racetime and Discord values. Do not store them in Git.
+Set the real Racetime and optional paired Discord values. `/etc/ttpbot.env` is
+owned `root:ttpbot` with mode `0640`. Never print or store credential values,
+webhook URLs, role IDs, or tokens in logs/evidence/Git.
 
-Validate that no required production value is blank without printing secrets:
+Choose exactly one origin; the category stays `z1rr`:
 
-```bash
-sudo awk -F= '
-  /^[A-Z0-9_]+=/{ if ($2 == "") { print "missing " $1; missing=1 } }
-  END { exit missing ? 1 : 0 }
-' /etc/ttpbot.env
+```text
+# Approved category
+TTPBOT_RACETIME_ORIGIN=https://racetime.gg
+TTPBOT_CATEGORY_SLUG=z1rr
+
+# Plan B (use instead, never alongside it)
+TTPBOT_RACETIME_ORIGIN=https://racetime.z1rracing.com
+TTPBOT_CATEGORY_SLUG=z1rr
 ```
 
-## Migrate State From Windows
+Validate locally and then probe read-only. Neither command creates a room or
+sends Discord:
 
-Stop the Windows service first, then copy:
+```bash
+sudo -u ttpbot /opt/ttpbot/.venv/bin/python -m ttpbot --check-config
+sudo -u ttpbot /opt/ttpbot/.venv/bin/python -m ttpbot --probe
+```
+
+## Explicit legacy state migration
+
+Do not copy a legacy document over a v2 destination-bound file. Stop the old
+scheduler first. Verify the process and scheduler lock are absent. Copy legacy
+files to a separate staging directory:
 
 ```powershell
 nssm stop TTPBot
 scp -r created_races.json sent_webhooks.json learned_aliases.json chat_logs ubuntu@<coop-relay-host>:/tmp/ttpbot-state/
 ```
 
-On the VM:
+Assert the exact legacy origin/category when migrating. The command creates a
+timestamped read-only backup and will not guess a destination:
 
 ```bash
 sudo install -d -o ttpbot -g ttpbot /var/lib/ttpbot
-sudo cp /tmp/ttpbot-state/created_races.json /var/lib/ttpbot/ 2>/dev/null || true
-sudo cp /tmp/ttpbot-state/sent_webhooks.json /var/lib/ttpbot/ 2>/dev/null || true
+sudo -u ttpbot /opt/ttpbot/.venv/bin/python -m ttpbot.migrate_state \
+  --legacy-dir /tmp/ttpbot-state --origin https://racetime.gg --category z1rr
 sudo cp /tmp/ttpbot-state/learned_aliases.json /var/lib/ttpbot/ 2>/dev/null || true
 sudo cp -r /tmp/ttpbot-state/chat_logs /var/lib/ttpbot/ 2>/dev/null || true
 sudo chown -R ttpbot:ttpbot /var/lib/ttpbot
@@ -105,3 +122,44 @@ sudo systemctl stop ttpbot
 If cloud already created or announced a room, copy the updated JSON state files
 from `/var/lib/ttpbot` back to the Windows TTPBot directory before restarting
 NSSM.
+
+## Provider cutover
+
+This is an operations change, never a G0 test. Execute outside every room-open
+window: `ROOM_OPEN_MINUTES_BEFORE + 10` is the minimum blackout buffer.
+
+1. Stop and disable the old scheduler. Verify the process and scheduler lock are
+   absent; never run both schedulers.
+2. Back up the prior release identity, `/etc/ttpbot.env`, `created_races.json`,
+   `sent_webhooks.json`, chat state, and service status without displaying secrets.
+3. Install the tested commit and exact `requirements.lock`.
+4. Migrate or archive legacy state with the asserted old `destination_key`; do
+   not delete the old environment or state. Initialize fresh v2 state for a new
+   destination rather than relabeling it.
+5. Write the new origin/category/credentials to a temporary root-only file, set
+   `root:ttpbot 0640`, and atomically replace `/etc/ttpbot.env`.
+6. Run `--check-config`, then `--probe`. Hold if the destination, OAuth/category,
+   clock, state, collision, announcement, or lock check fails.
+7. Enable/start one service and prove exactly one scheduler lock exists.
+8. Observe the next room: one provider/category POST, canonical room URL, one
+   `created_races.json` entry, one Discord announcement, and one
+   `sent_webhooks.json` entry after restart.
+9. Retain the old release/env/state encrypted for rollback; do not delete them.
+
+## Provider rollback
+
+1. Stop the new scheduler first and verify its process and lock are absent.
+2. Restore the prior release, environment, and state as one set.
+3. Probe the old destination with `--check-config` and `--probe` while stopped.
+4. Query both providers for the upcoming slot. If a new-destination room exists,
+   do not create a counterpart room; hold the scheduler and communicate/cancel
+   manually.
+5. Start the old service only after the collision check passes. Never run both
+   schedulers.
+
+## Acceptance and secret handling
+
+Record only commit/lock hash, safe `destination_key`, preflight booleans, service
+and lock status, room URL, one Discord announcement result, v2 state hashes, and
+rollback outcome, and never print OAuth client secrets, access tokens, webhook URLs,
+role IDs, environment contents, provider response bodies, or state contents.

@@ -212,7 +212,12 @@ class DestinationStateStore:
         legacy = Path(legacy_path)
         if not legacy.is_absolute():
             legacy = self.data_dir / legacy
-        legacy = self._guard_path(legacy)
+        if legacy.is_symlink() or not legacy.is_file():
+            raise StateStoreError("legacy state is missing or unsafe")
+        try:
+            legacy = legacy.resolve(strict=True)
+        except OSError as exc:
+            raise StateStoreError("legacy state is missing or unsafe") from exc
         if legacy.stat().st_size > MAX_STATE_BYTES:
             raise StateStoreError("legacy state exceeds the size limit")
         try:
