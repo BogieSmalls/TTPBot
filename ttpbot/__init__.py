@@ -75,6 +75,7 @@ def main():
         provider=config.provider,
         discord_webhook_url=config.discord_webhook_url,
         race_seekers_role_id=config.race_seekers_role_id,
+        data_dir=config.data_dir,
     )
     bot.run()
     return 0

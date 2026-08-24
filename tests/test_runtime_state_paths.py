@@ -9,12 +9,13 @@ from unittest.mock import Mock, patch
 class RuntimeStatePathTests(unittest.TestCase):
     def test_bot_state_files_use_ttpbot_data_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with patch.dict(os.environ, {'TTPBOT_DATA_DIR': tmp}):
-                import ttpbot.bot as bot_module
-                importlib.reload(bot_module)
-
-                self.assertEqual(Path(bot_module.CREATED_RACES_FILE), Path(tmp) / 'created_races.json')
-                self.assertEqual(Path(bot_module.SENT_WEBHOOKS_FILE), Path(tmp) / 'sent_webhooks.json')
+            from ttpbot.bot import build_state_stores
+            from ttpbot.provider import RacetimeProvider
+            created, sent = build_state_stores(
+                RacetimeProvider('https://racetime.gg', 'z1rr'), tmp
+            )
+            self.assertEqual(created.path, Path(tmp) / 'created_races.json')
+            self.assertEqual(sent.path, Path(tmp) / 'sent_webhooks.json')
 
     def test_handler_state_files_use_ttpbot_data_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -39,32 +40,32 @@ class RuntimeStatePathTests(unittest.TestCase):
     def test_save_created_races_creates_data_dir_parent(self):
         with tempfile.TemporaryDirectory() as tmp:
             nested = Path(tmp) / 'state'
-            with patch.dict(os.environ, {'TTPBOT_DATA_DIR': str(nested)}):
-                import ttpbot.bot as bot_module
-                importlib.reload(bot_module)
-
-                bot = object.__new__(bot_module.TTPBot)
-                bot.created_races = {'2026-06-16T20:00:00-04:00': 'https://racetime.gg/z1r/test'}
-                bot.logger = Mock()
-
-                bot._save_created_races()
-
-                self.assertTrue((nested / 'created_races.json').is_file())
+            from ttpbot.bot import TTPBot, build_state_stores
+            from ttpbot.provider import RacetimeProvider
+            created, _ = build_state_stores(
+                RacetimeProvider('https://racetime.gg', 'z1rr'), nested
+            )
+            bot = object.__new__(TTPBot)
+            bot.created_race_store = created
+            bot.created_races = {
+                '2026-06-16T20:00:00-04:00': 'https://racetime.gg/z1rr/test'
+            }
+            bot._save_created_races()
+            self.assertTrue((nested / 'created_races.json').is_file())
 
     def test_save_sent_webhooks_creates_data_dir_parent(self):
         with tempfile.TemporaryDirectory() as tmp:
             nested = Path(tmp) / 'state'
-            with patch.dict(os.environ, {'TTPBOT_DATA_DIR': str(nested)}):
-                import ttpbot.bot as bot_module
-                importlib.reload(bot_module)
-
-                bot = object.__new__(bot_module.TTPBot)
-                bot.sent_webhooks = {'2026-06-16T20:00:00-04:00'}
-                bot.logger = Mock()
-
-                bot._save_sent_webhooks()
-
-                self.assertTrue((nested / 'sent_webhooks.json').is_file())
+            from ttpbot.bot import TTPBot, build_state_stores
+            from ttpbot.provider import RacetimeProvider
+            _, sent = build_state_stores(
+                RacetimeProvider('https://racetime.gg', 'z1rr'), nested
+            )
+            bot = object.__new__(TTPBot)
+            bot.sent_webhook_store = sent
+            bot.sent_webhooks = {'2026-06-16T20:00:00-04:00'}
+            bot._save_sent_webhooks()
+            self.assertTrue((nested / 'sent_webhooks.json').is_file())
 
 
 if __name__ == '__main__':

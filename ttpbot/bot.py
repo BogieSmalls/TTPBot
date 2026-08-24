@@ -1,5 +1,4 @@
 import asyncio
-import json
 from datetime import datetime, timedelta
 
 import aiohttp
@@ -14,14 +13,22 @@ from .config import (
     TIMEZONE,
     TTP_ROOM_INFO_PREFIXES,
     WEBHOOK_MINUTES_BEFORE,
-    Z1R_DISCORD_WEBHOOK_URL,
 )
 from .handler import TTPRaceHandler
-from .paths import ensure_parent_dir, runtime_path
+from .paths import data_dir as configured_data_dir
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
+from .state import DestinationStateStore
 
-CREATED_RACES_FILE = runtime_path('created_races.json')
-SENT_WEBHOOKS_FILE = runtime_path('sent_webhooks.json')
+
+def build_state_stores(provider, data_directory=None):
+    if provider is None:
+        raise ValueError('a validated Racetime provider is required for scheduler state')
+    root = configured_data_dir() if data_directory is None else data_directory
+    created = DestinationStateStore('created_races.json', provider.destination_key,
+                                    'created_races', data_dir=root)
+    sent = DestinationStateStore('sent_webhooks.json', provider.destination_key,
+                                 'sent_webhooks', data_dir=root)
+    return created, sent
 
 
 def is_ttp_scheduled_room(race_data):
@@ -65,52 +72,32 @@ class TTPBot(Bot):
     """
 
     def __init__(self, *args, provider=None, discord_webhook_url=None,
-                 race_seekers_role_id=None, **kwargs):
+                 race_seekers_role_id=None, data_dir=None,
+                 created_race_store=None, sent_webhook_store=None, **kwargs):
         self.provider = provider
         self.discord_webhook_url = discord_webhook_url
         self.race_seekers_role_id = race_seekers_role_id
+        if created_race_store is None or sent_webhook_store is None:
+            default_created, default_sent = build_state_stores(provider, data_dir)
+            created_race_store = created_race_store or default_created
+            sent_webhook_store = sent_webhook_store or default_sent
+        self.created_race_store = created_race_store
+        self.sent_webhook_store = sent_webhook_store
         super().__init__(*args, **kwargs)
         self.created_races = self._load_created_races()
         self.sent_webhooks = self._load_sent_webhooks()
 
     def _load_created_races(self):
-        """Load persisted created_races dict {race_key: race_url} from disk."""
-        try:
-            with open(CREATED_RACES_FILE, 'r') as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    # Migrate old format (list of keys) to dict
-                    return {key: '' for key in data}
-                return data
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {}
+        return self.created_race_store.load()
 
     def _save_created_races(self):
-        """Persist created_races dict to disk."""
-        try:
-            ensure_parent_dir(CREATED_RACES_FILE)
-            with open(CREATED_RACES_FILE, 'w') as f:
-                json.dump(self.created_races, f)
-        except Exception:
-            self.logger.error('Error saving created_races', exc_info=True)
+        self.created_race_store.save(self.created_races)
 
     def _load_sent_webhooks(self):
-        """Load persisted sent_webhooks set from disk."""
-        try:
-            with open(SENT_WEBHOOKS_FILE, 'r') as f:
-                data = json.load(f)
-                return set(data)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return set()
+        return set(self.sent_webhook_store.load())
 
     def _save_sent_webhooks(self):
-        """Persist sent_webhooks set to disk."""
-        try:
-            ensure_parent_dir(SENT_WEBHOOKS_FILE)
-            with open(SENT_WEBHOOKS_FILE, 'w') as f:
-                json.dump(list(self.sent_webhooks), f)
-        except Exception:
-            self.logger.error('Error saving sent_webhooks', exc_info=True)
+        self.sent_webhook_store.save({key: True for key in self.sent_webhooks})
 
     def get_handler_class(self):
         return TTPRaceHandler
@@ -176,8 +163,9 @@ class TTPBot(Bot):
             if race_key not in self.created_races:
                 if minutes_until <= ROOM_OPEN_MINUTES_BEFORE:
                     race_url = await self._create_race_room(race_time)
-                    self.created_races[race_key] = race_url or ''
-                    self._save_created_races()
+                    if race_url:
+                        self.created_races[race_key] = race_url
+                        self._save_created_races()
 
             # Send Race Seekers webhook once the window opens.
             # Checked every scheduler tick so it survives process restarts.
