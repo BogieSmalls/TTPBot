@@ -17,7 +17,7 @@ from .config import (
 from .handler import TTPRaceHandler
 from .paths import data_dir as configured_data_dir
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
-from .state import DestinationStateStore
+from .state import DestinationStateStore, UNCERTAIN_RACE
 
 from .provider import ProviderConfigurationError
 
@@ -172,6 +172,7 @@ class TTPBot(Bot):
             # Checked every scheduler tick so it survives process restarts.
             race_url = self.created_races.get(race_key, '')
             if (race_url
+                    and race_url != UNCERTAIN_RACE
                     and race_key not in self.sent_webhooks
                     and minutes_until <= WEBHOOK_MINUTES_BEFORE):
                 self.loop.create_task(self._send_webhook(race_time, race_url))
@@ -206,12 +207,52 @@ class TTPBot(Bot):
                     'Race provider rejected room creation (HTTP %d)',
                     resp.status,
                 )
+        except (asyncio.TimeoutError, aiohttp.ClientConnectionError) as exc:
+            recovered = await self._recover_uncertain_room(scheduled_time)
+            if recovered:
+                self.logger.warning('Recovered room after uncertain provider response')
+                return recovered
+            self.logger.error(
+                'Room creation outcome is uncertain; persisted fail-closed marker (%s)',
+                type(exc).__name__,
+            )
+            return UNCERTAIN_RACE
         except (ProviderConfigurationError, aiohttp.ClientError,
-                asyncio.TimeoutError, TypeError) as exc:
+                TypeError) as exc:
             self.logger.error(
                 'Race room creation failed safely (%s)', type(exc).__name__
             )
         return None
+
+    async def _recover_uncertain_room(self, scheduled_time):
+        """Read current rooms once; never blindly retry an uncertain POST."""
+        try:
+            async with aiohttp.request(
+                method='get',
+                url=self.provider.http_url(
+                    '/{}/data'.format(self.provider.category)
+                ),
+                headers={'Authorization': f'Bearer {self.access_token}'},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json(content_type=None)
+            races = data.get('current_races', []) if isinstance(data, dict) else []
+            expected_info = race_info_for_time(scheduled_time)
+            matches = []
+            for race in races:
+                if not isinstance(race, dict) or race.get('info_bot') != expected_info:
+                    continue
+                raw_url = race.get('url')
+                if not raw_url and isinstance(race.get('name'), str):
+                    raw_url = '/' + race['name'].lstrip('/')
+                matches.append(self.provider.resolve_location(raw_url))
+            unique = sorted(set(matches))
+            return unique[0] if len(unique) == 1 else None
+        except (ProviderConfigurationError, aiohttp.ClientError,
+                asyncio.TimeoutError, TypeError, ValueError):
+            return None
 
     async def _send_webhook(self, scheduled_time, race_url):
         """Post Race Seekers announcement to Discord."""

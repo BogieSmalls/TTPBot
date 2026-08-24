@@ -9,7 +9,7 @@ from pathlib import Path
 import requests
 
 from .bot import build_state_stores, is_ttp_scheduled_room
-from .state import StateStoreError
+from .state import StateStoreError, UNCERTAIN_RACE
 
 
 class PreflightError(ValueError):
@@ -116,9 +116,11 @@ def perform_preflight(
     checks = _initial_checks(config)
     try:
         created, sent = build_state_stores(config.provider, config.data_dir)
-        created.load()
+        created_entries = created.load()
         sent.load()
-        checks['state'] = True
+        checks['state'] = not any(
+            value == UNCERTAIN_RACE for value in created_entries.values()
+        )
     except (StateStoreError, ValueError):
         checks['state'] = False
     data_directory = Path(config.data_dir)

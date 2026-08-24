@@ -1,0 +1,1 @@
+"""Local-only provider fixtures."""

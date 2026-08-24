@@ -15,6 +15,7 @@ class StateStoreError(ValueError):
 
 
 ENTRY_KINDS = {"created_races", "sent_webhooks"}
+UNCERTAIN_RACE = "__uncertain_room_creation__"
 STATE_FIELDS = {"schema_version", "destination_key", "entries"}
 MAX_STATE_BYTES = 4 * 1024 * 1024
 
@@ -93,6 +94,9 @@ class DestinationStateStore:
             if self.entry_kind == "created_races":
                 if not isinstance(value, str) or not value:
                     raise StateStoreError("created-race state value is invalid")
+                if value == UNCERTAIN_RACE:
+                    cleaned[key] = value
+                    continue
                 try:
                     value = self.provider.resolve_location(value)
                 except ProviderConfigurationError as exc:
