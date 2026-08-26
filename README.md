@@ -4,7 +4,7 @@
 
 A provider-neutral category bot for **Zelda 1 Randomizer Triforce Triple Play**. The same release can target `https://racetime.gg/z1rr` or `https://raceroom.z1rracing.com/z1rr`; its destination is selected only by validated runtime configuration.
 
-TTPBot handles everything around a scheduled Triforce Triple Play race: opening the race room on schedule, announcing it in Discord, giving reminders, detecting the ROM hash, rolling seeds when SahasrahBot is offline, and archiving the room's chat log.
+TTPBot handles everything around a scheduled Triforce Triple Play race: opening the race room on schedule, announcing it in Discord, giving reminders, detecting the ROM hash, rolling seeds in Z1RR rooms, and archiving the room's chat log.
 
 ## What it does
 
@@ -37,7 +37,8 @@ Once a TTP room is live, TTPBot joins and handles:
 - **Reminders** at T-10, T-5, T-1, and T-0 minutes.
 - **Hash detection.** When entrants post the 4-item ROM hash in chat, TTPBot recognizes it — tolerating player aliases (`boomerang`, `tringle`, `ruppees`, …), multi-word forms (`spice rack`, `blue candle`), and typos. If 3 of 4 items match exactly, the 4th is fuzzy-matched and the new alias is auto-learned to `learned_aliases.json` for next time.
 - **Chat logging.** Every message in the room is written to `chat_logs/<race-slug>.log`.
-- **SahasrahBot stand-in seed rolling.** When SahasrahBot isn't in the room, TTPBot handles `!race <preset>`, `!flags <flagstring>`, and the season's curated pickers (`!ttp4`, `!ttp4rp`, `!ttp4hopla`, `!ttp4consternation`). Output format matches SahasrahBot exactly so it's a drop-in replacement. When SahasrahBot is present, TTPBot stays silent on seed commands and defers entirely — `!help` still works.
+- **Seed rolling.** TTPBot handles `!race <preset>`, `!flags <flagstring>`, and the season's curated pickers (`!ttp4`, `!ttp4rp`, `!ttp4hopla`, `!ttp4consternation`) directly in Z1RR rooms.
+- **Z1RR links.** `!z1rr` posts the configured Z1RR Discord invite and raceroom category link.
 
 ## Requirements
 
@@ -45,6 +46,7 @@ Once a TTP room is live, TTPBot joins and handles:
 - The exact packages in `requirements.lock`
 - An OAuth2 client with bot permissions on the configured Racetime category
 - Optional paired Discord webhook and Race Seekers role configuration
+- Optional `!z1rr` community links via `TTPBOT_Z1RR_DISCORD_URL` and `TTPBOT_Z1RR_RACEROOM_URL`
 
 ## Install
 
@@ -111,7 +113,7 @@ All tunable values live in [`ttpbot/config.py`](ttpbot/config.py):
 - `WEBHOOK_MINUTES_BEFORE` — how far ahead to post the Discord announcement (default 20)
 - `REMINDER_SCHEDULE` — which reminders to send and when
 - `HASH_ALIASES` / `HASH_ALIASES_MULTI` — the canonical alias map for hash recognition
-- `SEED_PRESETS` — 27 named Z1R presets (SahasrahBot parity)
+- `SEED_PRESETS` — 27 named Z1R presets
 - `TTP2_PRESETS` / `TTP3_PRESETS` / `TTP4_PRESETS` — pools for the `!ttpN` random pickers
 
 ## License

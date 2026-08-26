@@ -19,6 +19,8 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_RACETIME_CLIENT_SECRET",
             "TTPBOT_DISCORD_WEBHOOK_URL",
             "TTPBOT_RACE_SEEKERS_ROLE_ID",
+            "TTPBOT_Z1RR_DISCORD_URL",
+            "TTPBOT_Z1RR_RACEROOM_URL",
             "TTPBOT_DATA_DIR",
             "TTPBOT_ENVIRONMENT",
         }
@@ -33,6 +35,7 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_RACETIME_CLIENT_SECRET",
             "TTPBOT_DISCORD_WEBHOOK_URL",
             "TTPBOT_RACE_SEEKERS_ROLE_ID",
+            "TTPBOT_Z1RR_DISCORD_URL",
         ):
             line = next(line for line in self.env.splitlines() if line.startswith(secret + "="))
             self.assertEqual(line, secret + "=")

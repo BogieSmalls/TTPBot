@@ -19,6 +19,8 @@ from .config import (
     TTP3_PRESETS,
     TTP4_PRESETS,
     TIMEZONE,
+    Z1RR_DISCORD_URL,
+    Z1RR_RACEROOM_URL,
 )
 from .paths import ensure_parent_dir, runtime_path
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
@@ -145,20 +147,7 @@ class TTPRaceHandler(RaceHandler):
             'self_confirm_attempts': [],
             'pbs': [],
         }
-        self.sahasrahbot_present = False
         self.seed_rolled = False
-
-    @staticmethod
-    def _is_sahasrahbot_msg(message):
-        """Return True if this is a bot message from SahasrahBot.
-
-        Bot messages on racetime.gg have user=null and the bot name in
-        the 'bot' field (a plain string).
-        """
-        if not message.get('is_bot'):
-            return False
-        bot_name = message.get('bot') or ''
-        return 'sahasrahbot' in bot_name.lower()
 
     async def begin(self):
         self._determine_scheduled_time()
@@ -190,28 +179,9 @@ class TTPRaceHandler(RaceHandler):
         """Check chat history for existing bot messages to avoid duplicates."""
         messages = data.get('messages', [])
 
-        # Detect SahasrahBot presence from chat history
+        # Also detect if a seed was already rolled (avoids double-roll on restart).
         for msg in messages:
             if msg.get('is_bot'):
-                self.logger.info(
-                    '[%s] Bot message in history: bot=%r user=%r',
-                    self.data.get('name'),
-                    msg.get('bot'),
-                    (msg.get('user') or {}).get('name'),
-                )
-            if self._is_sahasrahbot_msg(msg):
-                self.sahasrahbot_present = True
-                self.logger.info(
-                    '[%s] SahasrahBot detected in chat history — seed commands deferred',
-                    self.data.get('name'),
-                )
-                break
-
-        # Also detect if a seed was already rolled (avoids double-roll on restart).
-        # Assumes only TTPBot and SahasrahBot are present; a third bot sending
-        # "Seed rolling complete." would incorrectly lock seed rolling.
-        for msg in messages:
-            if msg.get('is_bot') and not self._is_sahasrahbot_msg(msg):
                 text = msg.get('message_plain', '') or ''
                 if 'Seed rolling complete.' in text:
                     self.seed_rolled = True
@@ -325,12 +295,6 @@ class TTPRaceHandler(RaceHandler):
                 message.get('bot'),
                 (message.get('user') or {}).get('name'),
             )
-            if self._is_sahasrahbot_msg(message) and not self.sahasrahbot_present:
-                self.sahasrahbot_present = True
-                self.logger.info(
-                    '[%s] SahasrahBot detected live — seed commands deferred',
-                    self.data.get('name'),
-                )
             return
 
         if message.get('is_system'):
@@ -523,7 +487,7 @@ class TTPRaceHandler(RaceHandler):
     async def ex_ttpflags(self, args, message):
         """!ttpflags - Show TTP Season 4 flagset presets."""
         await self.send_message(
-            "TTP Season 4 flagset presets (via SahasrahBot):\n"
+            "TTP Season 4 flagset presets:\n"
             "  !ttp4 -- Random pick from the three official TTP S4 flagsets\n"
             "  !ttp4rp -- Random% Remastered\n"
             "  !ttp4hopla -- Hopla Remastered\n"
@@ -536,8 +500,7 @@ class TTPRaceHandler(RaceHandler):
     async def _roll_seed_raceinfo(self, seed_str):
         """Update race info, preserving any existing scheduling prefix.
 
-        Only called when sahasrahbot_present is False, so info_bot will not
-        contain SahasrahBot's pipeless 'Flags: X Seed: Y' format.
+        Strip any previous seed segment before adding the new one.
         """
         current = self.data.get('info_bot', '') or ''
         # Strip any previously-written seed segment
@@ -552,9 +515,6 @@ class TTPRaceHandler(RaceHandler):
 
         Z1R flagstrings are single tokens; only args[0] is used.
         """
-        if self.sahasrahbot_present:
-            return
-
         if self.seed_rolled:
             await self.send_message('A seed has already been rolled for this race.')
             return
@@ -563,9 +523,7 @@ class TTPRaceHandler(RaceHandler):
             await self.send_message('You must specify a set of flags!')
             return
 
-        # Brief wait: let SahasrahBot respond first if present but not yet detected
-        await asyncio.sleep(2)
-        if self.sahasrahbot_present or self.seed_rolled:
+        if self.seed_rolled:
             return
 
         flags = args[0]
@@ -580,9 +538,6 @@ class TTPRaceHandler(RaceHandler):
 
     async def ex_race(self, args, message):
         """!race <preset> -- Roll a seed by named preset."""
-        if self.sahasrahbot_present:
-            return
-
         if self.seed_rolled:
             await self.send_message('A seed has already been rolled for this race.')
             return
@@ -600,9 +555,7 @@ class TTPRaceHandler(RaceHandler):
             )
             return
 
-        # Brief wait: let SahasrahBot respond first if present but not yet detected
-        await asyncio.sleep(2)
-        if self.sahasrahbot_present or self.seed_rolled:
+        if self.seed_rolled:
             return
 
         flags = SEED_PRESETS[preset]
@@ -617,48 +570,43 @@ class TTPRaceHandler(RaceHandler):
 
     async def ex_ttp2(self, args, message):
         """!ttp2 -- Roll a random TTP Season 2 preset."""
-        if self.sahasrahbot_present:
-            return
         preset = random.choice(TTP2_PRESETS)
         await self.ex_race([preset], message)
 
     async def ex_ttp3(self, args, message):
         """!ttp3 -- Roll a random TTP Season 3 preset."""
-        if self.sahasrahbot_present:
-            return
         preset = random.choice(TTP3_PRESETS)
         await self.ex_race([preset], message)
 
     async def ex_ttp4(self, args, message):
         """!ttp4 -- Roll a random TTP Season 4 preset."""
-        if self.sahasrahbot_present:
-            return
         preset = random.choice(TTP4_PRESETS)
         await self.ex_race([preset], message)
 
     async def ex_ttp4rp(self, args, message):
         """!ttp4rp -- Roll the TTP4 Random% Remastered preset."""
-        if self.sahasrahbot_present:
-            return
         await self.ex_race(['ttp4rp'], message)
 
     async def ex_ttp4hopla(self, args, message):
         """!ttp4hopla -- Roll the TTP4 Hopla Remastered preset."""
-        if self.sahasrahbot_present:
-            return
         await self.ex_race(['ttp4hopla'], message)
 
     async def ex_ttp4consternation(self, args, message):
         """!ttp4consternation -- Roll the TTP4 Consternation Remastered preset."""
-        if self.sahasrahbot_present:
-            return
         await self.ex_race(['ttp4consternation'], message)
+
+    async def ex_z1rr(self, args, message):
+        """!z1rr -- Show Z1RR community links."""
+        await self.send_message(
+            f'Z1RR Discord: {Z1RR_DISCORD_URL}\n'
+            f'Z1RR Raceroom: {Z1RR_RACEROOM_URL}'
+        )
 
     async def ex_help(self, args, message):
         """!help -- List available TTPBot commands."""
         lines = [
             'TTPBot commands:',
-            '  Seed rolling (when SahasrahBot is offline):',
+            '  Seed rolling:',
             '    !race <preset>              Roll a seed by preset name',
             '    !flags <flagstring>         Roll a seed with a custom flag string',
             '    !ttp2                       Random TTP Season 2 preset',
@@ -669,5 +617,6 @@ class TTPRaceHandler(RaceHandler):
             '    !schedule                   Today\'s remaining race times',
             '    !info                       Season info',
             '    !ttpflags                   TTP Season 4 flagset details',
+            '    !z1rr                       Z1RR Discord and raceroom links',
         ]
         await self.send_message('\n'.join(lines))

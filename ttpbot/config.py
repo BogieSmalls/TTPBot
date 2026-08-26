@@ -1,3 +1,4 @@
+import os
 from datetime import date, time
 from zoneinfo import ZoneInfo
 
@@ -18,6 +19,14 @@ TTP_ROOM_INFO_PREFIXES = (
 
 ROOM_OPEN_MINUTES_BEFORE = 30
 WEBHOOK_MINUTES_BEFORE = 20  # Post webhook 20 min before race (10 min after room opens)
+Z1RR_DISCORD_URL = os.environ.get(
+    'TTPBOT_Z1RR_DISCORD_URL',
+    'https://discord.gg/z1rr',
+)
+Z1RR_RACEROOM_URL = os.environ.get(
+    'TTPBOT_Z1RR_RACEROOM_URL',
+    'https://raceroom.z1rracing.com/z1rr',
+)
 
 # Map race time -> (TTP number, day name uses previous day)
 # Evening slate: 8 PM=TTP1, 10 PM=TTP2, 12 AM=TTP3
@@ -151,7 +160,7 @@ HASH_ALIASES_MULTI = {
     'magic key': 'AnyKey',
 }
 
-# Named seed presets for Z1R (from SahasrahBot parity).
+# Named seed presets for Z1R.
 SEED_PRESETS = {
     'abns22_swiss':      'oIbnPfPb01HJEAN8LBIMmlBWz!gGeqNjpYphk',
     'abns22_bracket':    '143oNtDD4RQLqGPLpaSfjC2AnRmLOpqFAW5QT4',

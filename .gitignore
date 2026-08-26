@@ -23,6 +23,7 @@ build/
 client_id
 client_secret
 credentials.txt
+z1rr_credentials.txt
 
 # IDE
 .vscode/
