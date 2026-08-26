@@ -52,7 +52,7 @@ TTPBOT_RACETIME_ORIGIN=https://racetime.gg
 TTPBOT_CATEGORY_SLUG=z1rr
 
 # Plan B (use instead, never alongside it)
-TTPBOT_RACETIME_ORIGIN=https://racetime.z1rracing.com
+TTPBOT_RACETIME_ORIGIN=https://raceroom.z1rracing.com
 TTPBOT_CATEGORY_SLUG=z1rr
 ```
 

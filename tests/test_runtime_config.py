@@ -77,7 +77,7 @@ class RuntimeConfigTests(unittest.TestCase):
 
     def test_provider_and_service_values_resolve_from_environment(self):
         config = resolve_bot_config(args(), {
-            'TTPBOT_RACETIME_ORIGIN': 'https://racetime.z1rracing.com/',
+            'TTPBOT_RACETIME_ORIGIN': 'https://raceroom.z1rracing.com/',
             'TTPBOT_CATEGORY_SLUG': 'z1rr',
             'TTPBOT_RACETIME_CLIENT_ID': 'client-id',
             'TTPBOT_RACETIME_CLIENT_SECRET': 'client-secret',
@@ -86,7 +86,7 @@ class RuntimeConfigTests(unittest.TestCase):
             'TTPBOT_DATA_DIR': '/var/lib/ttpbot',
             'TTPBOT_ENVIRONMENT': 'production',
         })
-        self.assertEqual(config.provider.origin, 'https://racetime.z1rracing.com')
+        self.assertEqual(config.provider.origin, 'https://raceroom.z1rracing.com')
         self.assertEqual(config.provider.category, 'z1rr')
         self.assertEqual(config.category_slug, 'z1rr')
         self.assertEqual(config.data_dir, '/var/lib/ttpbot')
@@ -104,7 +104,7 @@ class RuntimeConfigTests(unittest.TestCase):
             allow_insecure_loopback=False, host=None, insecure=False,
         )
         config = resolve_bot_config(cli, {
-            'TTPBOT_RACETIME_ORIGIN': 'https://racetime.z1rracing.com',
+            'TTPBOT_RACETIME_ORIGIN': 'https://raceroom.z1rracing.com',
             'TTPBOT_CATEGORY_SLUG': 'wrong',
             'TTPBOT_RACETIME_CLIENT_ID': 'env-id',
             'TTPBOT_RACETIME_CLIENT_SECRET': 'env-secret',

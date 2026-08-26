@@ -6,15 +6,15 @@ from ttpbot.provider import ProviderConfigurationError, RacetimeProvider
 class RacetimeProviderTests(unittest.TestCase):
     def test_canonical_https_provider_and_destination(self):
         provider = RacetimeProvider(
-            origin="https://racetime.z1rracing.com/",
+            origin="https://raceroom.z1rracing.com/",
             category="z1rr",
         )
-        self.assertEqual(provider.origin, "https://racetime.z1rracing.com")
-        self.assertEqual(provider.host, "racetime.z1rracing.com")
+        self.assertEqual(provider.origin, "https://raceroom.z1rracing.com")
+        self.assertEqual(provider.host, "raceroom.z1rracing.com")
         self.assertTrue(provider.secure)
         self.assertEqual(
             provider.destination_key,
-            "https://racetime.z1rracing.com|z1rr",
+            "https://raceroom.z1rracing.com|z1rr",
         )
         with self.assertRaises((AttributeError, TypeError)):
             provider.origin = "https://example.invalid"
@@ -64,22 +64,22 @@ class RacetimeProviderTests(unittest.TestCase):
 
     def test_resolves_http_and_location_only_on_exact_origin(self):
         provider = RacetimeProvider(
-            origin="https://racetime.z1rracing.com",
+            origin="https://raceroom.z1rracing.com",
             category="z1rr",
         )
         self.assertEqual(
             provider.http_url("/o/z1rr/startrace"),
-            "https://racetime.z1rracing.com/o/z1rr/startrace",
+            "https://raceroom.z1rracing.com/o/z1rr/startrace",
         )
         self.assertEqual(
             provider.resolve_location("/z1rr/example-room"),
-            "https://racetime.z1rracing.com/z1rr/example-room",
+            "https://raceroom.z1rracing.com/z1rr/example-room",
         )
         self.assertEqual(
             provider.resolve_location(
-                "https://racetime.z1rracing.com/z1rr/example-room"
+                "https://raceroom.z1rracing.com/z1rr/example-room"
             ),
-            "https://racetime.z1rracing.com/z1rr/example-room",
+            "https://raceroom.z1rracing.com/z1rr/example-room",
         )
         for location in (
             "",

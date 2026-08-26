@@ -8,7 +8,7 @@ from unittest.mock import patch
 from ttpbot.state import DestinationStateStore, StateStoreError
 
 
-DESTINATION = "https://racetime.z1rracing.com|z1rr"
+DESTINATION = "https://raceroom.z1rracing.com|z1rr"
 
 
 class DestinationStateStoreTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class DestinationStateStoreTests(unittest.TestCase):
         self.assertEqual(self.store.load(), {})
         entries = {
             "2026-08-24T20:00:00-04:00":
-                "https://racetime.z1rracing.com/z1rr/example-room"
+                "https://raceroom.z1rracing.com/z1rr/example-room"
         }
         self.store.save(entries)
         self.assertEqual(self.store.load(), entries)
@@ -81,13 +81,13 @@ class DestinationStateStoreTests(unittest.TestCase):
         self.assertEqual(quarantined[0].read_text(), "{not-json")
 
     def test_atomic_replace_failure_preserves_prior_document(self):
-        original = {"2026-08-24T20:00:00-04:00": "https://racetime.z1rracing.com/z1rr/one"}
+        original = {"2026-08-24T20:00:00-04:00": "https://raceroom.z1rracing.com/z1rr/one"}
         self.store.save(original)
         before = self.path.read_bytes()
         with patch("ttpbot.state.os.replace", side_effect=OSError("injected")):
             with self.assertRaises(StateStoreError):
                 self.store.save({
-                    "2026-08-24T21:00:00-04:00": "https://racetime.z1rracing.com/z1rr/two"
+                    "2026-08-24T21:00:00-04:00": "https://raceroom.z1rracing.com/z1rr/two"
                 })
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(list(self.root.glob(".created_races.json.*.tmp")), [])
@@ -102,8 +102,8 @@ class DestinationStateStoreTests(unittest.TestCase):
 
     def test_cleanup_removes_only_parseable_entries_before_cutoff(self):
         entries = {
-            "2026-08-24T18:00:00-04:00": "https://racetime.z1rracing.com/z1rr/old",
-            "2026-08-24T22:00:00-04:00": "https://racetime.z1rracing.com/z1rr/new",
+            "2026-08-24T18:00:00-04:00": "https://raceroom.z1rracing.com/z1rr/old",
+            "2026-08-24T22:00:00-04:00": "https://raceroom.z1rracing.com/z1rr/new",
         }
         self.store.save(entries)
         retained = self.store.cleanup_before("2026-08-24T20:00:00-04:00")
@@ -112,7 +112,7 @@ class DestinationStateStoreTests(unittest.TestCase):
     def test_legacy_migration_requires_exact_assertion_and_preserves_backup(self):
         legacy = self.root / "legacy-created.json"
         legacy_entries = {
-            "2026-08-24T20:00:00-04:00": "https://racetime.z1rracing.com/z1rr/legacy"
+            "2026-08-24T20:00:00-04:00": "https://raceroom.z1rracing.com/z1rr/legacy"
         }
         legacy.write_text(json.dumps(legacy_entries))
         with self.assertRaises(StateStoreError):

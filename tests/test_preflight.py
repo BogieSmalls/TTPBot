@@ -32,7 +32,7 @@ class FakeProviderClient:
 
 def runtime_config(data_dir, *, announcements=False):
     env = {
-        "TTPBOT_RACETIME_ORIGIN": "https://racetime.z1rracing.com",
+        "TTPBOT_RACETIME_ORIGIN": "https://raceroom.z1rracing.com",
         "TTPBOT_CATEGORY_SLUG": "z1rr",
         "TTPBOT_RACETIME_CLIENT_ID": "client-id",
         "TTPBOT_RACETIME_CLIENT_SECRET": "super-secret-value",

@@ -2,7 +2,7 @@
 
 <img src="ttpbot.png" alt="TTPBot logo" width="120" align="right" />
 
-A provider-neutral category bot for **Zelda 1 Randomizer Triforce Triple Play**. The same release can target `https://racetime.gg/z1rr` or `https://racetime.z1rracing.com/z1rr`; its destination is selected only by validated runtime configuration.
+A provider-neutral category bot for **Zelda 1 Randomizer Triforce Triple Play**. The same release can target `https://racetime.gg/z1rr` or `https://raceroom.z1rracing.com/z1rr`; its destination is selected only by validated runtime configuration.
 
 TTPBot handles everything around a scheduled Triforce Triple Play race: opening the race room on schedule, announcing it in Discord, giving reminders, detecting the ROM hash, rolling seeds when SahasrahBot is offline, and archiving the room's chat log.
 
@@ -65,7 +65,7 @@ TTPBOT_CATEGORY_SLUG=z1rr
 Self-hosted contingency:
 
 ```text
-TTPBOT_RACETIME_ORIGIN=https://racetime.z1rracing.com
+TTPBOT_RACETIME_ORIGIN=https://raceroom.z1rracing.com
 TTPBOT_CATEGORY_SLUG=z1rr
 ```
 

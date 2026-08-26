@@ -41,7 +41,7 @@ class DeploymentDocumentationTests(unittest.TestCase):
     def test_both_outcomes_and_preflight_are_documented(self):
         for value in (
             "https://racetime.gg",
-            "https://racetime.z1rracing.com",
+            "https://raceroom.z1rracing.com",
             "TTPBOT_CATEGORY_SLUG=z1rr",
             "--check-config",
             "--probe",

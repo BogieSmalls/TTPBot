@@ -49,7 +49,7 @@ def bot_for(origin, *, webhook=None, role=None):
 class RoomCreationTests(unittest.IsolatedAsyncioTestCase):
     async def test_both_outcomes_create_at_provider_and_resolve_location(self):
         scheduled = datetime(2026, 8, 24, 20, 0, tzinfo=TIMEZONE)
-        for origin in ("https://racetime.gg", "https://racetime.z1rracing.com"):
+        for origin in ("https://racetime.gg", "https://raceroom.z1rracing.com"):
             with self.subTest(origin=origin):
                 recorder = RequestRecorder([FakeResponse(201, location="/z1rr/example-room")])
                 with patch("ttpbot.bot.aiohttp.request", recorder):
@@ -68,7 +68,7 @@ class RoomCreationTests(unittest.IsolatedAsyncioTestCase):
         scheduled = datetime(2026, 8, 24, 20, 0, tzinfo=TIMEZONE)
         for location in (None, "https://evil.example/z1rr/room", "/z1r/wrong"):
             recorder = RequestRecorder([FakeResponse(201, location=location)])
-            bot = bot_for("https://racetime.z1rracing.com")
+            bot = bot_for("https://raceroom.z1rracing.com")
             with self.subTest(location=location), patch("ttpbot.bot.aiohttp.request", recorder):
                 self.assertIsNone(await bot._create_race_room(scheduled))
             rendered = repr(bot.logger.method_calls)
@@ -91,14 +91,14 @@ class AnnouncementTests(unittest.IsolatedAsyncioTestCase):
         webhook = "https://discord.com/api/webhooks/12345/redacted-test-token"
         recorder = RequestRecorder([FakeResponse(204)])
         bot = bot_for(
-            "https://racetime.z1rracing.com",
+            "https://raceroom.z1rracing.com",
             webhook=webhook,
             role="1494076623442542735",
         )
         with patch("ttpbot.bot.aiohttp.request", recorder):
             result = await bot._send_webhook(
                 scheduled,
-                "https://racetime.z1rracing.com/z1rr/example-room",
+                "https://raceroom.z1rracing.com/z1rr/example-room",
             )
         self.assertTrue(result)
         call = recorder.calls[0]
@@ -112,7 +112,7 @@ class AnnouncementTests(unittest.IsolatedAsyncioTestCase):
             "<@&1494076623442542735>", call["json"]["content"]
         )
         self.assertIn(
-            "https://racetime.z1rracing.com/z1rr/example-room",
+            "https://raceroom.z1rracing.com/z1rr/example-room",
             call["json"]["content"],
         )
 
@@ -131,7 +131,7 @@ class AnnouncementTests(unittest.IsolatedAsyncioTestCase):
         scheduled = datetime(2026, 8, 24, 20, 0, tzinfo=TIMEZONE)
         recorder = RequestRecorder([])
         bot = bot_for(
-            "https://racetime.z1rracing.com",
+            "https://raceroom.z1rracing.com",
             webhook="https://discord.com/api/webhooks/12345/test-token",
             role="12345",
         )
