@@ -56,12 +56,10 @@ TTPBOT_RACETIME_ORIGIN=https://raceroom.z1rracing.com
 TTPBOT_CATEGORY_SLUG=z1rr
 ```
 
-Validate locally and then probe read-only. Neither command creates a room or
-sends Discord:
+Validate locally and then probe read-only. `ttpbot-preflight` sources `/etc/ttpbot.env`; it does not create a room or send Discord:
 
 ```bash
-sudo -u ttpbot /opt/ttpbot/.venv/bin/python -m ttpbot --check-config
-sudo -u ttpbot /opt/ttpbot/.venv/bin/python -m ttpbot --probe
+sudo -u ttpbot /usr/local/bin/ttpbot-preflight
 ```
 
 ## Explicit legacy state migration

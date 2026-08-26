@@ -81,6 +81,15 @@ class DeploymentDocumentationTests(unittest.TestCase):
         for term in rollback_terms:
             self.assertIn(term.lower(), self.runbook.lower())
 
+    def test_preflight_wrapper_sources_service_environment(self):
+        wrapper = (self.root / "deploy" / "ttpbot-preflight").read_text()
+        self.assertIn("/etc/ttpbot.env", wrapper)
+        self.assertIn("set -a", wrapper)
+        self.assertIn("--check-config", wrapper)
+        self.assertIn("--probe", wrapper)
+        self.assertNotIn("startrace", wrapper)
+        self.assertNotIn("webhook", wrapper.lower())
+
     def test_docs_require_secret_redaction_and_first_room_acceptance(self):
         for term in (
             "never print",
