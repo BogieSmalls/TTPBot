@@ -19,11 +19,19 @@ TTP_ROOM_INFO_PREFIXES = (
 
 ROOM_OPEN_MINUTES_BEFORE = 30
 WEBHOOK_MINUTES_BEFORE = 20  # Post webhook 20 min before race (10 min after room opens)
-Z1RR_DISCORD_URL = os.environ.get(
+
+def _env_or_default(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip() or default
+
+
+Z1RR_DISCORD_URL = _env_or_default(
     'TTPBOT_Z1RR_DISCORD_URL',
     'https://discord.gg/z1rr',
 )
-Z1RR_RACEROOM_URL = os.environ.get(
+Z1RR_RACEROOM_URL = _env_or_default(
     'TTPBOT_Z1RR_RACEROOM_URL',
     'https://raceroom.z1rracing.com/z1rr',
 )
