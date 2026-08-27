@@ -4,7 +4,7 @@
 
 A provider-neutral category bot for **Zelda 1 Randomizer Triforce Triple Play**. The same release can target `https://racetime.gg/z1rr` or `https://raceroom.z1rracing.com/z1rr`; its destination is selected only by validated runtime configuration.
 
-TTPBot handles everything around a scheduled Triforce Triple Play race: opening the race room on schedule, announcing it in Discord, giving reminders, detecting the ROM hash, rolling seeds in Z1RR rooms, and archiving the room's chat log.
+TTPBot opens scheduled Triforce Triple Play race rooms and, on Z1RR Raceroom, joins category rooms to provide commands, seed rolling, hash confirmation, and chat logging. TTP welcome/reminder behavior is limited to TTP-managed scheduled rooms.
 
 ## What it does
 
@@ -32,13 +32,13 @@ The TTP number (1/2/3) is derived from the race's scheduled time.
 
 ### Per-race handler
 
-Once a TTP room is live, TTPBot joins and handles:
+Once a Z1RR room is live, TTPBot joins and handles:
 
-- **Reminders** at T-10, T-5, T-1, and T-0 minutes.
+- **Scheduled TTP reminders** at T-10, T-5, T-1, and T-0 minutes for TTP-managed scheduled rooms.
 - **Hash detection.** When entrants post the 4-item ROM hash in chat, TTPBot recognizes it — tolerating player aliases (`boomerang`, `tringle`, `ruppees`, …), multi-word forms (`spice rack`, `blue candle`), and typos. If 3 of 4 items match exactly, the 4th is fuzzy-matched and the new alias is auto-learned to `learned_aliases.json` for next time.
 - **Chat logging.** Every message in the room is written to `chat_logs/<race-slug>.log`.
 - **Seed rolling.** TTPBot handles `!race <preset>`, `!flags <flagstring>`, and the available curated pickers (`!ttp4`, `!ttp4rp`, `!ttp4hopla`, `!ttp4consternation`) directly in Z1RR rooms.
-- **Z1RR links.** `!z1rr` posts the configured Z1RR Discord invite and raceroom category link.
+- **Z1RR Discord.** `!z1rr` posts the configured Z1RR Discord invite.
 
 ## Requirements
 
@@ -46,7 +46,7 @@ Once a TTP room is live, TTPBot joins and handles:
 - The exact packages in `requirements.lock`
 - An OAuth2 client with bot permissions on the configured Racetime category
 - Optional paired Discord webhook and Race Seekers role configuration
-- Optional `!z1rr` community links via `TTPBOT_Z1RR_DISCORD_URL` and `TTPBOT_Z1RR_RACEROOM_URL`
+- Optional `!z1rr` Discord invite via `TTPBOT_Z1RR_DISCORD_URL`
 
 ## Install
 

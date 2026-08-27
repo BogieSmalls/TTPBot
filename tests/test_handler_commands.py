@@ -1,6 +1,8 @@
 import unittest
+from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
 
+from ttpbot.config import TIMEZONE
 from ttpbot.handler import TTPRaceHandler
 
 
@@ -23,6 +25,14 @@ def command_handler():
     return handler
 
 
+class FakeWebSocket:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, message):
+        self.sent.append(message)
+
+
 class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
     async def test_z1rr_command_posts_discord_invite(self):
         handler = command_handler()
@@ -38,12 +48,66 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         handler = command_handler()
         handler.state = {}
         handler.reminders_sent = set()
+        handler.ttp_scheduled_room = True
 
         await handler.chat_history({'messages': []})
 
         self.assertEqual(len(handler.messages), 1)
         self.assertIn('Welcome to TTP Season 5!', handler.messages[0])
         self.assertNotIn('Triforce', handler.messages[0])
+
+    async def test_chat_history_recognizes_existing_ttp5_welcome(self):
+        handler = command_handler()
+        handler.state = {}
+        handler.reminders_sent = set()
+        handler.ttp_scheduled_room = True
+
+        await handler.chat_history({
+            'messages': [{
+                'is_bot': True,
+                'bot': 'TTPBot',
+                'message_plain': 'Welcome to TTP Season 5! Already here.',
+            }],
+        })
+
+        self.assertEqual(handler.messages, [])
+        self.assertTrue(handler.state['welcomed'])
+
+    async def test_casual_room_begin_skips_ttp_schedule_state(self):
+        handler = command_handler()
+        handler.data = {
+            'name': 'z1rr/casual-room',
+            'goal': {'name': 'Beat The Game (Casual)'},
+            'info_bot': 'Casual open room',
+        }
+        handler.state = {}
+        handler.ws = FakeWebSocket()
+        handler.reminders_sent = set()
+        handler.scheduled_time = None
+        handler.bot_created = False
+        handler.reminder_task = None
+
+        nearest_ttp_race = datetime(2026, 8, 31, 20, 0, tzinfo=TIMEZONE)
+        with patch('ttpbot.handler.find_nearest_scheduled_race', return_value=nearest_ttp_race):
+            await handler.begin()
+
+        self.assertFalse(handler.ttp_scheduled_room)
+        self.assertIsNone(handler.scheduled_time)
+        self.assertFalse(handler.bot_created)
+        self.assertNotIn('scheduled_time', handler.state)
+        self.assertEqual(handler.ws.sent, ['{"action": "gethistory"}'])
+
+    async def test_casual_room_history_does_not_send_ttp_welcome(self):
+        handler = command_handler()
+        handler.state = {}
+        handler.reminders_sent = set()
+        handler.ttp_scheduled_room = False
+
+        await handler.chat_history({'messages': []})
+
+        self.assertEqual(handler.messages, [])
+        self.assertNotIn('welcomed', handler.state)
+
     async def test_info_and_help_reference_ttp5_season(self):
         handler = command_handler()
 
@@ -96,6 +160,7 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         handler = command_handler()
         handler.state = {'welcomed': True}
         handler.reminders_sent = set()
+        handler.ttp_scheduled_room = True
 
         await handler.chat_history({
             'messages': [{

@@ -6,17 +6,15 @@ import aiohttp
 from racetime_bot import Bot
 
 from .config import (
-    GOAL_NAME,
-    POST_SEASON_GOAL_NAME,
     RACE_NUMBER_MAP,
     ROOM_OPEN_MINUTES_BEFORE,
     TIMEZONE,
-    TTP_ROOM_INFO_PREFIXES,
     WEBHOOK_MINUTES_BEFORE,
 )
 from .handler import TTPRaceHandler
 from .paths import data_dir as configured_data_dir
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
+from .room_policy import is_ttp_scheduled_room
 from .state import DestinationStateStore, UNCERTAIN_RACE
 
 from .provider import ProviderConfigurationError
@@ -31,20 +29,6 @@ def build_state_stores(provider, data_directory=None):
                                  'sent_webhooks', data_dir=root)
     return created, sent
 
-
-def is_ttp_scheduled_room(race_data):
-    """Return True for TTP-managed rooms, including labeled post-season rooms."""
-    goal_name = race_data.get('goal', {}).get('name', '')
-    if goal_name == GOAL_NAME:
-        return True
-    if goal_name != POST_SEASON_GOAL_NAME:
-        return False
-
-    info_bot = race_data.get('info_bot', '') or ''
-    return any(
-        info_bot.startswith(f'{prefix} | Scheduled:')
-        for prefix in TTP_ROOM_INFO_PREFIXES
-    )
 
 
 def race_room_form_data(scheduled_time):
@@ -112,9 +96,7 @@ class TTPBot(Bot):
         }
 
     def should_handle(self, race_data):
-        """Only handle TTP-managed scheduled rooms."""
-        if not is_ttp_scheduled_room(race_data):
-            return False
+        """Handle every room allowed by the base category bot."""
         return super().should_handle(race_data)
 
     def run(self):

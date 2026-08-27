@@ -22,6 +22,7 @@ from .config import (
     Z1RR_DISCORD_URL,
 )
 from .paths import ensure_parent_dir, runtime_path
+from .room_policy import is_ttp_scheduled_room
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 
 CHAT_LOG_DIR = runtime_path('chat_logs')
@@ -121,10 +122,10 @@ def parse_hash(text):
 
 class TTPRaceHandler(RaceHandler):
     """
-    Handler for Triforce Triple Play race rooms.
+    Handler for Z1RR rooms.
 
-    Sends timed reminders before the scheduled start and responds to
-    informational commands.
+    Handles commands, hash confirmation, and chat logging in all watched rooms.
+    TTP scheduled rooms also get the TTP welcome and timed reminders.
     """
 
     stop_at = ['cancelled', 'finished']
@@ -134,6 +135,7 @@ class TTPRaceHandler(RaceHandler):
         self.reminders_sent = set()
         self.scheduled_time = None
         self.bot_created = False
+        self.ttp_scheduled_room = False
         self.reminder_task = None
         self.pending_hash = None
         self.pending_hash_user = None
@@ -149,29 +151,35 @@ class TTPRaceHandler(RaceHandler):
         self.seed_rolled = False
 
     async def begin(self):
-        self._determine_scheduled_time()
+        self.ttp_scheduled_room = is_ttp_scheduled_room(self.data)
 
-        # Detect if this room was created by the bot (has "Scheduled:" in info)
-        info_bot = self.data.get('info_bot', '') or ''
-        self.bot_created = 'Scheduled:' in info_bot
+        if self.ttp_scheduled_room:
+            self._determine_scheduled_time()
 
-        if self.scheduled_time:
-            now = datetime.now(TIMEZONE)
-            minutes_until = (self.scheduled_time - now).total_seconds() / 60
+            # Detect if this room was created by the bot (has "Scheduled:" in info)
+            info_bot = self.data.get('info_bot', '') or ''
+            self.bot_created = 'Scheduled:' in info_bot
 
-            if minutes_until >= -1:
-                # Race time is upcoming or just arrived — send reminders.
-                # Pre-mark reminders whose window is well past (>2 min ago)
-                # so a service restart doesn't dump all reminders at once.
-                for minutes_before, _ in REMINDER_SCHEDULE:
-                    if minutes_until < minutes_before - 2:
-                        self.reminders_sent.add(minutes_before)
+            if self.scheduled_time:
+                now = datetime.now(TIMEZONE)
+                minutes_until = (self.scheduled_time - now).total_seconds() / 60
 
-                self.reminder_task = asyncio.ensure_future(self._reminder_loop())
-            # If past the start time: skip reminders but still welcome.
+                if minutes_until >= -1:
+                    # Race time is upcoming or just arrived - send reminders.
+                    # Pre-mark reminders whose window is well past (>2 min ago)
+                    # so a service restart doesn't dump all reminders at once.
+                    for minutes_before, _ in REMINDER_SCHEDULE:
+                        if minutes_until < minutes_before - 2:
+                            self.reminders_sent.add(minutes_before)
 
-        # Request chat history to check if we already welcomed this room.
-        # The response arrives via chat_history() which handles the welcome.
+                    self.reminder_task = asyncio.ensure_future(self._reminder_loop())
+                # If past the start time: skip reminders but still welcome.
+        else:
+            self.scheduled_time = None
+            self.bot_created = False
+
+        # Request chat history to detect prior seed rolls and, for TTP rooms,
+        # avoid duplicate welcomes/reminders.
         await self.ws.send(json.dumps({'action': 'gethistory'}))
 
     async def chat_history(self, data):
@@ -198,7 +206,8 @@ class TTPRaceHandler(RaceHandler):
 
         # Check if we already welcomed this room
         already_welcomed = any(
-            'Welcome to TTP Season 4!' in text
+            'Welcome to TTP Season 5!' in text
+            or 'Welcome to TTP Season 4!' in text
             or 'Welcome to Triforce Triple Play!' in text
             for text in bot_messages
         )
@@ -207,6 +216,9 @@ class TTPRaceHandler(RaceHandler):
         for minutes_before, reminder_text in REMINDER_SCHEDULE:
             if any(reminder_text in text for text in bot_messages):
                 self.reminders_sent.add(minutes_before)
+
+        if not self.ttp_scheduled_room:
+            return
 
         if already_welcomed:
             self.state['welcomed'] = True

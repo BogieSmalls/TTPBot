@@ -1,7 +1,8 @@
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
-from ttpbot.bot import is_ttp_scheduled_room, race_room_form_data
+from ttpbot.bot import TTPBot, is_ttp_scheduled_room, race_room_form_data
 from ttpbot.config import GOAL_NAME, POST_SEASON_GOAL_NAME, TIMEZONE
 
 
@@ -30,6 +31,18 @@ class BotRoomPolicyTests(unittest.TestCase):
             'goal': {'name': POST_SEASON_GOAL_NAME},
             'info_bot': 'Triforce Triple Play | Scheduled: Mon Dec 21, 08:00 PM EST',
         }))
+
+    def test_should_handle_delegates_casual_rooms_to_base_bot(self):
+        bot = object.__new__(TTPBot)
+        casual_room = {
+            'goal': {'name': 'Beat The Game (Casual)'},
+            'info_bot': 'Casual open room',
+        }
+
+        with patch('ttpbot.bot.Bot.should_handle', return_value=True) as base_should_handle:
+            self.assertTrue(bot.should_handle(casual_room))
+
+        base_should_handle.assert_called_once_with(casual_room)
 
     def test_rejects_unlabeled_beat_the_game_rooms(self):
         self.assertFalse(is_ttp_scheduled_room({
