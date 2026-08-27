@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
 from ttpbot.config import TIMEZONE
@@ -11,6 +11,7 @@ def command_handler():
     handler.seed_rolled = False
     handler.data = {'name': 'z1rr/test-room', 'info_bot': 'Test room'}
     handler.logger = Mock()
+    handler.command_prefix = '!'
     handler.messages = []
     handler.race_info_updates = []
 
@@ -107,6 +108,31 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(handler.messages, [])
         self.assertNotIn('welcomed', handler.state)
+
+    async def test_chat_history_handles_recent_command_before_room_attach(self):
+        handler = command_handler()
+        handler.state = {}
+        handler.reminders_sent = set()
+        handler.ttp_scheduled_room = False
+        handler.history_command_cutoff_utc = datetime(
+            2026, 8, 27, 4, 28, 30, tzinfo=timezone.utc,
+        )
+
+        await handler.chat_history({
+            'messages': [{
+                'is_bot': False,
+                'is_system': False,
+                'posted_at': '2026-08-27T04:29:02.469241+00:00',
+                'message': '!z1rr',
+                'message_plain': '!z1rr',
+                'user': {'name': 'Bogie'},
+            }],
+        })
+
+        self.assertEqual(
+            handler.messages,
+            ['Join the Z1RR Discord! https://discord.gg/MX6EB26HYB'],
+        )
 
     async def test_info_and_help_reference_ttp5_season(self):
         handler = command_handler()

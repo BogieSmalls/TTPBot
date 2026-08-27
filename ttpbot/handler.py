@@ -3,7 +3,7 @@ import json
 import os
 import random
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from difflib import get_close_matches
 
 import aiohttp
@@ -27,6 +27,7 @@ from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 
 CHAT_LOG_DIR = runtime_path('chat_logs')
 LEARNED_ALIASES_FILE = runtime_path('learned_aliases.json')
+RECENT_ROOM_HISTORY_WINDOW = timedelta(seconds=90)
 
 # Merged alias dict built once at import, extended by learned aliases
 _all_aliases = dict(HASH_ALIASES)
@@ -149,9 +150,11 @@ class TTPRaceHandler(RaceHandler):
             'pbs': [],
         }
         self.seed_rolled = False
+        self.history_command_cutoff_utc = None
 
     async def begin(self):
         self.ttp_scheduled_room = is_ttp_scheduled_room(self.data)
+        self.history_command_cutoff_utc = self._recent_room_history_cutoff()
 
         if self.ttp_scheduled_room:
             self._determine_scheduled_time()
@@ -217,6 +220,8 @@ class TTPRaceHandler(RaceHandler):
             if any(reminder_text in text for text in bot_messages):
                 self.reminders_sent.add(minutes_before)
 
+        await self._handle_recent_history_commands(messages)
+
         if not self.ttp_scheduled_room:
             return
 
@@ -232,6 +237,56 @@ class TTPRaceHandler(RaceHandler):
                 "or !ttpflags for flagset details."
             )
             self.state['welcomed'] = True
+
+
+    def _parse_history_timestamp(self, raw_timestamp):
+        if not raw_timestamp:
+            return None
+        try:
+            parsed = datetime.fromisoformat(
+                raw_timestamp.replace('Z', '+00:00')
+            )
+        except (TypeError, ValueError):
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def _recent_room_history_cutoff(self):
+        opened_at = self._parse_history_timestamp(self.data.get('opened_at'))
+        if not opened_at:
+            return None
+
+        now = datetime.now(timezone.utc)
+        if now - opened_at <= RECENT_ROOM_HISTORY_WINDOW:
+            return opened_at
+        return None
+
+    async def _handle_recent_history_commands(self, messages):
+        cutoff = getattr(self, 'history_command_cutoff_utc', None)
+        if not cutoff:
+            return
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=timezone.utc)
+        else:
+            cutoff = cutoff.astimezone(timezone.utc)
+
+        sorted_messages = sorted(
+            messages,
+            key=lambda msg: self._parse_history_timestamp(msg.get('posted_at'))
+            or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        for message in sorted_messages:
+            if message.get('is_bot') or message.get('is_system'):
+                continue
+            posted_at = self._parse_history_timestamp(message.get('posted_at'))
+            if not posted_at or posted_at < cutoff:
+                continue
+            text = (message.get('message') or message.get('message_plain') or '').strip()
+            words = text.lower().split()
+            if not words or not words[0].startswith(self.command_prefix.lower()):
+                continue
+            await self.chat_message({'message': message})
 
     def _determine_scheduled_time(self):
         """Determine the scheduled start time for this race room."""
