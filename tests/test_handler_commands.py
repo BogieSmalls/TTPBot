@@ -24,15 +24,15 @@ def command_handler():
 
 
 class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
-    async def test_z1rr_command_posts_discord_and_raceroom_links(self):
+    async def test_z1rr_command_posts_discord_invite(self):
         handler = command_handler()
 
         await handler.ex_z1rr([], {})
 
-        self.assertEqual(len(handler.messages), 1)
-        self.assertIn('Z1RR Discord', handler.messages[0])
-        self.assertIn('https://discord.gg/MX6EB26HYB', handler.messages[0])
-        self.assertIn('raceroom.z1rracing.com', handler.messages[0])
+        self.assertEqual(
+            handler.messages,
+            ['Join the Z1RR Discord! https://discord.gg/MX6EB26HYB'],
+        )
 
     async def test_welcome_message_avoids_triforce_emote_token(self):
         handler = command_handler()
@@ -55,6 +55,7 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('Sat at 12 PM, 3 PM, 6 PM ET', handler.messages[0])
         self.assertIn('TTP: Season 5 goal', handler.messages[0])
         self.assertIn('TTP Season 5 details', handler.messages[1])
+        self.assertIn('!z1rr                       Z1RR Discord invite', handler.messages[1])
 
     async def test_race_command_rolls_from_named_preset(self):
         handler = command_handler()

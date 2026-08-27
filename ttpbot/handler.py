@@ -20,7 +20,6 @@ from .config import (
     TTP4_PRESETS,
     TIMEZONE,
     Z1RR_DISCORD_URL,
-    Z1RR_RACEROOM_URL,
 )
 from .paths import ensure_parent_dir, runtime_path
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
@@ -596,11 +595,8 @@ class TTPRaceHandler(RaceHandler):
         await self.ex_race(['ttp4consternation'], message)
 
     async def ex_z1rr(self, args, message):
-        """!z1rr -- Show Z1RR community links."""
-        await self.send_message(
-            f'Z1RR Discord: {Z1RR_DISCORD_URL}\n'
-            f'Z1RR Raceroom: {Z1RR_RACEROOM_URL}'
-        )
+        """!z1rr -- Show the Z1RR Discord invite."""
+        await self.send_message(f'Join the Z1RR Discord! {Z1RR_DISCORD_URL}')
 
     async def ex_help(self, args, message):
         """!help -- List available TTPBot commands."""
@@ -617,6 +613,6 @@ class TTPRaceHandler(RaceHandler):
             '    !schedule                   Today\'s remaining race times',
             '    !info                       TTP Season 5 details',
             '    !ttpflags                   TTP flagset details',
-            '    !z1rr                       Z1RR Discord and raceroom links',
+            '    !z1rr                       Z1RR Discord invite',
         ]
         await self.send_message('\n'.join(lines))
