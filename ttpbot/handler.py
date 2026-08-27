@@ -215,7 +215,7 @@ class TTPRaceHandler(RaceHandler):
 
         if not self.state.get('welcomed'):
             await self.send_message(
-                "Welcome to Triforce Triple Play! I'll help out with hash "
+                "Welcome to TTP Season 5! I'll help out with hash "
                 "confirmation and other bot duties. "
                 "Type !schedule for today's race times, !info for TTP details, "
                 "or !ttpflags for flagset details."
@@ -469,7 +469,7 @@ class TTPRaceHandler(RaceHandler):
             await self.send_message("No more TTP races scheduled for today.")
             return
 
-        lines = ["Upcoming Triforce Triple Play races (Eastern):"]
+        lines = ["Upcoming TTP races (Eastern):"]
         for race_time in upcoming:
             lines.append(f"  {race_time.strftime('%I:%M %p %Z')}")
         await self.send_message('\n'.join(lines))

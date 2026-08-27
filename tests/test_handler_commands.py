@@ -34,6 +34,16 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('discord.gg', handler.messages[0])
         self.assertIn('raceroom.z1rracing.com', handler.messages[0])
 
+    async def test_welcome_message_avoids_triforce_emote_token(self):
+        handler = command_handler()
+        handler.state = {}
+        handler.reminders_sent = set()
+
+        await handler.chat_history({'messages': []})
+
+        self.assertEqual(len(handler.messages), 1)
+        self.assertIn('Welcome to TTP Season 5!', handler.messages[0])
+        self.assertNotIn('Triforce', handler.messages[0])
     async def test_info_and_help_reference_ttp5_season(self):
         handler = command_handler()
 
