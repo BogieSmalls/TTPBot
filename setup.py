@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='ttpbot',
     version='1.0.0',
-    description='TTP Season 4 bot for racetime.gg Z1R races',
+    description='TTP scheduler bot for Z1R races',
     license='MIT',
     python_requires='>=3.10',
     install_requires=[

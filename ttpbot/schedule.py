@@ -13,7 +13,7 @@ from .config import (
 
 
 def is_within_season(dt):
-    """Check if a datetime falls within the TTP S4 regular season."""
+    """Check if a datetime falls within the active TTP regular season."""
     return SEASON_START <= dt.date() <= SEASON_END
 
 

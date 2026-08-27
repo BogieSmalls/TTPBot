@@ -18,7 +18,7 @@ TTPBot opens a fresh race room 30 minutes before every scheduled Triforce Triple
 | Saturday | 12 PM, 3 PM, 6 PM |
 | Sunday | No races |
 
-Regular-season rooms use the `TTP Season 4` goal through July 4, 2026. Later normal scheduled rooms use the `Beat the game` goal and an `info_bot` label beginning with `Triforce Triple Play | Scheduled:`. Rooms use `streaming_required: true`, a 4-hour time limit, a 15-second start delay, and auto-start when all entrants ready up. Rooms are deduplicated across bot restarts via a persisted `created_races.json` so a service restart mid-slate won't double-open anything.
+TTP5 regular-season rooms use the `TTP Season 5` goal from Monday, August 31, 2026 through Saturday, December 19, 2026. Outside the season window, normal scheduled rooms use the `Beat the game` goal and an `info_bot` label beginning with `Triforce Triple Play | Scheduled:`. Rooms use `streaming_required: true`, a 4-hour time limit, a 15-second start delay, and auto-start when all entrants ready up. Rooms are deduplicated across bot restarts via a persisted `created_races.json` so a service restart mid-slate won't double-open anything.
 
 ### Discord announcements
 
@@ -37,7 +37,7 @@ Once a TTP room is live, TTPBot joins and handles:
 - **Reminders** at T-10, T-5, T-1, and T-0 minutes.
 - **Hash detection.** When entrants post the 4-item ROM hash in chat, TTPBot recognizes it — tolerating player aliases (`boomerang`, `tringle`, `ruppees`, …), multi-word forms (`spice rack`, `blue candle`), and typos. If 3 of 4 items match exactly, the 4th is fuzzy-matched and the new alias is auto-learned to `learned_aliases.json` for next time.
 - **Chat logging.** Every message in the room is written to `chat_logs/<race-slug>.log`.
-- **Seed rolling.** TTPBot handles `!race <preset>`, `!flags <flagstring>`, and the season's curated pickers (`!ttp4`, `!ttp4rp`, `!ttp4hopla`, `!ttp4consternation`) directly in Z1RR rooms.
+- **Seed rolling.** TTPBot handles `!race <preset>`, `!flags <flagstring>`, and the available curated pickers (`!ttp4`, `!ttp4rp`, `!ttp4hopla`, `!ttp4consternation`) directly in Z1RR rooms.
 - **Z1RR links.** `!z1rr` posts the configured Z1RR Discord invite and raceroom category link.
 
 ## Requirements

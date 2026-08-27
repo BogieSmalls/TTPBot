@@ -2,15 +2,15 @@ import os
 from datetime import date, time
 from zoneinfo import ZoneInfo
 
-SEASON_START = date(2026, 2, 3)
-SEASON_END = date(2026, 7, 4)
+SEASON_START = date(2026, 8, 31)
+SEASON_END = date(2026, 12, 19)
 
 TIMEZONE = ZoneInfo("America/New_York")
 
-GOAL_NAME = "TTP Season 4"
+GOAL_NAME = "TTP Season 5"
 POST_SEASON_GOAL_NAME = "Beat the game"
 
-REGULAR_SEASON_ROOM_INFO_PREFIX = "TTP Season 4"
+REGULAR_SEASON_ROOM_INFO_PREFIX = "TTP Season 5"
 POST_SEASON_ROOM_INFO_PREFIX = "Triforce Triple Play"
 TTP_ROOM_INFO_PREFIXES = (
     REGULAR_SEASON_ROOM_INFO_PREFIX,

@@ -218,7 +218,7 @@ class TTPRaceHandler(RaceHandler):
                 "Welcome to Triforce Triple Play! I'll help out with hash "
                 "confirmation and other bot duties. "
                 "Type !schedule for today's race times, !info for TTP details, "
-                "or !ttpflags for Season 4 flag details."
+                "or !ttpflags for flagset details."
             )
             self.state['welcomed'] = True
 
@@ -475,20 +475,20 @@ class TTPRaceHandler(RaceHandler):
         await self.send_message('\n'.join(lines))
 
     async def ex_info(self, args, message):
-        """!info - Show TTP Season 4 information."""
+        """!info - Show TTP Season 5 information."""
         await self.send_message(
-            "TTP Season 4 regular season ran Feb 3 - July 4, 2026. "
-            "Normal Triforce Triple Play rooms continue with the Beat the game goal. "
+            "TTP Season 5 regular season runs Aug 31 - Dec 19, 2026. "
+            "Rooms use the TTP Season 5 goal during this window. "
             "Races: Mon-Fri at 8 PM, 10 PM, 12 AM ET | "
             "Sat at 12 PM, 3 PM, 6 PM ET (plus 12 AM from Friday). "
             "No races on Sunday."
         )
 
     async def ex_ttpflags(self, args, message):
-        """!ttpflags - Show TTP Season 4 flagset presets."""
+        """!ttpflags - Show TTP flagset presets."""
         await self.send_message(
-            "TTP Season 4 flagset presets:\n"
-            "  !ttp4 -- Random pick from the three official TTP S4 flagsets\n"
+            "TTP flagset presets:\n"
+            "  !ttp4 -- Random pick from the three TTP4 flagsets\n"
             "  !ttp4rp -- Random% Remastered\n"
             "  !ttp4hopla -- Hopla Remastered\n"
             "  !ttp4consternation -- Consternation Remastered\n"
@@ -615,8 +615,8 @@ class TTPRaceHandler(RaceHandler):
             '    !ttp4rp / !ttp4hopla / !ttp4consternation  TTP4 presets directly',
             '  Season info:',
             '    !schedule                   Today\'s remaining race times',
-            '    !info                       Season info',
-            '    !ttpflags                   TTP Season 4 flagset details',
+            '    !info                       TTP Season 5 details',
+            '    !ttpflags                   TTP flagset details',
             '    !z1rr                       Z1RR Discord and raceroom links',
         ]
         await self.send_message('\n'.join(lines))

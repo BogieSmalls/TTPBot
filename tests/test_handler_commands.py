@@ -34,6 +34,17 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('discord.gg', handler.messages[0])
         self.assertIn('raceroom.z1rracing.com', handler.messages[0])
 
+    async def test_info_and_help_reference_ttp5_season(self):
+        handler = command_handler()
+
+        await handler.ex_info([], {})
+        await handler.ex_help([], {})
+
+        self.assertIn('TTP Season 5 regular season runs Aug 31 - Dec 19, 2026', handler.messages[0])
+        self.assertIn('Mon-Fri at 8 PM, 10 PM, 12 AM ET', handler.messages[0])
+        self.assertIn('Sat at 12 PM, 3 PM, 6 PM ET', handler.messages[0])
+        self.assertIn('TTP Season 5 details', handler.messages[1])
+
     async def test_race_command_rolls_from_named_preset(self):
         handler = command_handler()
 
@@ -68,7 +79,6 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
             'ttp4rp - Flags: 24hJoDaoq92qaumIfio4Qq8LtfU0Xt8tpG3Iafo Seed: 987654321',
             handler.messages,
         )
-
 
     async def test_chat_history_seed_lock_uses_prior_bot_seed_roll(self):
         handler = command_handler()
