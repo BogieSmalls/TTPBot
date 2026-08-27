@@ -98,7 +98,7 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('scheduled_time', handler.state)
         self.assertEqual(handler.ws.sent, ['{"action": "gethistory"}'])
 
-    async def test_casual_room_history_does_not_send_ttp_welcome(self):
+    async def test_casual_room_history_sends_generic_welcome(self):
         handler = command_handler()
         handler.state = {}
         handler.reminders_sent = set()
@@ -106,8 +106,14 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
 
         await handler.chat_history({'messages': []})
 
-        self.assertEqual(handler.messages, [])
-        self.assertNotIn('welcomed', handler.state)
+        self.assertEqual(
+            handler.messages,
+            [
+                "Hi, I'm TTPBot. I can help with seed rolling, hash confirmation, "
+                "and Z1RR links. Type !help to see available commands."
+            ],
+        )
+        self.assertTrue(handler.state['welcomed'])
 
     async def test_chat_history_handles_recent_command_before_room_attach(self):
         handler = command_handler()
@@ -131,8 +137,68 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             handler.messages,
-            ['Join the Z1RR Discord! https://discord.gg/MX6EB26HYB'],
+            [
+                "Hi, I'm TTPBot. I can help with seed rolling, hash confirmation, "
+                "and Z1RR links. Type !help to see available commands.",
+                'Join the Z1RR Discord! https://discord.gg/MX6EB26HYB',
+            ],
         )
+
+    async def test_casual_room_history_recognizes_existing_generic_welcome(self):
+        handler = command_handler()
+        handler.state = {}
+        handler.reminders_sent = set()
+        handler.ttp_scheduled_room = False
+
+        await handler.chat_history({
+            'messages': [{
+                'is_bot': True,
+                'bot': 'TTPBot',
+                'message_plain': (
+                    "Hi, I'm TTPBot. I can help with seed rolling, hash "
+                    "confirmation, and Z1RR links. Type !help to see available "
+                    "commands."
+                ),
+            }],
+        })
+
+        self.assertEqual(handler.messages, [])
+        self.assertTrue(handler.state['welcomed'])
+
+    async def test_recent_history_does_not_replay_commands_before_bot_welcome(self):
+        handler = command_handler()
+        handler.state = {}
+        handler.reminders_sent = set()
+        handler.ttp_scheduled_room = False
+        handler.history_command_cutoff_utc = datetime(
+            2026, 8, 27, 4, 28, 55, tzinfo=timezone.utc,
+        )
+
+        await handler.chat_history({
+            'messages': [
+                {
+                    'is_bot': False,
+                    'is_system': False,
+                    'posted_at': '2026-08-27T04:29:02.469241+00:00',
+                    'message': '!z1rr',
+                    'message_plain': '!z1rr',
+                    'user': {'name': 'Bogie'},
+                },
+                {
+                    'is_bot': True,
+                    'bot': 'TTPBot',
+                    'posted_at': '2026-08-27T04:29:24.950000+00:00',
+                    'message_plain': (
+                        "Hi, I'm TTPBot. I can help with seed rolling, hash "
+                        "confirmation, and Z1RR links. Type !help to see "
+                        "available commands."
+                    ),
+                },
+            ],
+        })
+
+        self.assertEqual(handler.messages, [])
+        self.assertTrue(handler.state['welcomed'])
 
     async def test_info_and_help_reference_ttp5_season(self):
         handler = command_handler()

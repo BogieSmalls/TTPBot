@@ -28,6 +28,10 @@ from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 CHAT_LOG_DIR = runtime_path('chat_logs')
 LEARNED_ALIASES_FILE = runtime_path('learned_aliases.json')
 RECENT_ROOM_HISTORY_WINDOW = timedelta(seconds=90)
+GENERIC_WELCOME_MESSAGE = (
+    "Hi, I'm TTPBot. I can help with seed rolling, hash confirmation, "
+    "and Z1RR links. Type !help to see available commands."
+)
 
 # Merged alias dict built once at import, extended by learned aliases
 _all_aliases = dict(HASH_ALIASES)
@@ -212,6 +216,7 @@ class TTPRaceHandler(RaceHandler):
             'Welcome to TTP Season 5!' in text
             or 'Welcome to TTP Season 4!' in text
             or 'Welcome to Triforce Triple Play!' in text
+            or GENERIC_WELCOME_MESSAGE in text
             for text in bot_messages
         )
 
@@ -220,24 +225,21 @@ class TTPRaceHandler(RaceHandler):
             if any(reminder_text in text for text in bot_messages):
                 self.reminders_sent.add(minutes_before)
 
-        await self._handle_recent_history_commands(messages)
-
-        if not self.ttp_scheduled_room:
-            return
-
         if already_welcomed:
             self.state['welcomed'] = True
-            return
-
-        if not self.state.get('welcomed'):
-            await self.send_message(
-                "Welcome to TTP Season 5! I'll help out with hash "
-                "confirmation and other bot duties. "
-                "Type !schedule for today's race times, !info for TTP details, "
-                "or !ttpflags for flagset details."
-            )
+        elif not self.state.get('welcomed'):
+            if self.ttp_scheduled_room:
+                await self.send_message(
+                    "Welcome to TTP Season 5! I'll help out with hash "
+                    "confirmation and other bot duties. "
+                    "Type !schedule for today's race times, !info for TTP details, "
+                    "or !ttpflags for flagset details."
+                )
+            else:
+                await self.send_message(GENERIC_WELCOME_MESSAGE)
             self.state['welcomed'] = True
 
+        await self._handle_recent_history_commands(messages)
 
     def _parse_history_timestamp(self, raw_timestamp):
         if not raw_timestamp:
@@ -251,6 +253,18 @@ class TTPRaceHandler(RaceHandler):
         if parsed.tzinfo is None:
             return parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
+
+    def _latest_own_bot_message_timestamp(self, messages):
+        timestamps = []
+        for message in messages:
+            if not message.get('is_bot'):
+                continue
+            if message.get('bot') != 'TTPBot':
+                continue
+            posted_at = self._parse_history_timestamp(message.get('posted_at'))
+            if posted_at:
+                timestamps.append(posted_at)
+        return max(timestamps) if timestamps else None
 
     def _recent_room_history_cutoff(self):
         opened_at = self._parse_history_timestamp(self.data.get('opened_at'))
@@ -271,6 +285,10 @@ class TTPRaceHandler(RaceHandler):
         else:
             cutoff = cutoff.astimezone(timezone.utc)
 
+        latest_bot_message = self._latest_own_bot_message_timestamp(messages)
+        if latest_bot_message and latest_bot_message > cutoff:
+            cutoff = latest_bot_message
+
         sorted_messages = sorted(
             messages,
             key=lambda msg: self._parse_history_timestamp(msg.get('posted_at'))
@@ -287,6 +305,7 @@ class TTPRaceHandler(RaceHandler):
             if not words or not words[0].startswith(self.command_prefix.lower()):
                 continue
             await self.chat_message({'message': message})
+        self.history_command_cutoff_utc = None
 
     def _determine_scheduled_time(self):
         """Determine the scheduled start time for this race room."""

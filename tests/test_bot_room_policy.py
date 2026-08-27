@@ -7,6 +7,9 @@ from ttpbot.config import GOAL_NAME, POST_SEASON_GOAL_NAME, TIMEZONE
 
 
 class BotRoomPolicyTests(unittest.TestCase):
+    def test_scans_z1rr_rooms_every_10_seconds(self):
+        self.assertEqual(TTPBot.scan_races_every, 10)
+
     def test_regular_season_form_data_uses_ttp5_goal(self):
         data = race_room_form_data(datetime(2026, 12, 19, 18, 0, tzinfo=TIMEZONE))
 

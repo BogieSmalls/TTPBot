@@ -56,7 +56,10 @@ class TTPBot(Bot):
     Triforce Triple Play race rooms 30 minutes before their scheduled start.
     """
 
+    scan_races_every = 10
+
     def __init__(self, *args, provider=None, discord_webhook_url=None,
+
                  race_seekers_role_id=None, data_dir=None,
                  created_race_store=None, sent_webhook_store=None, **kwargs):
         self.provider = provider
