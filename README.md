@@ -18,7 +18,7 @@ TTPBot opens a fresh race room 30 minutes before every scheduled Triforce Triple
 | Saturday | 12 PM, 3 PM, 6 PM |
 | Sunday | No races |
 
-TTP5 regular-season rooms use the `TTP Season 5` goal from Monday, August 31, 2026 through Saturday, December 19, 2026. Outside the season window, normal scheduled rooms use the `Beat the game` goal and an `info_bot` label beginning with `Triforce Triple Play | Scheduled:`. Rooms use `streaming_required: true`, a 4-hour time limit, a 15-second start delay, and auto-start when all entrants ready up. Rooms are deduplicated across bot restarts via a persisted `created_races.json` so a service restart mid-slate won't double-open anything.
+TTP5 regular-season rooms use the `TTP: Season 5` goal from Monday, August 31, 2026 through Saturday, December 19, 2026. Outside the season window, normal scheduled rooms use the `Beat the game` goal and an `info_bot` label beginning with `Triforce Triple Play | Scheduled:`. Rooms use `streaming_required: true`, a 4-hour time limit, a 15-second start delay, and auto-start when all entrants ready up. Rooms are deduplicated across bot restarts via a persisted `created_races.json` so a service restart mid-slate won't double-open anything.
 
 ### Discord announcements
 

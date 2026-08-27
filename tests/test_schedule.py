@@ -35,6 +35,7 @@ class ScheduleTests(unittest.TestCase):
         regular_season_race = datetime(2026, 12, 19, 18, 0, tzinfo=TIMEZONE)
         post_season_race = datetime(2026, 12, 21, 20, 0, tzinfo=TIMEZONE)
 
+        self.assertEqual(GOAL_NAME, 'TTP: Season 5')
         self.assertEqual(race_goal_for_time(regular_season_race), GOAL_NAME)
         self.assertIn('TTP Season 5 | Scheduled:', race_info_for_time(regular_season_race))
 

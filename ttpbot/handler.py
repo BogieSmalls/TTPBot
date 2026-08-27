@@ -478,7 +478,7 @@ class TTPRaceHandler(RaceHandler):
         """!info - Show TTP Season 5 information."""
         await self.send_message(
             "TTP Season 5 regular season runs Aug 31 - Dec 19, 2026. "
-            "Rooms use the TTP Season 5 goal during this window. "
+            "Rooms use the TTP: Season 5 goal during this window. "
             "Races: Mon-Fri at 8 PM, 10 PM, 12 AM ET | "
             "Sat at 12 PM, 3 PM, 6 PM ET (plus 12 AM from Friday). "
             "No races on Sunday."

@@ -9,6 +9,7 @@ class BotRoomPolicyTests(unittest.TestCase):
     def test_regular_season_form_data_uses_ttp5_goal(self):
         data = race_room_form_data(datetime(2026, 12, 19, 18, 0, tzinfo=TIMEZONE))
 
+        self.assertEqual(GOAL_NAME, 'TTP: Season 5')
         self.assertEqual(data['goal'], GOAL_NAME)
         self.assertIn('TTP Season 5 | Scheduled:', data['info_bot'])
 

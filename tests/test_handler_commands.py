@@ -43,6 +43,7 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('TTP Season 5 regular season runs Aug 31 - Dec 19, 2026', handler.messages[0])
         self.assertIn('Mon-Fri at 8 PM, 10 PM, 12 AM ET', handler.messages[0])
         self.assertIn('Sat at 12 PM, 3 PM, 6 PM ET', handler.messages[0])
+        self.assertIn('TTP: Season 5 goal', handler.messages[0])
         self.assertIn('TTP Season 5 details', handler.messages[1])
 
     async def test_race_command_rolls_from_named_preset(self):
