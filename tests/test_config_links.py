@@ -17,7 +17,7 @@ class ConfigLinksTests(unittest.TestCase):
         }):
             config = importlib.reload(config_module)
 
-        self.assertEqual(config.Z1RR_DISCORD_URL, 'https://discord.gg/z1rr')
+        self.assertEqual(config.Z1RR_DISCORD_URL, 'https://discord.gg/MX6EB26HYB')
         self.assertEqual(
             config.Z1RR_RACEROOM_URL,
             'https://raceroom.z1rracing.com/z1rr',

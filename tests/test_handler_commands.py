@@ -31,7 +31,7 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(handler.messages), 1)
         self.assertIn('Z1RR Discord', handler.messages[0])
-        self.assertIn('discord.gg', handler.messages[0])
+        self.assertIn('https://discord.gg/MX6EB26HYB', handler.messages[0])
         self.assertIn('raceroom.z1rracing.com', handler.messages[0])
 
     async def test_welcome_message_avoids_triforce_emote_token(self):

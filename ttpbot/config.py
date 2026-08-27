@@ -29,7 +29,7 @@ def _env_or_default(name, default):
 
 Z1RR_DISCORD_URL = _env_or_default(
     'TTPBOT_Z1RR_DISCORD_URL',
-    'https://discord.gg/z1rr',
+    'https://discord.gg/MX6EB26HYB',
 )
 Z1RR_RACEROOM_URL = _env_or_default(
     'TTPBOT_Z1RR_RACEROOM_URL',
