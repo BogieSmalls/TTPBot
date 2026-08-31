@@ -13,7 +13,7 @@ class BotRoomPolicyTests(unittest.TestCase):
     def test_regular_season_form_data_uses_ttp5_goal(self):
         data = race_room_form_data(datetime(2026, 12, 19, 18, 0, tzinfo=TIMEZONE))
 
-        self.assertEqual(GOAL_NAME, 'TTP: Season 5')
+        self.assertEqual(GOAL_NAME, 'TTP Season 5')
         self.assertEqual(data['goal'], GOAL_NAME)
         self.assertIn('TTP Season 5 | Scheduled:', data['info_bot'])
 
@@ -35,7 +35,9 @@ class BotRoomPolicyTests(unittest.TestCase):
             'info_bot': 'Triforce Triple Play | Scheduled: Mon Dec 21, 08:00 PM EST',
         }))
 
-    def test_should_handle_delegates_casual_rooms_to_base_bot(self):
+    def test_should_handle_skips_rooms_ttpbot_did_not_schedule(self):
+        # racetime.gg's z1r category is shared with the wider Z1R community, so
+        # TTPBot stays out of races it did not open.
         bot = object.__new__(TTPBot)
         casual_room = {
             'goal': {'name': 'Beat The Game (Casual)'},
@@ -43,9 +45,19 @@ class BotRoomPolicyTests(unittest.TestCase):
         }
 
         with patch('ttpbot.bot.Bot.should_handle', return_value=True) as base_should_handle:
-            self.assertTrue(bot.should_handle(casual_room))
+            self.assertFalse(bot.should_handle(casual_room))
 
         base_should_handle.assert_called_once_with(casual_room)
+
+    def test_should_handle_accepts_ttp_season_rooms(self):
+        bot = object.__new__(TTPBot)
+        ttp_room = {
+            'goal': {'name': GOAL_NAME},
+            'info_bot': 'TTP Season 5 | Scheduled: Mon Aug 31, 08:00 PM EDT',
+        }
+
+        with patch('ttpbot.bot.Bot.should_handle', return_value=True):
+            self.assertTrue(bot.should_handle(ttp_room))
 
     def test_rejects_unlabeled_beat_the_game_rooms(self):
         self.assertFalse(is_ttp_scheduled_room({

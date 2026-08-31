@@ -7,7 +7,7 @@ SEASON_END = date(2026, 12, 19)
 
 TIMEZONE = ZoneInfo("America/New_York")
 
-GOAL_NAME = "TTP: Season 5"
+GOAL_NAME = "TTP Season 5"
 POST_SEASON_GOAL_NAME = "Beat the game"
 
 REGULAR_SEASON_ROOM_INFO_PREFIX = "TTP Season 5"

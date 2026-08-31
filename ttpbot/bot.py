@@ -99,8 +99,12 @@ class TTPBot(Bot):
         }
 
     def should_handle(self, race_data):
-        """Handle every room allowed by the base category bot."""
-        return super().should_handle(race_data)
+        """Handle only TTP-managed rooms.
+
+        The z1r category on racetime.gg is shared with the wider Z1R community,
+        so TTPBot stays out of races it did not schedule.
+        """
+        return super().should_handle(race_data) and is_ttp_scheduled_room(race_data)
 
     def run(self):
         """Add the race scheduler task alongside the standard bot tasks."""

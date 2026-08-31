@@ -8,6 +8,7 @@ from ttpbot.handler import TTPRaceHandler
 
 def command_handler():
     handler = object.__new__(TTPRaceHandler)
+    handler.sahasrahbot_present = False
     handler.seed_rolled = False
     handler.data = {'name': 'z1rr/test-room', 'info_bot': 'Test room'}
     handler.logger = Mock()
@@ -200,6 +201,56 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handler.messages, [])
         self.assertTrue(handler.state['welcomed'])
 
+    async def test_seed_commands_defer_to_sahasrahbot_when_present(self):
+        handler = command_handler()
+        handler.sahasrahbot_present = True
+
+        with patch('ttpbot.handler.asyncio.sleep', new=AsyncMock()):
+            await handler.ex_race(['ttp4rp'], {})
+            await handler.ex_flags(['abc'], {})
+            await handler.ex_ttp4([], {})
+            await handler.ex_ttp4rp([], {})
+
+        self.assertEqual(handler.messages, [])
+        self.assertEqual(handler.race_info_updates, [])
+        self.assertFalse(handler.seed_rolled)
+
+    async def test_informational_commands_answer_even_with_sahasrahbot_present(self):
+        handler = command_handler()
+        handler.sahasrahbot_present = True
+
+        await handler.ex_help([], {})
+        await handler.ex_info([], {})
+
+        self.assertEqual(len(handler.messages), 2)
+        self.assertIn('TTPBot commands:', handler.messages[0])
+
+    async def test_sahasrahbot_detected_from_chat_history(self):
+        handler = command_handler()
+        handler.sahasrahbot_present = False
+        handler.state = {'welcomed': True}
+        handler.ttp_scheduled_room = True
+        handler.reminders_sent = set()
+
+        with patch.object(TTPRaceHandler, '_handle_recent_history_commands', new=AsyncMock()):
+            await handler.chat_history({'messages': [
+                {'is_bot': True, 'bot': 'SahasrahBot', 'message_plain': 'Seed rolling complete.'},
+            ]})
+
+        self.assertTrue(handler.sahasrahbot_present)
+        # SahasrahBot's own roll must not be mistaken for one of TTPBot's.
+        self.assertFalse(handler.seed_rolled)
+
+    async def test_sahasrahbot_detected_from_live_message(self):
+        handler = command_handler()
+        handler.sahasrahbot_present = False
+
+        await handler.chat_message({'message': {
+            'is_bot': True, 'bot': 'SahasrahBot', 'message_plain': 'Rolling seed...',
+        }})
+
+        self.assertTrue(handler.sahasrahbot_present)
+
     async def test_info_and_help_reference_ttp5_season(self):
         handler = command_handler()
 
@@ -209,7 +260,7 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('TTP Season 5 regular season runs Aug 31 - Dec 19, 2026', handler.messages[0])
         self.assertIn('Mon-Fri at 8 PM, 10 PM, 12 AM ET', handler.messages[0])
         self.assertIn('Sat at 12 PM, 3 PM, 6 PM ET', handler.messages[0])
-        self.assertIn('TTP: Season 5 goal', handler.messages[0])
+        self.assertIn('TTP Season 5 goal', handler.messages[0])
         self.assertIn('TTP Season 5 details', handler.messages[1])
         self.assertIn('!z1rr                       Z1RR Discord invite', handler.messages[1])
 

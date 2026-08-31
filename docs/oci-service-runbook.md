@@ -44,17 +44,31 @@ Set the real Racetime and optional paired Discord values. `/etc/ttpbot.env` is
 owned `root:ttpbot` with mode `0640`. Never print or store credential values,
 webhook URLs, role IDs, or tokens in logs/evidence/Git.
 
-Choose exactly one origin; the category stays `z1rr`:
+Choose exactly one origin. The category slug and the season goal differ per
+origin, so they must be set together:
 
 ```text
-# Approved category
+# racetime.gg (current) - goal "TTP Season 5"
 TTPBOT_RACETIME_ORIGIN=https://racetime.gg
-TTPBOT_CATEGORY_SLUG=z1rr
+TTPBOT_CATEGORY_SLUG=z1r
 
-# Plan B (use instead, never alongside it)
+# Z1RR Raceroom (use instead, never alongside it) - goal "TTP: Season 5"
 TTPBOT_RACETIME_ORIGIN=https://raceroom.z1rracing.com
 TTPBOT_CATEGORY_SLUG=z1rr
 ```
+
+`racetime.gg/z1rr` does not exist and `raceroom.z1rracing.com/z1r` does not
+exist, so a mismatched pair fails closed. The OAuth client pair is per-origin
+too: a raceroom client id/secret returns `401 invalid_client` on racetime.gg.
+Confirm the pair before restarting:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}
+' -X POST "$TTPBOT_RACETIME_ORIGIN/o/token"   -d grant_type=client_credentials -d client_id=... -d client_secret=...
+```
+
+Expect `200`. `GOAL_NAME` in `ttpbot/config.py` must match the origin's goal
+string exactly; verify against `<origin>/<slug>/data`.
 
 Validate locally and then probe read-only. `ttpbot-preflight` sources `/etc/ttpbot.env`; it does not create a room or send Discord:
 

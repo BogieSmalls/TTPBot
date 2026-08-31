@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 from .config import (
     GOAL_NAME,
@@ -11,6 +11,8 @@ from .config import (
     WEEKLY_SCHEDULE,
 )
 
+MIDNIGHT = time(0, 0)
+
 
 def is_within_season(dt):
     """Check if a datetime falls within the active TTP regular season."""
@@ -20,6 +22,15 @@ def is_within_season(dt):
 def is_scheduled_date(d):
     """Check if the regular weekly TTP schedule should produce rooms for date d."""
     return d >= SEASON_START
+
+
+def slate_date(d, t):
+    """Return the date of the slate a race belongs to.
+
+    The 12:00 AM races close out the previous evening's slate, so they belong
+    to the day before the calendar date they land on.
+    """
+    return d - timedelta(days=1) if t == MIDNIGHT else d
 
 
 def race_goal_for_time(scheduled_time):
@@ -45,7 +56,11 @@ def get_races_for_date(d):
         return []
 
     times = WEEKLY_SCHEDULE.get(d.weekday(), [])
-    return [datetime.combine(d, t, tzinfo=TIMEZONE) for t in times]
+    return [
+        datetime.combine(d, t, tzinfo=TIMEZONE)
+        for t in times
+        if is_scheduled_date(slate_date(d, t))
+    ]
 
 
 def get_upcoming_races(now, window_minutes=35):

@@ -2,9 +2,11 @@
 
 <img src="ttpbot.png" alt="TTPBot logo" width="120" align="right" />
 
-A provider-neutral category bot for **Zelda 1 Randomizer Triforce Triple Play**. The same release can target `https://racetime.gg/z1rr` or `https://raceroom.z1rracing.com/z1rr`; its destination is selected only by validated runtime configuration.
+A provider-neutral category bot for **Zelda 1 Randomizer Triforce Triple Play**. The same release can target `https://racetime.gg/z1r` or `https://raceroom.z1rracing.com/z1rr`; its destination is selected only by validated runtime configuration. Note the category slugs differ per origin (`z1r` on racetime.gg, `z1rr` on the raceroom), as do the Season 5 goal strings (`TTP Season 5` and `TTP: Season 5` respectively).
 
-TTPBot opens scheduled Triforce Triple Play race rooms and, on Z1RR Raceroom, joins category rooms to provide commands, seed rolling, hash confirmation, and chat logging. TTP welcome/reminder behavior is limited to TTP-managed scheduled rooms.
+TTPBot opens scheduled Triforce Triple Play race rooms and joins them to provide commands, seed rolling, hash confirmation, and chat logging. It handles **only TTP-managed rooms** — races matching the season goal, or post-season rooms carrying a TTP `info_bot` label. The racetime.gg `z1r` category is shared with the wider Z1R community, so TTPBot stays out of races it did not schedule.
+
+Where SahasrahBot is also present, TTPBot defers to it: seed commands (`!race`, `!flags`, `!ttp2`/`!ttp3`/`!ttp4` and the direct preset shortcuts) go silent as soon as SahasrahBot is detected, from chat history on join or from its first live message. Informational commands (`!schedule`, `!info`, `!ttpflags`, `!z1rr`, `!help`) always answer. On an origin with no SahasrahBot, TTPBot acts as the full seed-rolling stand-in.
 
 ## What it does
 
@@ -18,7 +20,7 @@ TTPBot opens a fresh race room 30 minutes before every scheduled Triforce Triple
 | Saturday | 12 PM, 3 PM, 6 PM |
 | Sunday | No races |
 
-TTP5 regular-season rooms use the `TTP: Season 5` goal from Monday, August 31, 2026 through Saturday, December 19, 2026. Outside the season window, normal scheduled rooms use the `Beat the game` goal and an `info_bot` label beginning with `Triforce Triple Play | Scheduled:`. Rooms use `streaming_required: true`, a 4-hour time limit, a 15-second start delay, and auto-start when all entrants ready up. Rooms are deduplicated across bot restarts via a persisted `created_races.json` so a service restart mid-slate won't double-open anything.
+TTP5 regular-season rooms use the `TTP Season 5` goal from Monday, August 31, 2026 through Saturday, December 19, 2026. Outside the season window, normal scheduled rooms use the `Beat the game` goal and an `info_bot` label beginning with `Triforce Triple Play | Scheduled:`. Rooms use `streaming_required: true`, a 4-hour time limit, a 15-second start delay, and auto-start when all entrants ready up. Rooms are deduplicated across bot restarts via a persisted `created_races.json` so a service restart mid-slate won't double-open anything.
 
 ### Discord announcements
 
