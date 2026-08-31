@@ -76,6 +76,41 @@ Validate locally and then probe read-only. `ttpbot-preflight` sources `/etc/ttpb
 sudo -u ttpbot /usr/local/bin/ttpbot-preflight
 ```
 
+## Switching Destination (racetime.gg <-> Raceroom)
+
+Each destination keeps its own complete env file, so neither credential pair can
+overwrite the other. `/etc/ttpbot.env` is a copy of whichever is active:
+
+```text
+/etc/ttpbot.env.racetimegg   # origin https://racetime.gg, slug z1r
+/etc/ttpbot.env.raceroom     # origin https://raceroom.z1rracing.com, slug z1rr
+/etc/ttpbot.env              # copy of the active one
+```
+
+All three are `root:ttpbot` mode `0640`. To switch:
+
+```bash
+sudo systemctl stop ttpbot
+sudo cp /etc/ttpbot.env.racetimegg /etc/ttpbot.env   # or .raceroom
+sudo chown root:ttpbot /etc/ttpbot.env && sudo chmod 0640 /etc/ttpbot.env
+```
+
+Scheduler state is destination-bound and fails closed: `created_races.json` and
+`sent_webhooks.json` carry a `destination_key`, and loading them under a
+different origin/category raises `state belongs to another destination`
+(preflight reports `"state": false`). Park the outgoing destination's files
+rather than deleting or editing them; a missing file loads as empty, which is
+correct for a destination that has opened no rooms yet:
+
+```bash
+sudo install -d -o ttpbot -g ttpbot -m 0750 /var/lib/ttpbot/<outgoing>-state
+sudo mv /var/lib/ttpbot/created_races.json /var/lib/ttpbot/sent_webhooks.json   /var/lib/ttpbot/<outgoing>-state/
+sudo chown -R ttpbot:ttpbot /var/lib/ttpbot/<outgoing>-state
+```
+
+`learned_aliases.json` and `chat_logs/` are not destination-bound; leave them.
+Re-run `ttpbot-preflight` and require `"ok":true` before starting.
+
 ## Explicit legacy state migration
 
 Do not copy a legacy document over a v2 destination-bound file. Stop the old
