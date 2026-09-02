@@ -91,6 +91,48 @@ class LeagueInviteTests(unittest.IsolatedAsyncioTestCase):
 
         handler.invite_user.assert_not_awaited()
 
+    async def test_falls_through_to_title_when_seeded_invite_has_one_entry(self):
+        handler = make_handler({'league_race': {'invite': ['rt-sir']}})
+
+        await handler.begin()
+
+        self.assertEqual(
+            [c.args[0] for c in handler.invite_user.await_args_list],
+            ['vrZyM4orOEWqDJX0', 'd17DexWEMqWak64R'],
+        )
+
+    async def test_falls_through_to_title_when_seeded_invite_has_three_entries(self):
+        handler = make_handler(
+            {'league_race': {'invite': ['rt-sir', 'rt-wind', 'rt-extra']}}
+        )
+
+        await handler.begin()
+
+        self.assertEqual(
+            [c.args[0] for c in handler.invite_user.await_args_list],
+            ['vrZyM4orOEWqDJX0', 'd17DexWEMqWak64R'],
+        )
+
+    async def test_falls_through_to_title_when_seeded_invite_is_not_a_list(self):
+        handler = make_handler({'league_race': {'invite': 'rt-sir,rt-wind'}})
+
+        await handler.begin()
+
+        self.assertEqual(
+            [c.args[0] for c in handler.invite_user.await_args_list],
+            ['vrZyM4orOEWqDJX0', 'd17DexWEMqWak64R'],
+        )
+
+    async def test_falls_through_to_title_when_seeded_invite_has_a_non_string(self):
+        handler = make_handler({'league_race': {'invite': ['rt-sir', 42]}})
+
+        await handler.begin()
+
+        self.assertEqual(
+            [c.args[0] for c in handler.invite_user.await_args_list],
+            ['vrZyM4orOEWqDJX0', 'd17DexWEMqWak64R'],
+        )
+
     async def test_ttp_rooms_are_untouched(self):
         handler = make_handler({})
         handler.data = {

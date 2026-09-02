@@ -218,7 +218,11 @@ class TTPRaceHandler(RaceHandler):
         """
         seeded = (self.state or {}).get('league_race') or {}
         invite = seeded.get('invite')
-        if isinstance(invite, list) and all(isinstance(i, str) and i for i in invite):
+        if (
+            isinstance(invite, list)
+            and len(invite) == 2
+            and all(isinstance(i, str) and i for i in invite)
+        ):
             return list(invite)
 
         info_bot = self.data.get('info_bot', '') or ''
