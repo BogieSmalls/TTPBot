@@ -156,13 +156,29 @@ T-30, so a cold racetime API or a renamed account cannot break room creation
 minutes before a race. A racer who changes accounts is a roster edit and a
 redeploy.
 
-The racetime hashids are recorded in the handoff document and are copied in
-verbatim. **The Discord ids are not in the handoff** — coverage was verified as
-42/42 against production but the values were not recorded, so building the
-roster file requires one export from `Z1RR.Restream`:
-`SELECT display_name, twitch_channel, discord_id FROM crop_profiles WHERE
-league_team IS NOT NULL`. This is a read, and is the only cross-repo dependency
-in Phase 1.
+**The roster file is already built and committed** —
+`ttpbot/league/roster.json`, 42 records, resolved 2026-09-02.
+
+It was assembled by joining two verified sources on `twitch_channel`:
+
+- racetime hashids, copied verbatim from the handoff document;
+- `league_team`, `display_name`, `twitch_channel` and `discord_id`, read from
+  production `crops.db` on the control-plane VM
+  (`/home/ubuntu/Z1RR.Restream/mini/data/crops.db`, read-only `SELECT`).
+
+The join was exact and total: 42 handoff rows, 42 production rows, 42 joined,
+no unmatched rows on either side, 42 distinct racetime ids, 42 distinct Discord
+ids, and 42 distinct sheet names. The 42 racers fall into 14 teams of exactly
+three, which independently reconfirms the team-complement reasoning the handoff
+used to resolve the six divergent names. `Droois` resolves to `grindhalo`.
+
+Note that production stores full team names (`Shadow Cartel`) while the sheet
+uses abbreviations (`SC`). The roster records both: `team` is the sheet
+abbreviation used for matching, `team_full` is carried for readability only.
+
+There is therefore **no remaining cross-repo dependency** in Phase 1. Re-running
+that export is only necessary if a racer changes their Discord or racetime
+account.
 
 Name resolution is exact, case-insensitive, against `sheet_name` after stripping
 the `(TEAM) ` prefix. Six roster entries exist specifically because the sheet
