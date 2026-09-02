@@ -5,6 +5,7 @@ import re
 from typing import Optional
 from urllib.parse import urlsplit
 
+from .config import DEFAULT_SCHEDULE_URL
 from .provider import ProviderConfigurationError, RacetimeProvider
 
 
@@ -25,6 +26,9 @@ class BotRuntimeConfig:
     race_seekers_role_id: Optional[str]
     data_dir: Optional[str]
     environment: str
+    league_enabled: bool = False
+    league_schedule_url: Optional[str] = None
+    league_discord_webhook_url: Optional[str] = None
     _origin: Optional[str] = field(default=None, repr=False)
     _category: Optional[str] = field(default=None, repr=False)
 
@@ -35,6 +39,10 @@ class BotRuntimeConfig:
     @property
     def announcements_enabled(self):
         return bool(self.discord_webhook_url and self.race_seekers_role_id)
+
+    @property
+    def league_announcements_enabled(self):
+        return bool(self.league_enabled and self.league_discord_webhook_url)
 
     def __repr__(self):
         origin = self.provider.origin if self.provider else self._origin
@@ -139,6 +147,19 @@ def resolve_bot_config(args, env=None):
     configured_data_dir = _arg_or_env(args, "data_dir", source, "TTPBOT_DATA_DIR")
     if not configured_data_dir and environment != "production":
         configured_data_dir = str(Path(__file__).resolve().parent.parent)
+
+    league_enabled = _boolean(
+        _arg_or_env(args, "league_enabled", source, "TTPBOT_LEAGUE_ENABLED"),
+        "TTPBOT_LEAGUE_ENABLED",
+    )
+    league_schedule_url = (
+        _arg_or_env(args, "league_schedule_url", source, "TTPBOT_LEAGUE_SCHEDULE_URL")
+        or DEFAULT_SCHEDULE_URL
+    )
+    league_webhook = _validate_webhook(
+        _arg_or_env(args, "league_discord_webhook_url", source,
+                    "TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL")
+    )
     return BotRuntimeConfig(
         provider=provider,
         client_id=_arg_or_env(args, "client_id", source, "TTPBOT_RACETIME_CLIENT_ID"),
@@ -147,6 +168,9 @@ def resolve_bot_config(args, env=None):
         race_seekers_role_id=role_id,
         data_dir=configured_data_dir,
         environment=environment,
+        league_enabled=league_enabled,
+        league_schedule_url=league_schedule_url,
+        league_discord_webhook_url=league_webhook,
         _origin=origin,
         _category=category,
     )

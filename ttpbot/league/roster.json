@@ -1,0 +1,380 @@
+[
+  {
+    "sheet_name": "BBQDotGov",
+    "team": "3HM",
+    "team_full": "3 Horsemen",
+    "display_name": "BBQDotGov",
+    "twitch_channel": "bbqdotgov",
+    "racetime_id": "yZ2Dv30aXqoewXma",
+    "discord_id": "977397774213578773"
+  },
+  {
+    "sheet_name": "specialk3782",
+    "team": "3HM",
+    "team_full": "3 Horsemen",
+    "display_name": "specialk3782",
+    "twitch_channel": "specialk3782",
+    "racetime_id": "Aa5veoG0Y9WMVr6Z",
+    "discord_id": "429342531768025090"
+  },
+  {
+    "sheet_name": "Stags28",
+    "team": "3HM",
+    "team_full": "3 Horsemen",
+    "display_name": "Stags28",
+    "twitch_channel": "stags28",
+    "racetime_id": "Ek8wpokZR735KQyV",
+    "discord_id": "570677551631171604"
+  },
+  {
+    "sheet_name": "Deus Ex Machina",
+    "team": "8BW",
+    "team_full": "8-Bit Warriors",
+    "display_name": "Deus Ex Machina",
+    "twitch_channel": "dem_gaming",
+    "racetime_id": "7QXz83KAGLWeZDjr",
+    "discord_id": "213720589775536128"
+  },
+  {
+    "sheet_name": "Mainelyretro207",
+    "team": "8BW",
+    "team_full": "8-Bit Warriors",
+    "display_name": "Mainelyretro207",
+    "twitch_channel": "mainelyretro207",
+    "racetime_id": "lYZa5B5m6XB2Vwv9",
+    "discord_id": "361646588327624705"
+  },
+  {
+    "sheet_name": "SirLinkalot",
+    "team": "8BW",
+    "team_full": "8-Bit Warriors",
+    "display_name": "SirLinkalot",
+    "twitch_channel": "sirlinkalot",
+    "racetime_id": "vrZyM4orOEWqDJX0",
+    "discord_id": "90598737927208960"
+  },
+  {
+    "sheet_name": "Eykir",
+    "team": "BM",
+    "team_full": "Bow Mode",
+    "display_name": "Eykir",
+    "twitch_channel": "eykir",
+    "racetime_id": "AEk8wpoknG35KQyV",
+    "discord_id": "275813128690991108"
+  },
+  {
+    "sheet_name": "Flipheal",
+    "team": "BM",
+    "team_full": "Bow Mode",
+    "display_name": "Flipheal",
+    "twitch_channel": "flipheal",
+    "racetime_id": "XGzr7pBM0NWkqgyE",
+    "discord_id": "267846129750769665"
+  },
+  {
+    "sheet_name": "Windfox470",
+    "team": "BM",
+    "team_full": "Bow Mode",
+    "display_name": "Windfox470",
+    "twitch_channel": "windfox470",
+    "racetime_id": "d17DexWEMqWak64R",
+    "discord_id": "144284700247195648"
+  },
+  {
+    "sheet_name": "GrandpaSzabo",
+    "team": "DAMB",
+    "team_full": "Dodongo Ate My Baby",
+    "display_name": "GrandpaSzabo",
+    "twitch_channel": "grandpaszabo",
+    "racetime_id": "Aa5veoGQ18BMVr6Z",
+    "discord_id": "355708400635478036"
+  },
+  {
+    "sheet_name": "Lumaga",
+    "team": "DAMB",
+    "team_full": "Dodongo Ate My Baby",
+    "display_name": "Lumaga",
+    "twitch_channel": "lumaga83",
+    "racetime_id": "NJrM6PoYE5oRdm5v",
+    "discord_id": "221090754087354368"
+  },
+  {
+    "sheet_name": "seanfreston",
+    "team": "DAMB",
+    "team_full": "Dodongo Ate My Baby",
+    "display_name": "seanfreston",
+    "twitch_channel": "seanfreston",
+    "racetime_id": "N9rVpW9wOk3jq8Ll",
+    "discord_id": "1205603004087013448"
+  },
+  {
+    "sheet_name": "Birdman",
+    "team": "F451",
+    "team_full": "Fahrenheit 451",
+    "display_name": "Birdman",
+    "twitch_channel": "alsoa999",
+    "racetime_id": "ZVa0eMondABl9pyJ",
+    "discord_id": "1460044133526802588"
+  },
+  {
+    "sheet_name": "Bort",
+    "team": "F451",
+    "team_full": "Fahrenheit 451",
+    "display_name": "Bort",
+    "twitch_channel": "bort8421",
+    "racetime_id": "5JlzyB7xrX3V4GED",
+    "discord_id": "750398363622441083"
+  },
+  {
+    "sheet_name": "Rhinohero",
+    "team": "F451",
+    "team_full": "Fahrenheit 451",
+    "display_name": "Rhinohero",
+    "twitch_channel": "rhinohero",
+    "racetime_id": "5K9rm3616gBq1aOX",
+    "discord_id": "428352268446859264"
+  },
+  {
+    "sheet_name": "Antlerz44",
+    "team": "HSC",
+    "team_full": "Horny Steel Crushers",
+    "display_name": "Antlerz44",
+    "twitch_channel": "antlerz44",
+    "racetime_id": "DMLq1oZ97M3OeQG8",
+    "discord_id": "189194395906473984"
+  },
+  {
+    "sheet_name": "eatmysteel",
+    "team": "HSC",
+    "team_full": "Horny Steel Crushers",
+    "display_name": "eatmysteel",
+    "twitch_channel": "eatmysteel1",
+    "racetime_id": "RbOXG3ydVYBZVKq1",
+    "discord_id": "494266813811785730"
+  },
+  {
+    "sheet_name": "syscrusher",
+    "team": "HSC",
+    "team_full": "Horny Steel Crushers",
+    "display_name": "syscrusher",
+    "twitch_channel": "syscrusher",
+    "racetime_id": "Ek8wpok55dB5KQyV",
+    "discord_id": "328771565934215169"
+  },
+  {
+    "sheet_name": "KingDahl",
+    "team": "LKU",
+    "team_full": "Lion's Opening King's Gambit Ultra Variation",
+    "display_name": "KingDahl",
+    "twitch_channel": "kingdahl",
+    "racetime_id": "XzVwZWqDD5o5k8eb",
+    "discord_id": "234120307965820929"
+  },
+  {
+    "sheet_name": "LysanderTheLion",
+    "team": "LKU",
+    "team_full": "Lion's Opening King's Gambit Ultra Variation",
+    "display_name": "LysanderTheLion",
+    "twitch_channel": "lysanderthelion",
+    "racetime_id": "dm1LPWj7NnBEnVx6",
+    "discord_id": "294216709886181386"
+  },
+  {
+    "sheet_name": "Ultralavos",
+    "team": "LKU",
+    "team_full": "Lion's Opening King's Gambit Ultra Variation",
+    "display_name": "Ultralavos",
+    "twitch_channel": "ultralavos",
+    "racetime_id": "5JlzyB7KRZBV4GED",
+    "discord_id": "218986696597962752"
+  },
+  {
+    "sheet_name": "cUstOm",
+    "team": "MiB",
+    "team_full": "Midwest Is Best",
+    "display_name": "cUstOm",
+    "twitch_channel": "customshield",
+    "racetime_id": "Ek8wpokYMkB5KQyV",
+    "discord_id": "221530378731520000"
+  },
+  {
+    "sheet_name": "jessandy8",
+    "team": "MiB",
+    "team_full": "Midwest Is Best",
+    "display_name": "jessandy8",
+    "twitch_channel": "jessandy8",
+    "racetime_id": "b8GPMWw7ENW1nEk0",
+    "discord_id": "690026884339335240"
+  },
+  {
+    "sheet_name": "TruantGamer",
+    "team": "MiB",
+    "team_full": "Midwest Is Best",
+    "display_name": "TruantGamer",
+    "twitch_channel": "truantgamer",
+    "racetime_id": "wezlNoAQ64omq6db",
+    "discord_id": "283422053229658112"
+  },
+  {
+    "sheet_name": "Droois",
+    "team": "SC",
+    "team_full": "Shadow Cartel",
+    "display_name": "Droois",
+    "twitch_channel": "grindhalo",
+    "racetime_id": "NqO2YoLLAbo9QEya",
+    "discord_id": "346090879309840388"
+  },
+  {
+    "sheet_name": "Shatty",
+    "team": "SC",
+    "team_full": "Shadow Cartel",
+    "display_name": "Shatty",
+    "twitch_channel": "shatty",
+    "racetime_id": "NX5783JdalWqlL0a",
+    "discord_id": "223632940322521088"
+  },
+  {
+    "sheet_name": "YmustUhateME",
+    "team": "SC",
+    "team_full": "Shadow Cartel",
+    "display_name": "YmustUhateME",
+    "twitch_channel": "ymustuhateme",
+    "racetime_id": "5JlzyB78nx3V4GED",
+    "discord_id": "148645271415291904"
+  },
+  {
+    "sheet_name": "BrewersFanJP",
+    "team": "TBC",
+    "team_full": "Three Bomb Count",
+    "display_name": "BrewersFanJP",
+    "twitch_channel": "brewersfanjp",
+    "racetime_id": "NJrM6PoYkQBRdm5v",
+    "discord_id": "155816473682509824"
+  },
+  {
+    "sheet_name": "ISUMatt",
+    "team": "TBC",
+    "team_full": "Three Bomb Count",
+    "display_name": "ISUMatt",
+    "twitch_channel": "isumatt6174",
+    "racetime_id": "497NdWRw9OBmqXen",
+    "discord_id": "443959797814001675"
+  },
+  {
+    "sheet_name": "Sigil",
+    "team": "TBC",
+    "team_full": "Three Bomb Count",
+    "display_name": "Sigil",
+    "twitch_channel": "sigil711",
+    "racetime_id": "JrM6PoY61AWRdm5v",
+    "discord_id": "235252861934632960"
+  },
+  {
+    "sheet_name": "Hyo24",
+    "team": "TLR",
+    "team_full": "The Last Resorts",
+    "display_name": "Hyo24",
+    "twitch_channel": "hyo24",
+    "racetime_id": "nxMQeoxENvWapX0A",
+    "discord_id": "215607751873789952"
+  },
+  {
+    "sheet_name": "Neokefka",
+    "team": "TLR",
+    "team_full": "The Last Resorts",
+    "display_name": "Neokefka",
+    "twitch_channel": "neokefka",
+    "racetime_id": "xldAMBl2PpoaOP57",
+    "discord_id": "638216049300340757"
+  },
+  {
+    "sheet_name": "Picklesandbeer",
+    "team": "TLR",
+    "team_full": "The Last Resorts",
+    "display_name": "Picklesandbeer",
+    "twitch_channel": "picklesandbier",
+    "racetime_id": "MqzQPW4bYw31L2R5",
+    "discord_id": "364859872182796289"
+  },
+  {
+    "sheet_name": "Iceblue",
+    "team": "TML",
+    "team_full": "The Missing Links",
+    "display_name": "Iceblue",
+    "twitch_channel": "iceblue",
+    "racetime_id": "nxMQeox67eBapX0A",
+    "discord_id": "141068488260190208"
+  },
+  {
+    "sheet_name": "Merks",
+    "team": "TML",
+    "team_full": "The Missing Links",
+    "display_name": "Merks",
+    "twitch_channel": "moneymerks",
+    "racetime_id": "zM65aWXkqao1y8q0",
+    "discord_id": "469720468342046741"
+  },
+  {
+    "sheet_name": "Thomjay",
+    "team": "TML",
+    "team_full": "The Missing Links",
+    "display_name": "Thomjay",
+    "twitch_channel": "thomjay",
+    "racetime_id": "NX5783JGJzoqlL0a",
+    "discord_id": "166210555390984193"
+  },
+  {
+    "sheet_name": "BlessedBe",
+    "team": "TUG",
+    "team_full": "Three Unique Gamers",
+    "display_name": "BlessedBe",
+    "twitch_channel": "blessedbe_",
+    "racetime_id": "5zbdeWeenJWYPK8O",
+    "discord_id": "82305557121212416"
+  },
+  {
+    "sheet_name": "Nochibato",
+    "team": "TUG",
+    "team_full": "Three Unique Gamers",
+    "display_name": "Nochibato",
+    "twitch_channel": "nochibato",
+    "racetime_id": "1jgrbWPlV5We7P5Q",
+    "discord_id": "224241857532526592"
+  },
+  {
+    "sheet_name": "OzzSolo",
+    "team": "TUG",
+    "team_full": "Three Unique Gamers",
+    "display_name": "OzzSolo",
+    "twitch_channel": "ozzsolo",
+    "racetime_id": "N9rVpW9ZAGBjq8Ll",
+    "discord_id": "352574930145247236"
+  },
+  {
+    "sheet_name": "Bogie",
+    "team": "Tek",
+    "team_full": "TekTITANS",
+    "display_name": "Bogie",
+    "twitch_channel": "bogiesmalls",
+    "racetime_id": "raP6yoan7KWlV4zN",
+    "discord_id": "362434664289271809"
+  },
+  {
+    "sheet_name": "Ramrodius",
+    "team": "Tek",
+    "team_full": "TekTITANS",
+    "display_name": "Ramrodius",
+    "twitch_channel": "ramrodius",
+    "racetime_id": "R6ym83mpxpBPd1Xr",
+    "discord_id": "505687438547484682"
+  },
+  {
+    "sheet_name": "ThePirateSheep",
+    "team": "Tek",
+    "team_full": "TekTITANS",
+    "display_name": "ThePirateSheep",
+    "twitch_channel": "thepiratesheep",
+    "racetime_id": "yZ2Dv306v5WewXma",
+    "discord_id": "314223190840836098"
+  }
+]

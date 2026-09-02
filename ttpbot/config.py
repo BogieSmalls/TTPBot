@@ -17,6 +17,19 @@ TTP_ROOM_INFO_PREFIXES = (
     POST_SEASON_ROOM_INFO_PREFIX,
 )
 
+# Z1RR League rooms. Separate from the TTP prefixes above: League rooms
+# share the "Beat the game" goal, so this prefix is what distinguishes them.
+LEAGUE_ROOM_INFO_PREFIX = "League: "
+
+# Default League schedule spreadsheet. Lives here (not in ttpbot.league)
+# so core code (runtime_config.py) does not need to import the League
+# feature package just to resolve startup configuration.
+DEFAULT_SCHEDULE_URL = (
+    'https://docs.google.com/spreadsheets/d/'
+    '1MEyO03Wib6iyH7-75e-orh2K75AATwEoJB9HlTe9VgM/export'
+    '?format=csv&gid=2033319762'
+)
+
 ROOM_OPEN_MINUTES_BEFORE = 30
 WEBHOOK_MINUTES_BEFORE = 20  # Post webhook 20 min before race (10 min after room opens)
 
