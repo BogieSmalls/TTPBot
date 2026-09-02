@@ -318,11 +318,14 @@ git commit -m "feat: add League roster loading and name resolution"
 
 **Files:**
 - Create: `ttpbot/league/schedule.py`
+- Modify: `ttpbot/config.py` (add one constant)
 - Test: `tests/test_league_schedule.py`
 
 **Interfaces:**
 - Consumes: `Racer`, `Roster`, `UnknownRacerError` from Task 1.
-- Produces: `LeagueRace` (frozen dataclass: `start: datetime`, `runner_one: Racer`, `runner_two: Racer`, `channel: str | None`) with properties `slug -> str`, `key -> str`, `title -> str`; `parse_schedule(csv_text: str, roster: Roster, logger) -> list[LeagueRace]`; `LEAGUE_ROOM_INFO_PREFIX = 'League: '`.
+- Produces: `LeagueRace` (frozen dataclass: `start: datetime`, `runner_one: Racer`, `runner_two: Racer`, `channel: str | None`) with properties `slug -> str`, `key -> str`, `title -> str`; `parse_schedule(csv_text: str, roster: Roster, logger) -> list[LeagueRace]`; and the constant `LEAGUE_ROOM_INFO_PREFIX = 'League: '` **in `ttpbot/config.py`**.
+
+**Where the room-title prefix lives.** `LEAGUE_ROOM_INFO_PREFIX` goes in `ttpbot/config.py`, beside its siblings `REGULAR_SEASON_ROOM_INFO_PREFIX` and `POST_SEASON_ROOM_INFO_PREFIX` — not in this module. Task 4 needs it in `ttpbot/room_policy.py`, which is core code; importing it from the `league` subpackage would make core depend on a feature package. Adding a constant to `config.py` is additive and does not alter any TTP value.
 
 **Why the key sorts but the title does not:** the key identifies *which two racers* are in a match, so swapping the runner columns in the sheet must not produce a second room. The title reads the way the schedule reads.
 
@@ -482,7 +485,17 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'ttpbot.league.schedule
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `ttpbot/league/schedule.py`:
+First, in `ttpbot/config.py`, add the constant immediately after `TTP_ROOM_INFO_PREFIXES`:
+
+```python
+# Z1RR League rooms. Separate from the TTP prefixes above: League rooms
+# share the "Beat the game" goal, so this prefix is what distinguishes them.
+LEAGUE_ROOM_INFO_PREFIX = "League: "
+```
+
+Change nothing else in `config.py`.
+
+Then create `ttpbot/league/schedule.py`:
 
 ```python
 """Parse the League schedule spreadsheet into races.
@@ -499,10 +512,8 @@ import io
 import re
 from typing import Optional
 
-from ..config import TIMEZONE
+from ..config import LEAGUE_ROOM_INFO_PREFIX, TIMEZONE
 from .roster import Racer, UnknownRacerError
-
-LEAGUE_ROOM_INFO_PREFIX = 'League: '
 
 DATE_FORMAT = '%m/%d/%Y'
 TIME_FORMATS = ('%I:%M:%S %p', '%I:%M %p', '%H:%M:%S', '%H:%M')
@@ -607,7 +618,7 @@ Expected: PASS, 13 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add ttpbot/league/schedule.py tests/test_league_schedule.py
+git add ttpbot/config.py ttpbot/league/schedule.py tests/test_league_schedule.py
 git commit -m "feat: parse the League schedule sheet into races"
 ```
 
@@ -891,12 +902,20 @@ Expected: FAIL — `ImportError: cannot import name 'is_league_room'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `ttpbot/room_policy.py`, add the import and the function:
+In `ttpbot/room_policy.py`, extend the existing `.config` import to include `LEAGUE_ROOM_INFO_PREFIX` (Task 2 added it there), so the import block becomes:
 
 ```python
-from .league.schedule import LEAGUE_ROOM_INFO_PREFIX
+from .config import (
+    GOAL_NAME,
+    LEAGUE_ROOM_INFO_PREFIX,
+    POST_SEASON_GOAL_NAME,
+    TTP_ROOM_INFO_PREFIXES,
+)
+```
 
+Do not import from the `league` subpackage here — `room_policy` is core code and must not depend on a feature package. Then add the function:
 
+```python
 def is_league_room(race_data):
     """Return True for Z1RR League rooms this bot scheduled.
 
@@ -1086,11 +1105,10 @@ In `ttpbot/handler.py`, extend the room-policy import:
 from .room_policy import is_league_room, is_ttp_scheduled_room
 ```
 
-and add below the existing imports:
+add `LEAGUE_ROOM_INFO_PREFIX` to the existing `from .config import (...)` block (keeping it alphabetical among the names already imported there), and add below the existing imports:
 
 ```python
 from .league.roster import RosterError, UnknownRacerError, load_roster
-from .league.schedule import LEAGUE_ROOM_INFO_PREFIX
 ```
 
 In `__init__`, after `self.ttp_scheduled_room = False`, add:
@@ -2189,6 +2207,7 @@ git commit -m "feat: wire League scheduling behind a default-off flag"
 Create `tests/test_league_isolation.py`:
 
 ```python
+import logging
 import unittest
 from datetime import datetime
 
@@ -2203,6 +2222,55 @@ from ttpbot.config import (
 )
 from ttpbot.league.scheduler import LeagueScheduler
 from ttpbot.state import ENTRY_KINDS
+
+QUIET = logging.getLogger('test-league-isolation')
+QUIET.addHandler(logging.NullHandler())
+QUIET.propagate = False
+
+
+class _FakeLoop:
+    """Records tasks instead of running them."""
+
+    def __init__(self):
+        self.tasks = []
+
+    def create_task(self, task):
+        self.tasks.append(task)
+        return task
+
+    def set_exception_handler(self, handler):
+        self.handler = handler
+
+    def run_forever(self):
+        self.ran = True
+
+
+class _FakeScheduler:
+    # A plain method, not a coroutine: an un-awaited coroutine would emit a
+    # RuntimeWarning and the suite's output must stay pristine.
+    def run(self):
+        return 'league_scheduler'
+
+
+def _bot_with_fake_loop(league_enabled):
+    """A TTPBot whose loop and long-running tasks are inert stubs."""
+    bot = object.__new__(bot_module.TTPBot)
+    loop = _FakeLoop()
+    bot.loop = loop
+    bot.logger = QUIET
+    bot.league_enabled = league_enabled
+    bot.build_calls = 0
+
+    def _build():
+        bot.build_calls += 1
+        return _FakeScheduler()
+
+    bot._build_league_scheduler = _build
+    bot.reauthorize = lambda: 'reauthorize'
+    bot.refresh_races = lambda: 'refresh_races'
+    bot.race_scheduler = lambda: 'race_scheduler'
+    bot.handle_exception = lambda active_loop, context: None
+    return bot, loop
 
 
 class TtpIsolationTests(unittest.TestCase):
@@ -2230,9 +2298,21 @@ class TtpIsolationTests(unittest.TestCase):
         self.assertIn('created_races', ENTRY_KINDS)
         self.assertIn('sent_webhooks', ENTRY_KINDS)
 
-    def test_league_scheduling_is_off_unless_asked_for(self):
-        bot = object.__new__(bot_module.TTPBot)
-        self.assertFalse(getattr(bot, 'league_enabled', False))
+    def test_run_starts_no_league_task_when_league_is_disabled(self):
+        bot, loop = _bot_with_fake_loop(league_enabled=False)
+
+        bot.run()
+
+        self.assertEqual(bot.build_calls, 0)
+        self.assertEqual(len(loop.tasks), 3)
+
+    def test_run_starts_the_league_task_when_league_is_enabled(self):
+        bot, loop = _bot_with_fake_loop(league_enabled=True)
+
+        bot.run()
+
+        self.assertEqual(bot.build_calls, 1)
+        self.assertEqual(len(loop.tasks), 4)
 
 
 if __name__ == '__main__':
