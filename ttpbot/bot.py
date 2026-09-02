@@ -14,7 +14,7 @@ from .config import (
 from .handler import TTPRaceHandler
 from .paths import data_dir as configured_data_dir
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
-from .room_policy import is_ttp_scheduled_room
+from .room_policy import is_league_room, is_ttp_scheduled_room
 from .state import DestinationStateStore, UNCERTAIN_RACE
 
 from .provider import ProviderConfigurationError
@@ -99,12 +99,14 @@ class TTPBot(Bot):
         }
 
     def should_handle(self, race_data):
-        """Handle only TTP-managed rooms.
+        """Handle only rooms this bot scheduled.
 
-        The z1r category on racetime.gg is shared with the wider Z1R community,
-        so TTPBot stays out of races it did not schedule.
+        The z1r category on racetime.gg is shared with the wider Z1R
+        community, so TTPBot stays out of races it did not open.
         """
-        return super().should_handle(race_data) and is_ttp_scheduled_room(race_data)
+        if not super().should_handle(race_data):
+            return False
+        return is_ttp_scheduled_room(race_data) or is_league_room(race_data)
 
     def run(self):
         """Add the race scheduler task alongside the standard bot tasks."""
