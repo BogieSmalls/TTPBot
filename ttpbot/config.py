@@ -17,6 +17,10 @@ TTP_ROOM_INFO_PREFIXES = (
     POST_SEASON_ROOM_INFO_PREFIX,
 )
 
+# Z1RR League rooms. Separate from the TTP prefixes above: League rooms
+# share the "Beat the game" goal, so this prefix is what distinguishes them.
+LEAGUE_ROOM_INFO_PREFIX = "League: "
+
 ROOM_OPEN_MINUTES_BEFORE = 30
 WEBHOOK_MINUTES_BEFORE = 20  # Post webhook 20 min before race (10 min after room opens)
 
