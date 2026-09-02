@@ -26,6 +26,10 @@ def main():
     parser.add_argument('--data-dir')
     parser.add_argument('--discord-webhook-url')
     parser.add_argument('--race-seekers-role-id')
+    parser.add_argument('--league-enabled', default=None,
+                        help='enable Z1RR League scheduling (default off)')
+    parser.add_argument('--league-schedule-url')
+    parser.add_argument('--league-discord-webhook-url')
     parser.add_argument('--allow-insecure-loopback', action='store_true', default=None,
                         help='allow HTTP only on localhost/127.0.0.1 outside production')
     parser.add_argument('--check-config', action='store_true',
@@ -50,7 +54,9 @@ def main():
     if missing:
         parser.error('missing required config: ' + ', '.join(missing))
     if args.check_config:
-        print('TTPBOT_CONFIG=PASS destination={}'.format(config.provider.destination_key))
+        print('TTPBOT_CONFIG=PASS destination={} league={}'.format(
+            config.provider.destination_key,
+            'on' if config.league_enabled else 'off'))
         return 0
     if args.probe:
         from .preflight import run_preflight
@@ -76,6 +82,9 @@ def main():
         discord_webhook_url=config.discord_webhook_url,
         race_seekers_role_id=config.race_seekers_role_id,
         data_dir=config.data_dir,
+        league_enabled=config.league_enabled,
+        league_schedule_url=config.league_schedule_url,
+        league_discord_webhook_url=config.league_discord_webhook_url,
     )
     bot.run()
     return 0

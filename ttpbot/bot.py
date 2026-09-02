@@ -61,10 +61,16 @@ class TTPBot(Bot):
     def __init__(self, *args, provider=None, discord_webhook_url=None,
 
                  race_seekers_role_id=None, data_dir=None,
-                 created_race_store=None, sent_webhook_store=None, **kwargs):
+                 created_race_store=None, sent_webhook_store=None,
+                 league_enabled=False, league_schedule_url=None,
+                 league_discord_webhook_url=None, **kwargs):
         self.provider = provider
         self.discord_webhook_url = discord_webhook_url
         self.race_seekers_role_id = race_seekers_role_id
+        self.league_enabled = league_enabled
+        self.league_schedule_url = league_schedule_url
+        self.league_discord_webhook_url = league_discord_webhook_url
+        self.data_dir = data_dir or configured_data_dir()
         if created_race_store is None or sent_webhook_store is None:
             default_created, default_sent = build_state_stores(provider, data_dir)
             created_race_store = created_race_store or default_created
@@ -108,11 +114,39 @@ class TTPBot(Bot):
             return False
         return is_ttp_scheduled_room(race_data) or is_league_room(race_data)
 
+    def _build_league_scheduler(self):
+        """Construct the League scheduler, or None if it cannot start."""
+        from .league.roster import RosterError, load_roster
+        from .league.scheduler import LeagueScheduler, ScheduleSource
+
+        try:
+            roster = load_roster()
+        except RosterError:
+            self.logger.error('League roster is unusable; League scheduling is off')
+            return None
+        root = self.data_dir
+        created = DestinationStateStore(
+            'league_races.json', self.provider.destination_key,
+            'league_created_races', data_dir=root)
+        webhooks = DestinationStateStore(
+            'league_webhooks.json', self.provider.destination_key,
+            'league_sent_webhooks', data_dir=root)
+        source = ScheduleSource(self.league_schedule_url, roster, self.logger)
+        return LeagueScheduler(
+            bot=self, source=source, created_store=created,
+            webhook_store=webhooks,
+            webhook_url=self.league_discord_webhook_url, logger=self.logger)
+
     def run(self):
         """Add the race scheduler task alongside the standard bot tasks."""
         self.loop.create_task(self.reauthorize())
         self.loop.create_task(self.refresh_races())
         self.loop.create_task(self.race_scheduler())
+        if self.league_enabled:
+            scheduler = self._build_league_scheduler()
+            if scheduler is not None:
+                self.logger.info('League scheduling is enabled')
+                self.loop.create_task(scheduler.run())
         self.loop.set_exception_handler(self.handle_exception)
         self.loop.run_forever()
 
