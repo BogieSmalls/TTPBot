@@ -23,6 +23,9 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_Z1RR_RACEROOM_URL",
             "TTPBOT_DATA_DIR",
             "TTPBOT_ENVIRONMENT",
+            "TTPBOT_LEAGUE_ENABLED",
+            "TTPBOT_LEAGUE_SCHEDULE_URL",
+            "TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL",
         }
         variables = {
             line.split("=", 1)[0]
@@ -36,6 +39,7 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_DISCORD_WEBHOOK_URL",
             "TTPBOT_RACE_SEEKERS_ROLE_ID",
             "TTPBOT_Z1RR_DISCORD_URL",
+            "TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL",
         ):
             line = next(line for line in self.env.splitlines() if line.startswith(secret + "="))
             self.assertEqual(line, secret + "=")
