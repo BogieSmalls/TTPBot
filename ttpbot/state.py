@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import tempfile
 
@@ -14,10 +15,15 @@ class StateStoreError(ValueError):
     """Persistent scheduler state is unsafe, corrupt, or belongs elsewhere."""
 
 
-ENTRY_KINDS = {"created_races", "sent_webhooks"}
+LEAGUE_ENTRY_KINDS = {"league_created_races", "league_sent_webhooks"}
+CREATED_ENTRY_KINDS = {"created_races", "league_created_races"}
+ENTRY_KINDS = {"created_races", "sent_webhooks"} | LEAGUE_ENTRY_KINDS
+LEAGUE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 UNCERTAIN_RACE = "__uncertain_room_creation__"
 STATE_FIELDS = {"schema_version", "destination_key", "entries"}
 MAX_STATE_BYTES = 4 * 1024 * 1024
+MAX_LEAGUE_KEY_LENGTH = 200
+MAX_KEY_LENGTH = 100
 
 
 def _timestamp_suffix():
@@ -75,11 +81,27 @@ class DestinationStateStore:
             raise StateStoreError("state path escapes TTPBOT_DATA_DIR") from exc
         return target
 
+    def _key_timestamp(self, value):
+        """Return the ISO timestamp portion of a state key."""
+        if self.entry_kind in LEAGUE_ENTRY_KINDS:
+            return value.partition("|")[0]
+        return value
+
     def _validate_key(self, value):
-        if not isinstance(value, str) or len(value) > 100:
+        league = self.entry_kind in LEAGUE_ENTRY_KINDS
+        limit = MAX_LEAGUE_KEY_LENGTH if league else MAX_KEY_LENGTH
+        if not isinstance(value, str) or len(value) > limit:
             raise StateStoreError("state entry key is invalid")
+        if league:
+            timestamp, separator, slug = value.partition("|")
+            if not separator or not LEAGUE_SLUG.fullmatch(slug):
+                raise StateStoreError("league state entry key is invalid")
+        else:
+            if "|" in value:
+                raise StateStoreError("state entry key is invalid")
+            timestamp = value
         try:
-            parsed = datetime.fromisoformat(value)
+            parsed = datetime.fromisoformat(timestamp)
         except ValueError as exc:
             raise StateStoreError("state entry key must be an ISO timestamp") from exc
         if parsed.tzinfo is None:
@@ -91,7 +113,7 @@ class DestinationStateStore:
         cleaned = {}
         for key, value in entries.items():
             self._validate_key(key)
-            if self.entry_kind == "created_races":
+            if self.entry_kind in CREATED_ENTRY_KINDS:
                 if not isinstance(value, str) or not value:
                     raise StateStoreError("created-race state value is invalid")
                 if value == UNCERTAIN_RACE:
@@ -202,7 +224,7 @@ class DestinationStateStore:
         retained = {
             key: value
             for key, value in entries.items()
-            if datetime.fromisoformat(key) > cutoff
+            if datetime.fromisoformat(self._key_timestamp(key)) > cutoff
         }
         if retained != entries:
             self.save(retained)
@@ -228,7 +250,7 @@ class DestinationStateStore:
             value = json.loads(legacy.read_text(encoding="utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise StateStoreError("legacy state is corrupt") from exc
-        if self.entry_kind == "created_races":
+        if self.entry_kind in CREATED_ENTRY_KINDS:
             if isinstance(value, list):
                 entries = {key: self.provider.origin + "/{}/legacy-unknown".format(self.provider.category) for key in value}
             elif isinstance(value, dict):
