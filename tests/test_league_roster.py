@@ -103,6 +103,25 @@ class ShippedRosterTests(unittest.TestCase):
         self.assertEqual(len(teams), 14)
         self.assertEqual({len(v) for v in teams.values()}, {3})
 
+    def test_display_name_matches_sheet_name_for_every_racer(self):
+        # The room title (league/schedule.py) is built from display_name,
+        # but restart recovery (league/roster.py via handler._league_invite_ids)
+        # resolves that title's names through the sheet_name index. Nothing
+        # in the type system enforces display_name == sheet_name, so a
+        # divergent roster edit would silently make resolution fail and
+        # invite nobody. Guard the invariant here instead.
+        for racer in self.roster:
+            with self.subTest(sheet_name=racer.sheet_name):
+                self.assertIs(self.roster.resolve(racer.display_name), racer)
+
+    def test_no_display_name_contains_the_title_separator(self):
+        # The title fallback in handler._league_invite_ids() splits the
+        # room title on ' vs. '; a display_name containing that literal
+        # substring would make the split ambiguous.
+        for racer in self.roster:
+            with self.subTest(display_name=racer.display_name):
+                self.assertNotIn(' vs. ', racer.display_name)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -22,7 +22,6 @@ from .config import (
     TIMEZONE,
     Z1RR_DISCORD_URL,
 )
-from .league.roster import RosterError, UnknownRacerError, load_roster
 from .paths import ensure_parent_dir, runtime_path
 from .room_policy import is_league_room, is_ttp_scheduled_room
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
@@ -144,7 +143,6 @@ class TTPRaceHandler(RaceHandler):
         self.bot_created = False
         self.ttp_scheduled_room = False
         self.league_room = False
-        self.league_invited = False
         self.reminder_task = None
         self.pending_hash = None
         self.pending_hash_user = None
@@ -232,6 +230,7 @@ class TTPRaceHandler(RaceHandler):
             self.logger.warning('[%s] League title is unparseable: %r',
                                 self.data.get('name'), info_bot)
             return []
+        from .league.roster import RosterError, UnknownRacerError, load_roster
         try:
             roster = load_roster()
             return [roster.resolve(name).racetime_id for name in names]
@@ -241,14 +240,25 @@ class TTPRaceHandler(RaceHandler):
             return []
 
     async def _send_league_invites(self):
-        """Invite both racers exactly once."""
-        if self.league_invited:
+        """Invite both racers exactly once.
+
+        The once-only guard lives in self.state, not an instance attribute:
+        racetime_bot discards this handler when its websocket task ends and
+        builds a new one (with the same self.state dict) for refresh_races
+        reconnects, so an instance attribute would forget the invite and
+        re-invite racers who are already entrants. self.state is lost on a
+        process restart, which is intentional -- the title-based fallback in
+        _league_invite_ids() is what recovers invites after a restart.
+        """
+        state = self.state if isinstance(self.state, dict) else None
+        if state is not None and state.get('league_invited'):
             return
         invite_ids = self._league_invite_ids()
         if not invite_ids:
             return
         # Set before awaiting so a concurrent begin() cannot double-invite.
-        self.league_invited = True
+        if state is not None:
+            state['league_invited'] = True
         for racetime_id in invite_ids:
             await self.invite_user(racetime_id)
         self.logger.info('[%s] invited %d League racers',

@@ -1,6 +1,7 @@
 import logging
 import unittest
 from datetime import datetime
+from unittest.mock import Mock
 
 from ttpbot.config import TIMEZONE
 from ttpbot.league.roster import Racer, Roster
@@ -81,6 +82,18 @@ class ParseScheduleTests(unittest.TestCase):
     def test_short_and_blank_rows_are_ignored(self):
         races = self.parse(',,,,,,,,,,\n9/3/2026\n')
         self.assertEqual(races, [])
+
+    def test_populated_short_rows_are_logged_but_blank_rows_stay_silent(self):
+        logger = Mock()
+        parse_schedule(HEADER + ',,,,,,,,,,\n9/3/2026\n', ROSTER, logger)
+
+        # A wholesale shape change (e.g. an HTML sign-in page instead of
+        # the sheet) should be visible; a trailing blank line should not
+        # spam a warning every tick.
+        logger.warning.assert_called_once()
+        message, row_number, column_count, minimum = logger.warning.call_args.args
+        self.assertEqual(row_number, 3)
+        self.assertEqual(column_count, 1)
 
     def test_same_racer_twice_is_rejected(self):
         races = self.parse('9/3/2026,8:00:00 PM,1,(SC) Droois,(SC) Droois,,,,,,\n')

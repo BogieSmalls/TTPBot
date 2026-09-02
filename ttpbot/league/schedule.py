@@ -82,6 +82,15 @@ def parse_schedule(csv_text, roster, logger):
     rows = list(csv.reader(io.StringIO(csv_text)))
     for number, row in enumerate(rows[1:], start=2):
         if len(row) < MINIMUM_COLUMNS:
+            # A blank trailing line is normal and stays silent; a
+            # populated-but-short row is the signal that the sheet's
+            # column shape changed (or the response isn't the sheet at
+            # all, e.g. an HTML sign-in page), so it's worth surfacing.
+            if any(cell.strip() for cell in row):
+                logger.warning(
+                    'League row %d skipped: only %d column(s), expected at least %d',
+                    number, len(row), MINIMUM_COLUMNS,
+                )
             continue
         if not any(cell.strip() for cell in row):
             continue

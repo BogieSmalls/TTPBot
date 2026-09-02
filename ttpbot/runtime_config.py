@@ -5,6 +5,7 @@ import re
 from typing import Optional
 from urllib.parse import urlsplit
 
+from .config import DEFAULT_SCHEDULE_URL
 from .provider import ProviderConfigurationError, RacetimeProvider
 
 
@@ -146,8 +147,6 @@ def resolve_bot_config(args, env=None):
     configured_data_dir = _arg_or_env(args, "data_dir", source, "TTPBOT_DATA_DIR")
     if not configured_data_dir and environment != "production":
         configured_data_dir = str(Path(__file__).resolve().parent.parent)
-
-    from .league.scheduler import DEFAULT_SCHEDULE_URL
 
     league_enabled = _boolean(
         _arg_or_env(args, "league_enabled", source, "TTPBOT_LEAGUE_ENABLED"),

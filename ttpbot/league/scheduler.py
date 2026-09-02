@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 import aiohttp
 
+from ..config import DEFAULT_SCHEDULE_URL
 from ..state import UNCERTAIN_RACE
 from .announce import send_league_announcement
 from .rooms import create_league_room
@@ -20,11 +21,6 @@ LEAGUE_START_BUFFER_MINUTES = 5
 SCHEDULE_CACHE_MAX_AGE = timedelta(hours=6)
 STATE_RETENTION = timedelta(hours=2)
 TICK_SECONDS = 60
-DEFAULT_SCHEDULE_URL = (
-    'https://docs.google.com/spreadsheets/d/'
-    '1MEyO03Wib6iyH7-75e-orh2K75AATwEoJB9HlTe9VgM/export'
-    '?format=csv&gid=2033319762'
-)
 
 
 class ScheduleSource:
@@ -49,7 +45,21 @@ class ScheduleSource:
                 body = await response.text()
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
             return self._stale(now, exc)
-        self._races = parse_schedule(body, self.roster, self.logger)
+
+        parsed = parse_schedule(body, self.roster, self.logger)
+        if not parsed and self._races:
+            # A 200 with zero usable races, after previously having some,
+            # means the sheet likely stopped being world-readable (Google
+            # serves an HTML sign-in page with HTTP 200) or its column
+            # shape changed. Keep serving the cached races and leave
+            # _fetched_at untouched so the staleness guard still applies,
+            # rather than silently opening zero rooms forever.
+            self.logger.error(
+                'League schedule fetch returned no usable races; '
+                'keeping previous snapshot of %d race(s)', len(self._races))
+            return list(self._races)
+
+        self._races = parsed
         self._fetched_at = now
         return list(self._races)
 

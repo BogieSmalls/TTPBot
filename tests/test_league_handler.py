@@ -31,7 +31,6 @@ def make_handler(state):
     handler.ttp_scheduled_room = False
     handler.reminder_task = None
     handler.league_room = False
-    handler.league_invited = False
     handler.sahasrahbot_present = False
     handler.seed_rolled = False
     handler.history_command_cutoff_utc = None
@@ -57,6 +56,23 @@ class LeagueInviteTests(unittest.IsolatedAsyncioTestCase):
         await handler.begin()
 
         self.assertEqual(handler.invite_user.await_count, 2)
+
+    async def test_does_not_reinvite_when_a_reconnect_recreates_the_handler(self):
+        # racetime_bot deletes the handler when its websocket task ends and
+        # builds a brand-new one for the same race on reconnect, but
+        # self.state is the SAME dict object across that recreation. The
+        # once-only guard must live in that shared state, not on the
+        # instance, or the second handler invites both racers again.
+        shared_state = {'league_race': {'invite': ['rt-sir', 'rt-wind']}}
+
+        first = make_handler(shared_state)
+        await first.begin()
+
+        second = make_handler(shared_state)
+        await second.begin()
+
+        first.invite_user.assert_awaited()
+        second.invite_user.assert_not_awaited()
 
     async def test_schedules_no_reminders_in_a_league_room(self):
         handler = make_handler({'league_race': {'invite': ['rt-sir', 'rt-wind']}})
