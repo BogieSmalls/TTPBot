@@ -97,6 +97,52 @@ class RunReachesRunForeverTests(unittest.TestCase):
         )
         bot.logger.error.assert_called()
 
+    def test_run_creates_exactly_three_ttp_tasks_when_league_is_disabled(self):
+        """When league_enabled=False, run() creates only the three TTP tasks."""
+        bot = bot_for_league(league_enabled=False)
+        bot.loop = FakeLoop()
+        bot.handle_exception = Mock()
+        bot.reauthorize = lambda: 'reauthorize-marker'
+        bot.refresh_races = lambda: 'refresh-races-marker'
+        bot.race_scheduler = lambda: 'race-scheduler-marker'
+        bot._build_league_scheduler = Mock(return_value=Mock())
+
+        bot.run()
+
+        self.assertTrue(bot.loop.run_forever_called)
+        self.assertEqual(len(bot.loop.tasks), 3)
+        self.assertEqual(
+            bot.loop.tasks,
+            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker'],
+        )
+        # Verify _build_league_scheduler was never called
+        bot._build_league_scheduler.assert_not_called()
+
+    def test_run_creates_four_tasks_and_builds_league_when_league_is_enabled(self):
+        """When league_enabled=True and scheduler succeeds, run() creates four tasks."""
+        bot = bot_for_league(league_enabled=True)
+        bot.loop = FakeLoop()
+        bot.handle_exception = Mock()
+        bot.reauthorize = lambda: 'reauthorize-marker'
+        bot.refresh_races = lambda: 'refresh-races-marker'
+        bot.race_scheduler = lambda: 'race-scheduler-marker'
+        bot._build_league_scheduler = Mock(return_value=Mock())
+        # Mock the scheduler.run() coroutine
+        scheduler = Mock()
+        scheduler.run = lambda: 'league-scheduler-marker'
+        bot._build_league_scheduler.return_value = scheduler
+
+        bot.run()
+
+        self.assertTrue(bot.loop.run_forever_called)
+        self.assertEqual(len(bot.loop.tasks), 4)
+        self.assertEqual(
+            bot.loop.tasks,
+            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'league-scheduler-marker'],
+        )
+        # Verify _build_league_scheduler was called exactly once
+        bot._build_league_scheduler.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()
