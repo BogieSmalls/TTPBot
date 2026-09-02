@@ -15,7 +15,7 @@ from .handler import TTPRaceHandler
 from .paths import data_dir as configured_data_dir
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
 from .room_policy import is_league_room, is_ttp_scheduled_room
-from .state import DestinationStateStore, UNCERTAIN_RACE
+from .state import DestinationStateStore, StateStoreError, UNCERTAIN_RACE
 
 from .provider import ProviderConfigurationError
 
@@ -121,21 +121,23 @@ class TTPBot(Bot):
 
         try:
             roster = load_roster()
-        except RosterError:
-            self.logger.error('League roster is unusable; League scheduling is off')
+            root = self.data_dir
+            created = DestinationStateStore(
+                'league_races.json', self.provider.destination_key,
+                'league_created_races', data_dir=root)
+            webhooks = DestinationStateStore(
+                'league_webhooks.json', self.provider.destination_key,
+                'league_sent_webhooks', data_dir=root)
+            source = ScheduleSource(self.league_schedule_url, roster, self.logger)
+            return LeagueScheduler(
+                bot=self, source=source, created_store=created,
+                webhook_store=webhooks,
+                webhook_url=self.league_discord_webhook_url, logger=self.logger)
+        except (RosterError, StateStoreError):
+            self.logger.error(
+                'League scheduling is off (roster or state is unusable); '
+                'TTP scheduling is unaffected')
             return None
-        root = self.data_dir
-        created = DestinationStateStore(
-            'league_races.json', self.provider.destination_key,
-            'league_created_races', data_dir=root)
-        webhooks = DestinationStateStore(
-            'league_webhooks.json', self.provider.destination_key,
-            'league_sent_webhooks', data_dir=root)
-        source = ScheduleSource(self.league_schedule_url, roster, self.logger)
-        return LeagueScheduler(
-            bot=self, source=source, created_store=created,
-            webhook_store=webhooks,
-            webhook_url=self.league_discord_webhook_url, logger=self.logger)
 
     def run(self):
         """Add the race scheduler task alongside the standard bot tasks."""
