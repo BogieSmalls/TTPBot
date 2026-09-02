@@ -12,6 +12,7 @@ from racetime_bot import RaceHandler
 from .config import (
     HASH_ALIASES,
     HASH_ALIASES_MULTI,
+    LEAGUE_ROOM_INFO_PREFIX,
     RACE_NUMBER_MAP,
     REMINDER_SCHEDULE,
     SEED_PRESETS,
@@ -21,8 +22,9 @@ from .config import (
     TIMEZONE,
     Z1RR_DISCORD_URL,
 )
+from .league.roster import RosterError, UnknownRacerError, load_roster
 from .paths import ensure_parent_dir, runtime_path
-from .room_policy import is_ttp_scheduled_room
+from .room_policy import is_league_room, is_ttp_scheduled_room
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 
 CHAT_LOG_DIR = runtime_path('chat_logs')
@@ -141,6 +143,8 @@ class TTPRaceHandler(RaceHandler):
         self.scheduled_time = None
         self.bot_created = False
         self.ttp_scheduled_room = False
+        self.league_room = False
+        self.league_invited = False
         self.reminder_task = None
         self.pending_hash = None
         self.pending_hash_user = None
@@ -171,6 +175,7 @@ class TTPRaceHandler(RaceHandler):
 
     async def begin(self):
         self.ttp_scheduled_room = is_ttp_scheduled_room(self.data)
+        self.league_room = is_league_room(self.data)
         self.history_command_cutoff_utc = self._recent_room_history_cutoff()
 
         if self.ttp_scheduled_room:
@@ -197,10 +202,53 @@ class TTPRaceHandler(RaceHandler):
         else:
             self.scheduled_time = None
             self.bot_created = False
+            if self.league_room:
+                await self._send_league_invites()
 
         # Request chat history to detect prior seed rolls and, for TTP rooms,
         # avoid duplicate welcomes/reminders.
         await self.ws.send(json.dumps({'action': 'gethistory'}))
+
+    def _league_invite_ids(self):
+        """Return the racetime ids to invite in this League room.
+
+        Prefers state seeded by the scheduler at room creation. After a
+        restart that state is gone, so fall back to the room title, which
+        this automation wrote itself.
+        """
+        seeded = (self.state or {}).get('league_race') or {}
+        invite = seeded.get('invite')
+        if isinstance(invite, list) and all(isinstance(i, str) and i for i in invite):
+            return list(invite)
+
+        info_bot = self.data.get('info_bot', '') or ''
+        pairing = info_bot[len(LEAGUE_ROOM_INFO_PREFIX):]
+        names = pairing.split(' vs. ')
+        if len(names) != 2:
+            self.logger.warning('[%s] League title is unparseable: %r',
+                                self.data.get('name'), info_bot)
+            return []
+        try:
+            roster = load_roster()
+            return [roster.resolve(name).racetime_id for name in names]
+        except (RosterError, UnknownRacerError) as exc:
+            self.logger.warning('[%s] League invites unresolved: %s',
+                                self.data.get('name'), exc)
+            return []
+
+    async def _send_league_invites(self):
+        """Invite both racers exactly once."""
+        if self.league_invited:
+            return
+        invite_ids = self._league_invite_ids()
+        if not invite_ids:
+            return
+        # Set before awaiting so a concurrent begin() cannot double-invite.
+        self.league_invited = True
+        for racetime_id in invite_ids:
+            await self.invite_user(racetime_id)
+        self.logger.info('[%s] invited %d League racers',
+                         self.data.get('name'), len(invite_ids))
 
     async def chat_history(self, data):
         """Check chat history for existing bot messages to avoid duplicates."""
