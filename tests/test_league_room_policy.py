@@ -19,10 +19,41 @@ TTP_SEASON = {
 }
 COMMUNITY = {'goal': {'name': POST_SEASON_GOAL_NAME}, 'info_bot': 'Casual open room'}
 
+# A seed roll by another authorised category bot (e.g. SahasrahBot)
+# overwrites info_bot but never touches info_user.
+LEAGUE_SEED_OVERWROTE_INFO_BOT = {
+    'goal': {'name': POST_SEASON_GOAL_NAME},
+    'info_bot': (
+        'Seed: 4691165665847563006 - '
+        'Flags: oIbnPfPb0mR7ggY12zwI0QNIY620UnhU8kiC3'
+    ),
+    'info_user': 'League: Droois vs. Rhinohero',
+}
+
 
 class LeagueRoomPolicyTests(unittest.TestCase):
     def test_recognises_a_league_room(self):
         self.assertTrue(is_league_room(LEAGUE))
+
+    def test_recognised_after_a_seed_roll_overwrites_info_bot(self):
+        # The regression this fix exists for: SahasrahBot rolled a seed in
+        # the League room, overwriting info_bot, but info_user still holds
+        # the League title.
+        self.assertTrue(is_league_room(LEAGUE_SEED_OVERWROTE_INFO_BOT))
+
+    def test_recognised_when_only_info_bot_carries_the_title(self):
+        # Rooms opened before this fix only ever had the title in info_bot.
+        self.assertTrue(is_league_room({
+            'goal': {'name': POST_SEASON_GOAL_NAME},
+            'info_bot': 'League: SirLinkalot vs. Windfox470',
+        }))
+
+    def test_not_recognised_when_neither_field_carries_the_title(self):
+        self.assertFalse(is_league_room({
+            'goal': {'name': POST_SEASON_GOAL_NAME},
+            'info_bot': 'Seed: 123 - Flags: abc',
+            'info_user': 'Some other note',
+        }))
 
     def test_ttp_post_season_room_is_not_a_league_room(self):
         self.assertFalse(is_league_room(TTP_POST_SEASON))
@@ -46,6 +77,19 @@ class LeagueRoomPolicyTests(unittest.TestCase):
     def test_none_info_bot_is_not_a_league_room(self):
         self.assertFalse(is_league_room({
             'goal': {'name': POST_SEASON_GOAL_NAME}, 'info_bot': None,
+        }))
+
+    def test_none_info_user_is_not_a_league_room(self):
+        self.assertFalse(is_league_room({
+            'goal': {'name': POST_SEASON_GOAL_NAME},
+            'info_bot': None,
+            'info_user': None,
+        }))
+
+    def test_missing_info_bot_but_present_info_user_still_matches(self):
+        self.assertTrue(is_league_room({
+            'goal': {'name': POST_SEASON_GOAL_NAME},
+            'info_user': 'League: A vs. B',
         }))
 
 

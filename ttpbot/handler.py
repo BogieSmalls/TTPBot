@@ -212,7 +212,10 @@ class TTPRaceHandler(RaceHandler):
 
         Prefers state seeded by the scheduler at room creation. After a
         restart that state is gone, so fall back to the room title, which
-        this automation wrote itself.
+        this automation wrote itself to both info_user and info_bot. Another
+        authorised category bot (e.g. SahasrahBot rolling a seed) can
+        overwrite info_bot, so info_user is preferred and info_bot is the
+        fallback.
         """
         seeded = (self.state or {}).get('league_race') or {}
         invite = seeded.get('invite')
@@ -223,8 +226,20 @@ class TTPRaceHandler(RaceHandler):
         ):
             return list(invite)
 
+        info_user = self.data.get('info_user', '') or ''
         info_bot = self.data.get('info_bot', '') or ''
-        pairing = info_bot[len(LEAGUE_ROOM_INFO_PREFIX):]
+        title = next(
+            (
+                value for value in (info_user, info_bot)
+                if value.startswith(LEAGUE_ROOM_INFO_PREFIX)
+            ),
+            None,
+        )
+        if title is None:
+            self.logger.warning('[%s] League title is unparseable: %r',
+                                self.data.get('name'), info_bot)
+            return []
+        pairing = title[len(LEAGUE_ROOM_INFO_PREFIX):]
         names = pairing.split(' vs. ')
         if len(names) != 2:
             self.logger.warning('[%s] League title is unparseable: %r',
