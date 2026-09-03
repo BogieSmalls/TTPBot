@@ -19,6 +19,7 @@ def league_room_form_data(race):
     return {
         'goal': POST_SEASON_GOAL_NAME,
         'info_bot': race.title,
+        'info_user': race.title,
         'invitational': 'false',
         'unlisted': 'false',
         'start_delay': '15',
@@ -86,7 +87,10 @@ async def _recover_uncertain_league_room(race, provider, access_token, logger):
         for candidate in races:
             if not isinstance(candidate, dict):
                 continue
-            if candidate.get('info_bot') != race.title:
+            if (
+                candidate.get('info_user') != race.title
+                and candidate.get('info_bot') != race.title
+            ):
                 continue
             raw_url = candidate.get('url')
             if not raw_url and isinstance(candidate.get('name'), str):

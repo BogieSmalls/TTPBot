@@ -107,6 +107,51 @@ class LeagueInviteTests(unittest.IsolatedAsyncioTestCase):
 
         handler.invite_user.assert_not_awaited()
 
+    async def test_recovers_invites_from_info_user_after_a_seed_roll(self):
+        # SahasrahBot rolled a seed and overwrote info_bot; info_user still
+        # holds the League title this automation wrote at room creation.
+        handler = make_handler({})
+        handler.data = dict(
+            LEAGUE_DATA,
+            info_bot=(
+                'Seed: 4691165665847563006 - '
+                'Flags: oIbnPfPb0mR7ggY12zwI0QNIY620UnhU8kiC3'
+            ),
+            info_user='League: SirLinkalot vs. Windfox470',
+        )
+
+        await handler.begin()
+
+        self.assertEqual(
+            [c.args[0] for c in handler.invite_user.await_args_list],
+            ['vrZyM4orOEWqDJX0', 'd17DexWEMqWak64R'],
+        )
+
+    async def test_still_recovers_invites_from_info_bot_when_info_user_absent(self):
+        # Rooms opened before this fix only ever had the title in info_bot.
+        handler = make_handler({})
+        handler.data = dict(LEAGUE_DATA)
+        handler.data.pop('info_user', None)
+
+        await handler.begin()
+
+        self.assertEqual(
+            [c.args[0] for c in handler.invite_user.await_args_list],
+            ['vrZyM4orOEWqDJX0', 'd17DexWEMqWak64R'],
+        )
+
+    async def test_invites_nobody_when_neither_field_carries_the_title(self):
+        handler = make_handler({})
+        handler.data = dict(
+            LEAGUE_DATA,
+            info_bot='Seed: 123 - Flags: abc',
+            info_user='Some other note',
+        )
+
+        await handler.begin()
+
+        handler.invite_user.assert_not_awaited()
+
     async def test_falls_through_to_title_when_seeded_invite_has_one_entry(self):
         handler = make_handler({'league_race': {'invite': ['rt-sir']}})
 
