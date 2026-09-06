@@ -53,12 +53,18 @@ class LeagueStateStoreTests(unittest.TestCase):
 
     def test_cleanup_ages_out_league_keys_by_timestamp(self):
         store = self.store()
+        # Relative to now, not a literal date. KEY was written as a future
+        # timestamp (2026-09-03) and silently became a past one, so this test
+        # started failing on a date rather than on a behaviour change.
+        upcoming = '{}|b-vs-c'.format(
+            (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        )
         old = '2020-01-01T20:00:00-05:00|a-vs-b'
-        store.save({KEY: ROOM, old: ROOM})
+        store.save({upcoming: ROOM, old: ROOM})
 
         retained = store.cleanup_before(datetime.now(timezone.utc) - timedelta(hours=2))
 
-        self.assertIn(KEY, retained)
+        self.assertIn(upcoming, retained)
         self.assertNotIn(old, retained)
 
     def test_ttp_store_rejects_a_league_key(self):
