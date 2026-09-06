@@ -143,3 +143,32 @@ class CrewTaggingTests(unittest.TestCase):
         # Matchup and crew are two separate thoughts; a single break renders
         # too tightly in Discord to scan at a glance.
         self.assertIn('\n\nComms:', body['content'])
+
+
+class ContinuationAnnouncementTests(unittest.TestCase):
+    def test_warns_that_the_channel_is_already_on_air(self):
+        body = build_announcement(
+            _staffed_race(comms=('SpecialK',), tracker='GrandpaSzabo'), ROOM,
+            crew=CREW, continuation=True,
+        )
+
+        # The booth was not created for this race - the previous one is still
+        # on air and the operator swaps the room and racers over. Crew opening
+        # the booth mid-show should expect that rather than think it is broken.
+        self.assertIn('already ON THE AIR', body['content'])
+
+    def test_says_nothing_extra_for_an_ordinary_race(self):
+        body = build_announcement(
+            _staffed_race(comms=('SpecialK',), tracker='GrandpaSzabo'), ROOM, crew=CREW,
+        )
+
+        self.assertNotIn('ON THE AIR', body['content'])
+
+    def test_still_tags_the_crew_on_a_continuation(self):
+        body = build_announcement(
+            _staffed_race(comms=('SpecialK',), tracker='GrandpaSzabo'), ROOM,
+            crew=CREW, continuation=True,
+        )
+
+        self.assertIn('<@429>', body['content'])
+        self.assertEqual(sorted(body['allowed_mentions']['users']), ['111', '222', '355', '429'])

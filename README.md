@@ -118,6 +118,23 @@ All tunable values live in [`ttpbot/config.py`](ttpbot/config.py):
 - `SEED_PRESETS` — 27 named Z1R presets
 - `TTP2_PRESETS` / `TTP3_PRESETS` / `TTP4_PRESETS` — pools for the `!ttpN` random pickers
 
+### League restream environment
+
+League race rooms open without any of these. They only govern the restream
+automation — the control-plane wake, the crew roster lookup, and the booth
+request — each of which is skipped when its variables are unset.
+
+- `Z1RR_ROSTER_URL` / `Z1RR_ROSTER_TOKEN` — crew roster lookup, so the
+  announcement can tag crew by Discord ID rather than by name
+- `Z1RR_RELAY_URL` — lifecycle relay base URL (loopback; the relay runs on
+  the same host)
+- `Z1RR_WAKE_TOKEN` — bearer token for `POST /api/wake`. It must match the
+  relay's own CI wake token; without it the relay answers 401 and no wake
+  happens. Take it from `/etc/z1rr-lifecycle-relay.env`.
+- `Z1RR_WAKE_TARGET` — which control plane to wake, `production` (default)
+  or `staging`. Set it to `staging` for a rehearsal.
+- `Z1RR_CONTROL_PLANE_URL` — control plane base URL for the booth request
+
 ## License
 
 MIT
