@@ -84,6 +84,7 @@ def main():
         data_dir=config.data_dir,
         league_enabled=config.league_enabled,
         league_schedule_url=config.league_schedule_url,
+        league_matchups_url=config.league_matchups_url,
         league_discord_webhook_url=config.league_discord_webhook_url,
     )
     bot.run()

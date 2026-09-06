@@ -64,12 +64,14 @@ class TTPBot(Bot):
                  race_seekers_role_id=None, data_dir=None,
                  created_race_store=None, sent_webhook_store=None,
                  league_enabled=False, league_schedule_url=None,
+                 league_matchups_url=None,
                  league_discord_webhook_url=None, **kwargs):
         self.provider = provider
         self.discord_webhook_url = discord_webhook_url
         self.race_seekers_role_id = race_seekers_role_id
         self.league_enabled = league_enabled
         self.league_schedule_url = league_schedule_url
+        self.league_matchups_url = league_matchups_url
         self.league_discord_webhook_url = league_discord_webhook_url
         self.data_dir = data_dir or configured_data_dir()
         if created_race_store is None or sent_webhook_store is None:
@@ -130,7 +132,9 @@ class TTPBot(Bot):
             webhooks = DestinationStateStore(
                 'league_webhooks.json', self.provider.destination_key,
                 'league_sent_webhooks', data_dir=root)
-            source = ScheduleSource(self.league_schedule_url, roster, self.logger)
+            source = ScheduleSource(
+                self.league_schedule_url, roster, self.logger,
+                matchups_url=self.league_matchups_url)
             # Crew identity is read live from Z1RR.Restream, unlike racers,
             # which are committed: the Comms/Tracker dropdown is that app's
             # user list and changes whenever someone joins or is deactivated.

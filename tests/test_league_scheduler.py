@@ -600,3 +600,105 @@ class BoothRetryTests(unittest.IsolatedAsyncioTestCase):
             await scheduler.tick(START - timedelta(minutes=29))
 
         self.assertEqual(booth.await_count, 1)
+
+
+MATCHUPS_CSV = (
+    ',,\n'
+    'Week 2 - TTP3 Power: 143oNtDD4PAvBt5G8xyCFu5kwp7tS8vUBVpiZY,,\n'
+    'Division,Away Team,Home Team\n'
+    'Hyrule Division,Shadow Cartel,Midwest is Best\n'
+)
+
+FIXTURE_CSV = (
+    'Date,Time,Game,Runner 1,Runner 2,,Comms,Tracker,,Channel,Booth\n'
+    '9/2/2026,9:00:00 PM,2,(SC) Droois,(MiB) jessandy8,,,,,Z1Rracing,\n'
+)
+
+
+def _fixture_roster():
+    return Roster([
+        Racer(sheet_name='Droois', team='SC', team_full='Shadow Cartel',
+              display_name='Droois', twitch_channel='grindhalo',
+              racetime_id='rt-droois', discord_id='1'),
+        Racer(sheet_name='jessandy8', team='MiB', team_full='Midwest Is Best',
+              display_name='jessandy8', twitch_channel='jessandy8',
+              racetime_id='rt-jess', discord_id='2'),
+    ])
+
+
+class ScheduleSourceMatchupsTests(unittest.IsolatedAsyncioTestCase):
+    """Without the Matchups tab there is no week and no away/home split."""
+
+    def source(self):
+        return ScheduleSource(
+            'https://example.com/s.csv', _fixture_roster(), QUIET,
+            matchups_url='https://example.com/m.csv')
+
+    async def test_races_carry_the_fixture_from_the_matchups_tab(self):
+        source = self.source()
+        with patch('ttpbot.league.scheduler.aiohttp.request', side_effect=[
+            FakeHttpResponse(200, FIXTURE_CSV),
+            FakeHttpResponse(200, MATCHUPS_CSV),
+        ]):
+            races = await source.races(START)
+
+        # The Schedule tab knows who races; only Matchups knows which side is
+        # away, and the booth declines without it.
+        self.assertEqual(len(races), 1)
+        self.assertEqual(races[0].fixture, Fixture(
+            week=2, away='Shadow Cartel', home='Midwest is Best'))
+        self.assertEqual(races[0].away_racer.sheet_name, 'Droois')
+        self.assertTrue(races[0].orchestratable)
+
+    async def test_a_matchups_failure_still_opens_the_room(self):
+        source = self.source()
+        with patch('ttpbot.league.scheduler.aiohttp.request', side_effect=[
+            FakeHttpResponse(200, FIXTURE_CSV),
+            OSError('matchups unreachable'),
+        ]):
+            races = await source.races(START)
+
+        # Phase 1 does not depend on the fixture: the room and the
+        # announcement go out, only the booth is skipped.
+        self.assertEqual(len(races), 1)
+        self.assertIsNone(races[0].fixture)
+
+    async def test_does_not_cache_a_matchups_page_that_parsed_to_nothing(self):
+        source = self.source()
+        with patch('ttpbot.league.scheduler.aiohttp.request', side_effect=[
+            FakeHttpResponse(200, FIXTURE_CSV),
+            FakeHttpResponse(200, HTML_SIGNIN_PAGE),
+            FakeHttpResponse(200, FIXTURE_CSV),
+            FakeHttpResponse(200, MATCHUPS_CSV),
+        ]):
+            first = await source.races(START)
+            second = await source.races(START + timedelta(minutes=1))
+
+        # A sign-in page is a 200. Caching it would kill every booth for the
+        # life of the process, so it has to be retried.
+        self.assertIsNone(first[0].fixture)
+        self.assertIsNotNone(second[0].fixture)
+
+    async def test_reads_the_matchups_tab_only_once(self):
+        source = self.source()
+        with patch('ttpbot.league.scheduler.aiohttp.request', side_effect=[
+            FakeHttpResponse(200, FIXTURE_CSV),
+            FakeHttpResponse(200, MATCHUPS_CSV),
+            FakeHttpResponse(200, FIXTURE_CSV),
+        ]) as request:
+            await source.races(START)
+            await source.races(START + timedelta(minutes=1))
+
+        # A season's fixtures do not change; the schedule does. Three calls,
+        # not four - a fourth would mean re-reading Matchups every tick.
+        self.assertEqual(request.call_count, 3)
+
+    async def test_leaves_the_fixture_unset_when_no_matchups_url_is_configured(self):
+        source = ScheduleSource(
+            'https://example.com/s.csv', _fixture_roster(), QUIET)
+        with patch('ttpbot.league.scheduler.aiohttp.request',
+                   return_value=FakeHttpResponse(200, FIXTURE_CSV)):
+            races = await source.races(START)
+
+        self.assertEqual(len(races), 1)
+        self.assertIsNone(races[0].fixture)

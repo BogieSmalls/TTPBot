@@ -30,6 +30,15 @@ DEFAULT_SCHEDULE_URL = (
     '?format=csv&gid=2033319762'
 )
 
+#: The Matchups tab of the same workbook. The Schedule tab records who is
+#: racing but not which side is away, so this is the only place the week
+#: number and the away/home split can come from.
+DEFAULT_MATCHUPS_URL = (
+    'https://docs.google.com/spreadsheets/d/'
+    '1MEyO03Wib6iyH7-75e-orh2K75AATwEoJB9HlTe9VgM/export'
+    '?format=csv&gid=264392304'
+)
+
 ROOM_OPEN_MINUTES_BEFORE = 30
 WEBHOOK_MINUTES_BEFORE = 20  # Post webhook 20 min before race (10 min after room opens)
 
