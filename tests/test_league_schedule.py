@@ -153,3 +153,69 @@ class LeagueRaceIdentityTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+NEW_HEADER = (
+    'Date,Time,Game,Runner 1,Runner 2,,Comms 1,Comms 2,Tracker,,Channel,Booth\n'
+)
+
+
+class HeaderDrivenColumnTests(unittest.TestCase):
+    """Columns are located by header name, not by fixed position.
+
+    Splitting Comms into 'Comms 1' and 'Comms 2' pushed Channel from index 9
+    to 10. Nothing failed, because the parser trusted the position and the
+    tests pinned the old header - a restream row would simply have reported no
+    channel forever.
+    """
+
+    def parse(self, header, body):
+        return parse_schedule(header + body, ROSTER, QUIET)
+
+    def test_reads_channel_from_the_current_sheet_shape(self):
+        races = self.parse(NEW_HEADER, (
+            '9/2/2026,9:00:00 PM,2,(SC) Droois,(F451) Rhinohero,,'
+            'Sean,SpecialK,GrandpaSzabo,,Z1Rracing,Sean\n'
+        ))
+
+        self.assertEqual(len(races), 1)
+        self.assertEqual(races[0].channel, 'Z1Rracing')
+
+    def test_still_reads_the_previous_sheet_shape(self):
+        races = self.parse(HEADER, (
+            '9/2/2026,9:00:00 PM,2,(SC) Droois,(F451) Rhinohero,,'
+            'Sean,GrandpaSzabo,,Z1Rracing,Sean\n'
+        ))
+
+        self.assertEqual(len(races), 1)
+        self.assertEqual(races[0].channel, 'Z1Rracing')
+
+    def test_reads_the_crew_columns(self):
+        races = self.parse(NEW_HEADER, (
+            '9/2/2026,9:00:00 PM,2,(SC) Droois,(F451) Rhinohero,,'
+            'Sean,SpecialK,GrandpaSzabo,,Z1Rracing,Sean\n'
+        ))
+
+        self.assertEqual(races[0].comms, ('Sean', 'SpecialK'))
+        self.assertEqual(races[0].tracker, 'GrandpaSzabo')
+
+    def test_absent_crew_is_empty_not_missing(self):
+        races = self.parse(NEW_HEADER, (
+            '9/6/2026,11:00:00 PM,2,(SC) Droois,(F451) Rhinohero,,,,,,,\n'
+        ))
+
+        self.assertEqual(races[0].comms, ())
+        self.assertIsNone(races[0].tracker)
+        self.assertIsNone(races[0].channel)
+
+    def test_refuses_a_sheet_whose_required_headers_are_gone(self):
+        logger = Mock()
+
+        races = parse_schedule(
+            'Something,Else,Entirely\n9/2/2026,9:00:00 PM,2\n', ROSTER, logger,
+        )
+
+        # Guessing positions is what caused the Channel drift. A sheet we
+        # cannot read is no rooms, never rooms built from the wrong columns.
+        self.assertEqual(races, [])
+        self.assertTrue(logger.warning.called)

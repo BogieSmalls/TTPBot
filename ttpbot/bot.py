@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta
+import os
 
 import aiohttp
 
@@ -12,7 +13,7 @@ from .config import (
     WEBHOOK_MINUTES_BEFORE,
 )
 from .handler import TTPRaceHandler
-from .paths import data_dir as configured_data_dir
+from .paths import data_dir as configured_data_dir, runtime_path
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
 from .room_policy import is_league_room, is_ttp_scheduled_room
 from .state import DestinationStateStore, UNCERTAIN_RACE
@@ -117,6 +118,7 @@ class TTPBot(Bot):
     def _build_league_scheduler(self):
         """Construct the League scheduler, or None if it cannot start."""
         try:
+            from .league.crew import CrewDirectory
             from .league.roster import load_roster
             from .league.scheduler import LeagueScheduler, ScheduleSource
 
@@ -129,10 +131,21 @@ class TTPBot(Bot):
                 'league_webhooks.json', self.provider.destination_key,
                 'league_sent_webhooks', data_dir=root)
             source = ScheduleSource(self.league_schedule_url, roster, self.logger)
+            # Crew identity is read live from Z1RR.Restream, unlike racers,
+            # which are committed: the Comms/Tracker dropdown is that app's
+            # user list and changes whenever someone joins or is deactivated.
+            # Unconfigured is fine - the announcement falls back to names.
+            crew = CrewDirectory(
+                cache_path=runtime_path('league_crew.json', env=os.environ),
+                logger=self.logger,
+            )
             return LeagueScheduler(
                 bot=self, source=source, created_store=created,
                 webhook_store=webhooks,
-                webhook_url=self.league_discord_webhook_url, logger=self.logger)
+                webhook_url=self.league_discord_webhook_url, logger=self.logger,
+                crew=crew,
+                roster_url=os.environ.get('Z1RR_ROSTER_URL', '').strip(),
+                roster_token=os.environ.get('Z1RR_ROSTER_TOKEN', '').strip())
         except Exception:
             self.logger.error(
                 'League scheduling is off (roster or state is unusable); '

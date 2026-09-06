@@ -22,6 +22,11 @@ SCHEDULE_CACHE_MAX_AGE = timedelta(hours=6)
 STATE_RETENTION = timedelta(hours=2)
 TICK_SECONDS = 60
 
+#: Crew changes rarely and the control plane sleeps, so this is deliberately
+#: slack: often enough that a roster edit lands well before the next race,
+#: rare enough that a sleeping CP is not polled every minute.
+CREW_REFRESH_SECONDS = 1800
+
 
 class ScheduleSource:
     """Fetch and cache the League schedule CSV."""
@@ -88,7 +93,8 @@ def _race_name(room_url):
 
 class LeagueScheduler:
     def __init__(self, bot, source, created_store, webhook_store,
-                 webhook_url, logger):
+                 webhook_url, logger, crew=None, roster_url=None,
+                 roster_token=None):
         self.bot = bot
         self.source = source
         self.created_store = created_store
@@ -97,6 +103,10 @@ class LeagueScheduler:
         self.logger = logger
         self.created = created_store.load()
         self.announced = set(webhook_store.load())
+        self.crew = crew
+        self.roster_url = roster_url
+        self.roster_token = roster_token
+        self._crew_refreshed_at = None
 
     async def run(self):
         """Tick forever. Never let a League failure kill the process."""
@@ -123,7 +133,23 @@ class LeagueScheduler:
         if set(webhooks) != self.announced:
             self.announced = set(webhooks)
 
+    async def _refresh_crew(self, now):
+        """Top up the crew roster, at most once every CREW_REFRESH_SECONDS.
+
+        Best effort by design: a failure leaves the cached roster in place and
+        the announcement falls back to plain names.
+        """
+        if self.crew is None or not self.roster_url or not self.roster_token:
+            return
+        if self._crew_refreshed_at is not None:
+            elapsed = (now - self._crew_refreshed_at).total_seconds()
+            if elapsed < CREW_REFRESH_SECONDS:
+                return
+        self._crew_refreshed_at = now
+        await self.crew.refresh(self.roster_url, self.roster_token)
+
     async def tick(self, now):
+        await self._refresh_crew(now)
         self._prune(now)
         for race in await self.source.races(now):
             try:
@@ -152,7 +178,9 @@ class LeagueScheduler:
 
         if room_url == UNCERTAIN_RACE or race.key in self.announced:
             return
-        await send_league_announcement(race, room_url, self.webhook_url, self.logger)
+        await send_league_announcement(
+            race, room_url, self.webhook_url, self.logger, crew=self.crew,
+        )
         self.announced.add(race.key)
         self.webhook_store.save({key: True for key in self.announced})
 
