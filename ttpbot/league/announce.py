@@ -10,6 +10,15 @@ import aiohttp
 
 #: Kept as constants so the escapes cannot be mangled by tooling again.
 NEWLINE = chr(10)
+
+#: Said when the control plane answered `continuation`: the channel is already
+#: live with the previous race and the operator swaps the room and racers
+#: over, so no booth was created for this one. Without it, crew open the booth
+#: mid-show and reasonably think something is broken.
+ALREADY_ON_AIR = (
+    'The channel is already ON THE AIR with the previous race - watch Twitch '
+    'and join the booth when it is time to set up this one.'
+)
 #: A blank line between the matchup and the crew credits - they are two
 #: separate thoughts, and Discord renders a single break too tightly to scan.
 BLANK_LINE = NEWLINE * 2
@@ -38,7 +47,7 @@ def _crew_line(label, names, crew, allowed):
     return '{}: {}'.format(label, ' '.join(rendered))
 
 
-def build_announcement(race, race_url, crew=None):
+def build_announcement(race, race_url, crew=None, continuation=False):
     """Return the webhook JSON body for a League room.
 
     `crew` resolves the sheet's Comms/Tracker names to Discord ids. It is
@@ -61,6 +70,8 @@ def build_announcement(race, race_url, crew=None):
     staffed = ' · '.join(segment for segment in segments if segment)
     if staffed:
         content = BLANK_LINE.join((content, staffed))
+    if continuation:
+        content = BLANK_LINE.join((content, ALREADY_ON_AIR))
     return {
         'content': content,
         'allowed_mentions': {
@@ -72,12 +83,14 @@ def build_announcement(race, race_url, crew=None):
     }
 
 
-async def send_league_announcement(race, race_url, webhook_url, logger, crew=None):
+async def send_league_announcement(
+    race, race_url, webhook_url, logger, crew=None, continuation=False,
+):
     """Post the League announcement. Returns True when Discord accepted it."""
     if not webhook_url:
         logger.warning('League Discord announcements are not configured')
         return False
-    body = build_announcement(race, race_url, crew=crew)
+    body = build_announcement(race, race_url, crew=crew, continuation=continuation)
     logger.info('Announcing League room: %s', race.title)
     try:
         async with aiohttp.request(

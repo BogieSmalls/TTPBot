@@ -145,7 +145,12 @@ class TTPBot(Bot):
                 webhook_url=self.league_discord_webhook_url, logger=self.logger,
                 crew=crew,
                 roster_url=os.environ.get('Z1RR_ROSTER_URL', '').strip(),
-                roster_token=os.environ.get('Z1RR_ROSTER_TOKEN', '').strip())
+                roster_token=os.environ.get('Z1RR_ROSTER_TOKEN', '').strip(),
+                # The relay runs on this host, so the wake is a loopback call
+                # and needs no OCI credentials here.
+                relay_wake_url=os.environ.get('Z1RR_RELAY_URL', '').strip(),
+                booth_url=os.environ.get('Z1RR_CONTROL_PLANE_URL', '').strip(),
+                booth_token=os.environ.get('Z1RR_ROSTER_TOKEN', '').strip())
         except Exception:
             self.logger.error(
                 'League scheduling is off (roster or state is unusable); '
