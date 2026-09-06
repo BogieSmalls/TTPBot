@@ -46,14 +46,32 @@ class CrewDirectory:
     def size(self):
         return len(self._by_name)
 
+    def member_for(self, name):
+        """The roster entry for an exact (case-insensitive) name, else None.
+
+        Deliberately not fuzzy. 'Sean' is not 'Seanfreston', and a near-miss
+        seats or pings the wrong person minutes before a live race.
+        """
+        key = _key(name)
+        return self._by_name.get(key) if key else None
+
+    def user_id_for(self, name):
+        """Managed-user id, which is what a broadcast draft stores.
+
+        The Discord id is for mentions. Passing one where the other is
+        expected silently invites nobody.
+        """
+        member = self.member_for(name)
+        return member.get('id') if member else None
+
     def discord_id_for(self, name):
         """Discord id for an exact (case-insensitive) name, else None.
 
         Deliberately not fuzzy. 'Sean' is not 'Seanfreston', and a near-miss
         pings the wrong person minutes before a live race.
         """
-        key = _key(name)
-        return self._by_name.get(key) if key else None
+        member = self.member_for(name)
+        return member.get('discordId') if member else None
 
     def mentions(self, names):
         """Return (rendered, ids) for a run of sheet names.
@@ -119,9 +137,13 @@ class CrewDirectory:
                 continue
             name = _clean(member.get('name'))
             discord_id = _clean(member.get('discordId'))
-            if not name or not discord_id:
+            user_id = _clean(member.get('id'))
+            # Both ids required: a member who can be mentioned but not seated,
+            # or seated but not mentioned, is half-resolved and worse than
+            # absent - it would look resolvable right up to the failure.
+            if not name or not discord_id or not user_id:
                 continue
-            parsed[_key(name)] = discord_id
+            parsed[_key(name)] = {'id': user_id, 'discordId': discord_id, 'name': name}
         if not parsed:
             # An empty payload is far likelier to be a broken response than a
             # league with no crew, and forgetting everyone turns every mention
@@ -148,9 +170,12 @@ class CrewDirectory:
             return
         if isinstance(cached, dict):
             self._by_name = {
-                _key(name): _clean(value)
+                _key(name): value
                 for name, value in cached.items()
-                if _key(name) and _clean(value)
+                # A cache written by an older build stored a bare Discord id
+                # string. Ignore those rather than half-loading them.
+                if _key(name) and isinstance(value, dict)
+                and _clean(value.get('id')) and _clean(value.get('discordId'))
             }
 
     def _save(self):

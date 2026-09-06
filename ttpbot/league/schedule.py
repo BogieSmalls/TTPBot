@@ -18,6 +18,7 @@ from .roster import Racer, UnknownRacerError
 DATE_FORMAT = '%m/%d/%Y'
 TIME_FORMATS = ('%I:%M:%S %p', '%I:%M %p', '%H:%M:%S', '%H:%M')
 NON_SLUG = re.compile(r'[^a-z0-9]+')
+NON_ALNUM = re.compile(r'[^a-z0-9]+')
 
 MINIMUM_COLUMNS = 5
 
@@ -37,6 +38,7 @@ COLUMN_ALIASES = {
     'comms_two': ('comms 2', 'comms two'),
     'tracker': ('tracker',),
     'channel': ('channel',),
+    'game': ('game',),
 }
 
 # Without these there is no race to build, so a sheet missing any of them is
@@ -83,6 +85,42 @@ class LeagueRace:
     comms: tuple = ()
     #: Raw Tracker name from the sheet, or None.
     tracker: Optional[str] = None
+    #: The game within the fixture, from the sheet's Game column.
+    game: Optional[int] = None
+    #: The Matchups fixture these two racers play, when it resolved.
+    #:
+    #: None means this race cannot be orchestrated: no week number for the
+    #: title, and no way to tell which team is away. Room creation, racer
+    #: invites and the Discord post are unaffected - Phase 1 never needed it.
+    fixture: Optional[object] = None
+
+    @property
+    def away_racer(self):
+        """The racer whose team is away, or None without a fixture."""
+        if self.fixture is None:
+            return None
+        return (
+            self.runner_one
+            if _same_team(self.runner_one, self.fixture.away)
+            else self.runner_two
+        )
+
+    @property
+    def home_racer(self):
+        if self.fixture is None:
+            return None
+        return self.runner_two if self.away_racer is self.runner_one else self.runner_one
+
+    @property
+    def orchestratable(self):
+        """Whether a booth can be built for this race.
+
+        A channel says somebody intends to restream it; a fixture is what
+        makes the booth correct. Without one there is no week number and no
+        way to tell which team belongs on which side, and guessing would put
+        them on the wrong sides about half the time.
+        """
+        return bool(self.channel) and self.fixture is not None
 
     @property
     def slug(self):
@@ -111,6 +149,15 @@ class LeagueRace:
         )
 
 
+def _same_team(racer, team_name):
+    """Whether this racer plays for that team, spelled either tab's way."""
+    key = NON_ALNUM.sub('', (team_name or '').lower())
+    return key in {
+        NON_ALNUM.sub('', (racer.team_full or '').lower()),
+        NON_ALNUM.sub('', (racer.team or '').lower()),
+    }
+
+
 def _parse_start(date_text, time_text):
     day = datetime.strptime(date_text.strip(), DATE_FORMAT).date()
     for fmt in TIME_FORMATS:
@@ -122,7 +169,7 @@ def _parse_start(date_text, time_text):
     raise ValueError('unrecognised time: {!r}'.format(time_text))
 
 
-def parse_schedule(csv_text, roster, logger):
+def parse_schedule(csv_text, roster, logger, matchups=None):
     """Return every well-formed, fully resolvable race in the sheet."""
     races = []
     rows = list(csv.reader(io.StringIO(csv_text)))
@@ -175,10 +222,28 @@ def parse_schedule(csv_text, roster, logger):
                 _cell(row, columns, 'comms_one'), _cell(row, columns, 'comms_two'),
             ) if name
         )
+        game_text = _cell(row, columns, 'game')
+        channel = _cell(row, columns, 'channel') or None
+
+        fixture = None
+        if matchups is not None:
+            fixture = matchups.fixture_for(one.team_full, two.team_full)
+            if fixture is None and channel:
+                # Only worth saying for a race somebody meant to restream. An
+                # unresolved fixture is never guessed past: no week number and
+                # no away/home means no booth.
+                logger.warning(
+                    'League row %d has no usable fixture for %s vs %s; '
+                    'room and announcement proceed, booth does not',
+                    number, one.team_full, two.team_full,
+                )
+
         races.append(LeagueRace(
             start=start, runner_one=one, runner_two=two,
-            channel=_cell(row, columns, 'channel') or None,
+            channel=channel,
             comms=comms,
             tracker=_cell(row, columns, 'tracker') or None,
+            game=int(game_text) if game_text.isdigit() else None,
+            fixture=fixture,
         ))
     return races

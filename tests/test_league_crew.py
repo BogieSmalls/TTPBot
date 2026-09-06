@@ -11,9 +11,9 @@ QUIET.addHandler(logging.NullHandler())
 QUIET.propagate = False
 
 ROSTER = [
-    {'name': 'SpecialK', 'discordId': '429', 'twitchLogin': 'specialk3782', 'role': 'operator'},
-    {'name': 'GrandpaSzabo', 'discordId': '355', 'twitchLogin': 'grandpaszabo', 'role': 'admin'},
-    {'name': 'Seanfreston', 'discordId': '120', 'twitchLogin': 'seanfreston', 'role': 'operator'},
+    {'id': 'u-k', 'name': 'SpecialK', 'discordId': '429', 'twitchLogin': 'specialk3782', 'role': 'operator'},
+    {'id': 'u-g', 'name': 'GrandpaSzabo', 'discordId': '355', 'twitchLogin': 'grandpaszabo', 'role': 'admin'},
+    {'id': 'u-s', 'name': 'Seanfreston', 'discordId': '120', 'twitchLogin': 'seanfreston', 'role': 'operator'},
 ]
 
 
@@ -62,9 +62,10 @@ class CrewDirectoryTests(unittest.TestCase):
     def test_ignores_malformed_members_without_losing_the_good_ones(self):
         crew = CrewDirectory(cache_path=self.cache, logger=QUIET)
         crew.replace([
-            {'name': 'SpecialK', 'discordId': '429'},
-            {'name': '', 'discordId': '1'},
-            {'name': 'NoId', 'discordId': ''},
+            {'id': 'u-k', 'name': 'SpecialK', 'discordId': '429'},
+            {'id': 'u-x', 'name': '', 'discordId': '1'},
+            {'id': 'u-y', 'name': 'NoDiscord', 'discordId': ''},
+            {'name': 'NoUserId', 'discordId': '999'},
             'not-a-dict',
         ])
 
@@ -178,3 +179,30 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
         ok = await self.crew.refresh('', '', requester=self.requester(None))
 
         self.assertFalse(ok)
+
+
+class ManagedUserIdTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.crew = CrewDirectory(cache_path=Path(self.dir.name) / 'c.json', logger=QUIET)
+        self.crew.replace(ROSTER)
+
+    def test_resolves_the_managed_user_id_a_draft_stores(self):
+        # A broadcast draft records crew as managed-user ids, not Discord ids.
+        # Passing one where the other is expected invites nobody, silently.
+        self.assertEqual(self.crew.user_id_for('SpecialK'), 'u-k')
+        self.assertEqual(self.crew.discord_id_for('SpecialK'), '429')
+
+    def test_returns_none_for_an_unknown_name(self):
+        self.assertIsNone(self.crew.user_id_for('Sean'))
+        self.assertIsNone(self.crew.user_id_for(''))
+
+    def test_ignores_a_cache_written_before_ids_were_stored(self):
+        cache = Path(self.dir.name) / 'legacy.json'
+        cache.write_text('{"specialk": "429"}', encoding='utf-8')
+
+        crew = CrewDirectory(cache_path=cache, logger=QUIET)
+
+        # Half-loading it would look resolvable right up to the failure.
+        self.assertEqual(crew.size, 0)
