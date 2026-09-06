@@ -19,12 +19,52 @@ DATE_FORMAT = '%m/%d/%Y'
 TIME_FORMATS = ('%I:%M:%S %p', '%I:%M %p', '%H:%M:%S', '%H:%M')
 NON_SLUG = re.compile(r'[^a-z0-9]+')
 
-COLUMN_DATE = 0
-COLUMN_TIME = 1
-COLUMN_RUNNER_ONE = 3
-COLUMN_RUNNER_TWO = 4
-COLUMN_CHANNEL = 9
 MINIMUM_COLUMNS = 5
+
+# Logical column -> the header texts that name it, lowercased.
+#
+# Located by header rather than by position because position has already
+# moved once: splitting "Comms" into "Comms 1" and "Comms 2" pushed Channel
+# from index 9 to 10, and nothing failed - the parser simply read a blank
+# spacer as the channel from then on. Accepting the old spellings too means
+# the sheet can be reshaped without a synchronised deploy.
+COLUMN_ALIASES = {
+    'date': ('date',),
+    'time': ('time',),
+    'runner_one': ('runner 1', 'runner one'),
+    'runner_two': ('runner 2', 'runner two'),
+    'comms_one': ('comms 1', 'comms one', 'comms'),
+    'comms_two': ('comms 2', 'comms two'),
+    'tracker': ('tracker',),
+    'channel': ('channel',),
+}
+
+# Without these there is no race to build, so a sheet missing any of them is
+# refused outright rather than parsed against guessed positions.
+REQUIRED_COLUMNS = ('date', 'time', 'runner_one', 'runner_two')
+
+
+def _resolve_columns(header_row):
+    """Map logical column names to indices using the sheet's own header."""
+    seen = {}
+    for index, cell in enumerate(header_row):
+        text = cell.strip().lower()
+        if not text:
+            continue
+        for logical, aliases in COLUMN_ALIASES.items():
+            # First match wins: a legacy "Comms" must not later be overwritten
+            # by something that merely looks similar further right.
+            if text in aliases and logical not in seen:
+                seen[logical] = index
+    return seen
+
+
+def _cell(row, columns, logical):
+    """Trimmed value of a logical column, or '' when absent for this row."""
+    index = columns.get(logical)
+    if index is None or index >= len(row):
+        return ''
+    return row[index].strip()
 
 
 def _slugify(value):
@@ -37,6 +77,12 @@ class LeagueRace:
     runner_one: Racer
     runner_two: Racer
     channel: Optional[str] = None
+    #: Raw Comms names from the sheet, in column order, blanks dropped.
+    #: Left unresolved here - identity is the crew roster's job, not the
+    #: schedule's, and an unresolvable name must not cost us the race.
+    comms: tuple = ()
+    #: Raw Tracker name from the sheet, or None.
+    tracker: Optional[str] = None
 
     @property
     def slug(self):
@@ -80,6 +126,19 @@ def parse_schedule(csv_text, roster, logger):
     """Return every well-formed, fully resolvable race in the sheet."""
     races = []
     rows = list(csv.reader(io.StringIO(csv_text)))
+    if not rows:
+        logger.warning('League schedule is empty')
+        return races
+    columns = _resolve_columns(rows[0])
+    missing = [name for name in REQUIRED_COLUMNS if name not in columns]
+    if missing:
+        # Never fall back to fixed positions: reading the wrong columns is how
+        # a race gets built from the wrong cells, and no room beats a wrong one.
+        logger.warning(
+            'League schedule header is unusable, missing %s; found %r',
+            ', '.join(missing), rows[0],
+        )
+        return races
     for number, row in enumerate(rows[1:], start=2):
         if len(row) < MINIMUM_COLUMNS:
             # A blank trailing line is normal and stays silent; a
@@ -95,13 +154,13 @@ def parse_schedule(csv_text, roster, logger):
         if not any(cell.strip() for cell in row):
             continue
         try:
-            start = _parse_start(row[COLUMN_DATE], row[COLUMN_TIME])
+            start = _parse_start(_cell(row, columns, 'date'), _cell(row, columns, 'time'))
         except ValueError as exc:
             logger.warning('League row %d skipped: %s', number, exc)
             continue
         try:
-            one = roster.resolve(row[COLUMN_RUNNER_ONE])
-            two = roster.resolve(row[COLUMN_RUNNER_TWO])
+            one = roster.resolve(_cell(row, columns, 'runner_one'))
+            two = roster.resolve(_cell(row, columns, 'runner_two'))
         except UnknownRacerError as exc:
             logger.warning('League row %d skipped: %s', number, exc)
             continue
@@ -111,9 +170,15 @@ def parse_schedule(csv_text, roster, logger):
                 number, one.sheet_name,
             )
             continue
-        channel = row[COLUMN_CHANNEL].strip() if len(row) > COLUMN_CHANNEL else ''
+        comms = tuple(
+            name for name in (
+                _cell(row, columns, 'comms_one'), _cell(row, columns, 'comms_two'),
+            ) if name
+        )
         races.append(LeagueRace(
             start=start, runner_one=one, runner_two=two,
-            channel=channel or None,
+            channel=_cell(row, columns, 'channel') or None,
+            comms=comms,
+            tracker=_cell(row, columns, 'tracker') or None,
         ))
     return races

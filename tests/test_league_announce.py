@@ -65,3 +65,72 @@ class BuildAnnouncementTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class _StubCrew:
+    def __init__(self, mapping):
+        self._mapping = mapping
+
+    def mentions(self, names):
+        rendered, ids = [], []
+        for name in names:
+            found = self._mapping.get(name)
+            if found:
+                rendered.append('<@{}>'.format(found))
+                ids.append(found)
+            elif name:
+                rendered.append(name)
+        return rendered, ids
+
+
+CREW = _StubCrew({'SpecialK': '429', 'GrandpaSzabo': '355'})
+
+
+def _staffed_race(comms=(), tracker=None):
+    return LeagueRace(
+        start=datetime(2026, 9, 3, 20, 0, tzinfo=TIMEZONE),
+        runner_one=_racer('SirLinkalot', '111'),
+        runner_two=_racer('Windfox470', '222'),
+        channel='Z1Rracing', comms=comms, tracker=tracker,
+    )
+
+
+class CrewTaggingTests(unittest.TestCase):
+    def test_tags_comms_and_tracker_alongside_the_racers(self):
+        body = build_announcement(
+            _staffed_race(comms=('SpecialK',), tracker='GrandpaSzabo'), ROOM, crew=CREW,
+        )
+
+        self.assertIn('<@429>', body['content'])
+        self.assertIn('<@355>', body['content'])
+        # Allow-listed, never parsed: the content is built from a live
+        # spreadsheet, so a stray @everyone in a cell must not ping the server.
+        self.assertEqual(body['allowed_mentions']['parse'], [])
+        self.assertEqual(
+            sorted(body['allowed_mentions']['users']), ['111', '222', '355', '429'],
+        )
+
+    def test_credits_unresolvable_crew_without_pinging_them(self):
+        body = build_announcement(
+            _staffed_race(comms=('Nobody',), tracker=None), ROOM, crew=CREW,
+        )
+
+        self.assertIn('Nobody', body['content'])
+        self.assertNotIn('<@>', body['content'])
+        self.assertEqual(sorted(body['allowed_mentions']['users']), ['111', '222'])
+
+    def test_says_nothing_extra_when_no_crew_is_scheduled(self):
+        body = build_announcement(_staffed_race(), ROOM, crew=CREW)
+
+        self.assertNotIn('Comms', body['content'])
+        self.assertNotIn('Tracker', body['content'])
+
+    def test_works_with_no_crew_directory_at_all(self):
+        # The control plane may never have been reachable. The announcement
+        # still has to go out.
+        body = build_announcement(
+            _staffed_race(comms=('SpecialK',), tracker='GrandpaSzabo'), ROOM,
+        )
+
+        self.assertIn('SpecialK', body['content'])
+        self.assertEqual(sorted(body['allowed_mentions']['users']), ['111', '222'])
