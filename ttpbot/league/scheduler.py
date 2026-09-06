@@ -17,6 +17,7 @@ from .booth import BoothOutcome, request_booth
 from .broadcast_request import build_broadcast_request
 from .wake import wake_control_plane
 from .rooms import create_league_room
+from .matchups import parse_matchups
 from .schedule import parse_schedule
 
 LEAGUE_ROOM_OPEN_MINUTES_BEFORE = 30
@@ -40,12 +41,14 @@ LEAGUE_WAKE_MINUTES_BEFORE = 35
 class ScheduleSource:
     """Fetch and cache the League schedule CSV."""
 
-    def __init__(self, url, roster, logger):
+    def __init__(self, url, roster, logger, matchups_url=None):
         self.url = url
         self.roster = roster
         self.logger = logger
+        self.matchups_url = matchups_url
         self._races = []
         self._fetched_at = None
+        self._matchups = None
 
     async def races(self, now):
         try:
@@ -60,7 +63,8 @@ class ScheduleSource:
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
             return self._stale(now, exc)
 
-        parsed = parse_schedule(body, self.roster, self.logger)
+        matchups = await self._matchup_table()
+        parsed = parse_schedule(body, self.roster, self.logger, matchups=matchups)
         if not parsed and self._races:
             # A 200 with zero usable races, after previously having some,
             # means the sheet likely stopped being world-readable (Google
@@ -76,6 +80,48 @@ class ScheduleSource:
         self._races = parsed
         self._fetched_at = now
         return list(self._races)
+
+    async def _matchup_table(self):
+        """The Matchups tab, fetched once and then kept for the process.
+
+        A season's fixtures are fixed, so this does not need re-reading every
+        minute. Failure is not fatal and deliberately so: parse_schedule just
+        leaves `fixture` unset, which costs the booth but still opens the room
+        and posts the announcement.
+        """
+        if self._matchups is not None or not self.matchups_url:
+            return self._matchups
+        try:
+            async with aiohttp.request(
+                method='get', url=self.matchups_url,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as response:
+                if response.status != 200:
+                    raise aiohttp.ClientError(
+                        'HTTP {}'.format(response.status))
+                body = await response.text()
+        except Exception as exc:
+            # Deliberately broad, unlike the schedule fetch above. A schedule
+            # that will not load has no races to lose; this one is optional
+            # enrichment, and anything escaping here would leave tick() to
+            # catch it and skip room creation for every race this minute.
+            self.logger.warning(
+                'League matchups fetch failed (%s); no booths until it succeeds',
+                type(exc).__name__)
+            return None
+
+        parsed = parse_matchups(body, self.logger)
+        if not parsed.count:
+            # Google answers 200 with an HTML sign-in page once a sheet stops
+            # being world-readable. Caching that would silently disable every
+            # booth for the life of the process.
+            self.logger.error(
+                'League matchups parsed to zero fixtures; will retry')
+            return None
+        self.logger.info(
+            'League matchups loaded: %d fixture(s)', parsed.count)
+        self._matchups = parsed
+        return parsed
 
     def _stale(self, now, exc):
         """Reuse the last good snapshot, but not indefinitely."""

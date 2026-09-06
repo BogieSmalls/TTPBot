@@ -5,7 +5,7 @@ import re
 from typing import Optional
 from urllib.parse import urlsplit
 
-from .config import DEFAULT_SCHEDULE_URL
+from .config import DEFAULT_MATCHUPS_URL, DEFAULT_SCHEDULE_URL
 from .provider import ProviderConfigurationError, RacetimeProvider
 
 
@@ -28,6 +28,7 @@ class BotRuntimeConfig:
     environment: str
     league_enabled: bool = False
     league_schedule_url: Optional[str] = None
+    league_matchups_url: Optional[str] = None
     league_discord_webhook_url: Optional[str] = None
     _origin: Optional[str] = field(default=None, repr=False)
     _category: Optional[str] = field(default=None, repr=False)
@@ -156,6 +157,10 @@ def resolve_bot_config(args, env=None):
         _arg_or_env(args, "league_schedule_url", source, "TTPBOT_LEAGUE_SCHEDULE_URL")
         or DEFAULT_SCHEDULE_URL
     )
+    league_matchups_url = (
+        _arg_or_env(args, "league_matchups_url", source, "TTPBOT_LEAGUE_MATCHUPS_URL")
+        or DEFAULT_MATCHUPS_URL
+    )
     league_webhook = _validate_webhook(
         _arg_or_env(args, "league_discord_webhook_url", source,
                     "TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL")
@@ -170,6 +175,7 @@ def resolve_bot_config(args, env=None):
         environment=environment,
         league_enabled=league_enabled,
         league_schedule_url=league_schedule_url,
+        league_matchups_url=league_matchups_url,
         league_discord_webhook_url=league_webhook,
         _origin=origin,
         _category=category,
