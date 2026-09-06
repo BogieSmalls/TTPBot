@@ -16,18 +16,25 @@ import aiohttp
 WAKE_TIMEOUT_SECONDS = 180
 
 
-async def wake_control_plane(relay_url, logger, target='production', requester=None):
+async def wake_control_plane(relay_url, logger, token=None, target='production',
+                             requester=None):
     """Ask the relay to wake the control plane. Returns True when it is ready.
 
     Raises on failure so the caller can decide to retry; the scheduler treats
     a failure as "try again on the next tick", which is safe because the
     endpoint is idempotent.
     """
+    if not token:
+        # /api/wake checks tokens.ciWake and answers 401 without a bearer
+        # token, so a tokenless call is not a wake at all. Fail here rather
+        # than let the scheduler believe the control plane is coming up.
+        raise RuntimeError('relay wake requires a CI wake token')
     request = requester if requester is not None else aiohttp.request
     url = relay_url.rstrip('/') + '/api/wake'
     async with request(
         method='post',
         url=url,
+        headers={'Authorization': 'Bearer ' + token},
         json={'target': target},
         timeout=aiohttp.ClientTimeout(total=WAKE_TIMEOUT_SECONDS),
     ) as response:

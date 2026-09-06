@@ -149,6 +149,9 @@ class TTPBot(Bot):
                 # The relay runs on this host, so the wake is a loopback call
                 # and needs no OCI credentials here.
                 relay_wake_url=os.environ.get('Z1RR_RELAY_URL', '').strip(),
+                relay_wake_token=os.environ.get('Z1RR_WAKE_TOKEN', '').strip(),
+                wake_target=(os.environ.get('Z1RR_WAKE_TARGET', '').strip()
+                             or 'production'),
                 booth_url=os.environ.get('Z1RR_CONTROL_PLANE_URL', '').strip(),
                 booth_token=os.environ.get('Z1RR_ROSTER_TOKEN', '').strip())
         except Exception:

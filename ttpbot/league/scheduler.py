@@ -103,8 +103,8 @@ def _race_name(room_url):
 class LeagueScheduler:
     def __init__(self, bot, source, created_store, webhook_store,
                  webhook_url, logger, crew=None, roster_url=None,
-                 roster_token=None, relay_wake_url=None, booth_url=None,
-                 booth_token=None):
+                 roster_token=None, relay_wake_url=None, relay_wake_token=None,
+                 wake_target='production', booth_url=None, booth_token=None):
         self.bot = bot
         self.source = source
         self.created_store = created_store
@@ -118,10 +118,16 @@ class LeagueScheduler:
         self.roster_token = roster_token
         self._crew_refreshed_at = None
         self.relay_wake_url = relay_wake_url
+        self.relay_wake_token = relay_wake_token
+        self.wake_target = wake_target
         self.booth_url = booth_url
         self.booth_token = booth_token
         #: Race keys whose control plane has been woken and crew re-read.
         self._prepared = set()
+        #: Race keys whose booth request came back with a definite answer.
+        #: Kept apart from `announced` so an unanswered booth is retried while
+        #: the Discord post still goes out exactly once.
+        self._booth_done = set()
 
     async def run(self):
         """Tick forever. Never let a League failure kill the process."""
@@ -188,10 +194,13 @@ class LeagueScheduler:
         """
         if race.key in self._prepared:
             return
-        if not race.channel or not self.relay_wake_url:
+        if not race.channel or not self.relay_wake_url or not self.relay_wake_token:
             return
         try:
-            await wake_control_plane(self.relay_wake_url, self.logger)
+            await wake_control_plane(
+                self.relay_wake_url, self.logger,
+                token=self.relay_wake_token, target=self.wake_target,
+            )
         except Exception:
             # Never out of the tick: Phase 1 does not depend on any of this.
             self.logger.warning(
@@ -199,13 +208,25 @@ class LeagueScheduler:
                 exc_info=True,
             )
             return
+        if self.crew is None or not self.roster_url or not self.roster_token:
+            self._prepared.add(race.key)
+            return
+        try:
+            refreshed = await self.crew.refresh(self.roster_url, self.roster_token)
+        except Exception:
+            self.logger.warning('League crew lookup failed after wake', exc_info=True)
+            return
+        if not refreshed:
+            # CrewDirectory reports failure by returning False rather than by
+            # raising. Marking the race prepared here would retire the retry
+            # and leave the T-30 post tagging nobody.
+            self.logger.warning(
+                'League crew lookup after wake reported failure for %s; will retry',
+                race.title,
+            )
+            return
+        self._crew_refreshed_at = None
         self._prepared.add(race.key)
-        if self.crew is not None and self.roster_url and self.roster_token:
-            try:
-                await self.crew.refresh(self.roster_url, self.roster_token)
-                self._crew_refreshed_at = None
-            except Exception:
-                self.logger.warning('League crew lookup failed after wake', exc_info=True)
 
     async def _request_booth(self, race, room_url):
         """Ask the control plane for a booth. Never raises.
@@ -213,25 +234,34 @@ class LeagueScheduler:
         The answer decides what the announcement says, which is why this runs
         before it rather than after.
         """
+        if race.key in self._booth_done:
+            return BoothOutcome()
         if not race.channel or not self.booth_url or not self.booth_token:
             return BoothOutcome()
         payload = build_broadcast_request(race, _room_slug(room_url), self.crew, self.logger)
         if payload is None:
             return BoothOutcome()
         try:
-            return await request_booth(payload, self.booth_url, self.booth_token, self.logger)
+            outcome = await request_booth(
+                payload, self.booth_url, self.booth_token, self.logger)
         except Exception:
             # A booth failure must never cost the room its announcement.
             self.logger.warning('League booth request failed for %s', race.title, exc_info=True)
             return BoothOutcome()
+        if outcome.outcome is not None:
+            self._booth_done.add(race.key)
+        return outcome
 
     async def _handle(self, race, now):
         minutes_until = (race.start - now).total_seconds() / 60
+        if minutes_until < -LEAGUE_START_BUFFER_MINUTES:
+            # Races that are over come first. The sheet keeps every past week,
+            # so without this a restart wakes a control plane once per
+            # historical row that happened to have a Channel.
+            return
         if minutes_until <= LEAGUE_WAKE_MINUTES_BEFORE:
             await self._prepare_control_plane(race)
         if minutes_until > LEAGUE_ROOM_OPEN_MINUTES_BEFORE:
-            return
-        if minutes_until < -LEAGUE_START_BUFFER_MINUTES:
             return
 
         room_url = self.created.get(race.key)
@@ -245,13 +275,18 @@ class LeagueScheduler:
             if room_url != UNCERTAIN_RACE:
                 self._seed_handler_state(race, room_url)
 
-        if room_url == UNCERTAIN_RACE or race.key in self.announced:
+        if room_url == UNCERTAIN_RACE:
             return
 
         # Booth first, announcement second: a continuation has to carry the
-        # already-on-air warning and only the control plane knows that.
+        # already-on-air warning and only the control plane knows that. The
+        # booth call sits ahead of the `announced` guard so an attempt whose
+        # answer never arrived is retried on later ticks; the announcement
+        # itself is still posted exactly once.
         booth = await self._request_booth(race, room_url)
 
+        if race.key in self.announced:
+            return
         await send_league_announcement(
             race, room_url, self.webhook_url, self.logger, crew=self.crew,
             continuation=booth.is_continuation,

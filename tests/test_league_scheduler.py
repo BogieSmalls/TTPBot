@@ -310,7 +310,7 @@ class WakePhaseTests(unittest.IsolatedAsyncioTestCase):
             webhook_url='https://discord.com/api/webhooks/1/token',
             logger=QUIET, crew=self.crew,
             roster_url='https://cp.example', roster_token='tok',
-            relay_wake_url='http://127.0.0.1:3005',
+            relay_wake_url='http://127.0.0.1:3005', relay_wake_token='ci-tok',
         )
 
     async def test_does_not_wake_for_a_race_nobody_will_restream(self):
@@ -466,3 +466,137 @@ class BoothPhaseTests(unittest.IsolatedAsyncioTestCase):
         # its announcement, as it does today.
         booth.assert_not_awaited()
         announce.assert_awaited_once()
+
+
+class WakeGuardTests(unittest.IsolatedAsyncioTestCase):
+    """The wake must not fire for races that are over."""
+
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.created = DestinationStateStore(
+            'league_races.json', DESTINATION, 'league_created_races', data_dir=root)
+        self.webhooks = DestinationStateStore(
+            'league_webhooks.json', DESTINATION, 'league_sent_webhooks', data_dir=root)
+
+    def scheduler(self):
+        return LeagueScheduler(
+            bot=FakeBot(), source=FakeSource([STAGED_RACE]),
+            created_store=self.created, webhook_store=self.webhooks,
+            webhook_url='https://discord.com/api/webhooks/1/token',
+            logger=QUIET, crew=FakeCrew(),
+            roster_url='https://cp.example', roster_token='tok',
+            relay_wake_url='http://127.0.0.1:3005', relay_wake_token='ci-tok',
+        )
+
+    async def test_does_not_wake_for_a_race_that_already_happened(self):
+        scheduler = self.scheduler()
+        wake = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.wake_control_plane', wake):
+            # A month past. The bot restarts and re-reads the whole sheet.
+            await scheduler.tick(START + timedelta(days=30))
+
+        # Waking production for a race that finished weeks ago is real money
+        # for nothing, on every restart.
+        wake.assert_not_awaited()
+
+    async def test_still_wakes_inside_the_window(self):
+        scheduler = self.scheduler()
+        wake = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.wake_control_plane', wake), \
+             patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=None)):
+            await scheduler.tick(START - timedelta(minutes=35))
+
+        wake.assert_awaited_once()
+
+
+class ForcedCrewRefreshTests(unittest.IsolatedAsyncioTestCase):
+    """A refresh that returns False has not happened."""
+
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.created = DestinationStateStore(
+            'league_races.json', DESTINATION, 'league_created_races', data_dir=root)
+        self.webhooks = DestinationStateStore(
+            'league_webhooks.json', DESTINATION, 'league_sent_webhooks', data_dir=root)
+
+    def scheduler(self, crew):
+        return LeagueScheduler(
+            bot=FakeBot(), source=FakeSource([STAGED_RACE]),
+            created_store=self.created, webhook_store=self.webhooks,
+            webhook_url='https://discord.com/api/webhooks/1/token',
+            logger=QUIET, crew=crew,
+            roster_url='https://cp.example', roster_token='tok',
+            relay_wake_url='http://127.0.0.1:3005', relay_wake_token='ci-tok',
+        )
+
+    async def test_retries_when_the_forced_lookup_reported_failure(self):
+        class RefusingCrew(FakeCrew):
+            async def refresh(self, url, token):
+                self.refreshes += 1
+                # CrewDirectory returns False rather than raising, so a
+                # failure looks exactly like a success to a careless caller.
+                return False
+
+        crew = RefusingCrew()
+        scheduler = self.scheduler(crew)
+        wake = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.wake_control_plane', wake), \
+             patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=None)):
+            await scheduler.tick(START - timedelta(minutes=35))
+            await scheduler.tick(START - timedelta(minutes=34))
+
+        # Not marked done, so the next tick tries again.
+        self.assertEqual(wake.await_count, 2)
+
+
+class BoothRetryTests(unittest.IsolatedAsyncioTestCase):
+    """An unknown booth outcome is retried; the announcement still goes once."""
+
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.created = DestinationStateStore(
+            'league_races.json', DESTINATION, 'league_created_races', data_dir=root)
+        self.webhooks = DestinationStateStore(
+            'league_webhooks.json', DESTINATION, 'league_sent_webhooks', data_dir=root)
+
+    def scheduler(self):
+        return LeagueScheduler(
+            bot=FakeBot(), source=FakeSource([STAGED_RACE]),
+            created_store=self.created, webhook_store=self.webhooks,
+            webhook_url='https://discord.com/api/webhooks/1/token',
+            logger=QUIET, crew=FakeCrew(),
+            booth_url='https://cp.example', booth_token='tok',
+        )
+
+    async def test_retries_a_booth_whose_outcome_is_unknown(self):
+        scheduler = self.scheduler()
+        booth = AsyncMock(side_effect=[BoothOutcome(), BoothOutcome('staged', 'b1')])
+        announce = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth', booth), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+
+        # Persisting `announced` after an unknown outcome used to end the
+        # tick early forever, so the booth was never built.
+        self.assertEqual(booth.await_count, 2)
+        # The announcement still goes exactly once - Phase 1 is not spammed.
+        announce.assert_awaited_once()
+
+    async def test_stops_calling_the_booth_once_it_answered(self):
+        scheduler = self.scheduler()
+        booth = AsyncMock(return_value=BoothOutcome('staged', 'b1'))
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth', booth), \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+
+        self.assertEqual(booth.await_count, 1)
