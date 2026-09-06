@@ -96,20 +96,28 @@ class LeagueRace:
 
     @property
     def away_racer(self):
-        """The racer whose team is away, or None without a fixture."""
+        """The racer whose team is away, or None when that is not decidable.
+
+        The fixture was looked up by these two teams, so exactly one of them
+        should match its away side. Neither matching, or both, means the tabs
+        disagreed with each other or with roster.json between fetches - and
+        falling back to "whichever is second" would be a coin flip dressed as
+        an answer, on the one question this whole path exists to get right.
+        """
         if self.fixture is None:
             return None
-        return (
-            self.runner_one
-            if _same_team(self.runner_one, self.fixture.away)
-            else self.runner_two
-        )
+        matches = [
+            racer for racer in (self.runner_one, self.runner_two)
+            if _same_team(racer, self.fixture.away)
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     @property
     def home_racer(self):
-        if self.fixture is None:
+        away = self.away_racer
+        if away is None:
             return None
-        return self.runner_two if self.away_racer is self.runner_one else self.runner_one
+        return self.runner_two if away is self.runner_one else self.runner_one
 
     @property
     def orchestratable(self):
@@ -120,7 +128,11 @@ class LeagueRace:
         way to tell which team belongs on which side, and guessing would put
         them on the wrong sides about half the time.
         """
-        return bool(self.channel) and self.fixture is not None
+        return (
+            bool(self.channel)
+            and self.fixture is not None
+            and self.away_racer is not None
+        )
 
     @property
     def slug(self):

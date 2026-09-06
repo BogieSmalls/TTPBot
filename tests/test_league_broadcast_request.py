@@ -131,3 +131,30 @@ class UnresolvableTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DriftBetweenTabsTests(unittest.TestCase):
+    """The fixture is looked up by these two teams, so a mismatch means the
+    sheets disagreed with each other or with roster.json between fetches."""
+
+    def test_refuses_when_neither_racer_plays_for_the_away_team(self):
+        logger = Mock()
+        wrong = race(fixture=Fixture(week=1, away='Bow Mode', home='3 Horsemen'))
+
+        self.assertIsNone(wrong.away_racer)
+        self.assertFalse(wrong.orchestratable)
+        # Returning runner_two here would be a coin flip dressed as an answer.
+        self.assertIsNone(build_broadcast_request(wrong, 'z1r/x', CREW, logger))
+        self.assertTrue(logger.warning.called)
+
+    def test_refuses_when_both_racers_play_for_the_away_team(self):
+        same = racer('Twin', 'MiB', 'Midwest Is Best', 'twin')
+        wrong = race(
+            runner_one=racer('cUstOm', 'MiB', 'Midwest Is Best', 'customshield'),
+            runner_two=same,
+            fixture=Fixture(week=1, away='Midwest Is Best', home='Three Unique Gamers'),
+        )
+
+        # Not a fixture that can exist, and picking the first is still a guess.
+        self.assertIsNone(wrong.away_racer)
+        self.assertFalse(wrong.orchestratable)

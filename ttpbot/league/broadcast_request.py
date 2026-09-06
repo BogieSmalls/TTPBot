@@ -64,6 +64,15 @@ def build_broadcast_request(race, race_slug, crew, logger):
             'announcement are unaffected)', race.slug,
         )
         return None
+    if race.away_racer is None:
+        # The fixture was found by these two teams, so one of them should be
+        # the away side. Neither or both means the sheets drifted, and
+        # guessing would put the teams on the wrong sides.
+        logger.warning(
+            'League race %s does not line up with fixture %s vs %s; skipping the booth',
+            race.slug, race.fixture.away, race.fixture.home,
+        )
+        return None
     if not race_slug:
         # The draft carries raceSlug so the booth can sync flags, seed and
         # results. A booth with no room to sync from is not worth building.
