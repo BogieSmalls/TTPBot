@@ -134,3 +134,12 @@ class CrewTaggingTests(unittest.TestCase):
 
         self.assertIn('SpecialK', body['content'])
         self.assertEqual(sorted(body['allowed_mentions']['users']), ['111', '222'])
+
+    def test_separates_the_crew_credits_with_a_blank_line(self):
+        body = build_announcement(
+            _staffed_race(comms=('SpecialK',), tracker='GrandpaSzabo'), ROOM, crew=CREW,
+        )
+
+        # Matchup and crew are two separate thoughts; a single break renders
+        # too tightly in Discord to scan at a glance.
+        self.assertIn('\n\nComms:', body['content'])

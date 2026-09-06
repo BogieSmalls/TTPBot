@@ -8,8 +8,11 @@ import asyncio
 
 import aiohttp
 
-#: Kept as a constant so the escape cannot be mangled by tooling again.
+#: Kept as constants so the escapes cannot be mangled by tooling again.
 NEWLINE = chr(10)
+#: A blank line between the matchup and the crew credits - they are two
+#: separate thoughts, and Discord renders a single break too tightly to scan.
+BLANK_LINE = NEWLINE * 2
 
 
 def _mention(racer):
@@ -57,7 +60,7 @@ def build_announcement(race, race_url, crew=None):
     ]
     staffed = ' · '.join(segment for segment in segments if segment)
     if staffed:
-        content = NEWLINE.join((content, staffed))
+        content = BLANK_LINE.join((content, staffed))
     return {
         'content': content,
         'allowed_mentions': {
