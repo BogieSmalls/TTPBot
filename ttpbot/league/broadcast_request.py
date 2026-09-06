@@ -34,7 +34,23 @@ def _title(race):
 
 
 def _racer_slot(racer, slot):
-    return {'slot': slot, 'channel': racer.twitch_channel, 'displayName': racer.display_name}
+    """One racer slot for the booth payload.
+
+    The racetime id is the same key the racer is invited with, so sending it
+    lets the control plane bind the slot to the race entrant exactly rather
+    than inferring it from the Twitch channel. Omitted rather than sent empty
+    when the roster has no id: the far end treats absence as "match by
+    channel, as before", and an empty string would be a malformed id.
+    """
+    slot_payload = {
+        'slot': slot,
+        'channel': racer.twitch_channel,
+        'displayName': racer.display_name,
+    }
+    racetime_id = (racer.racetime_id or '').strip()
+    if racetime_id:
+        slot_payload['racetimeId'] = racetime_id
+    return slot_payload
 
 
 def _crew_user_id(crew, name, logger):
