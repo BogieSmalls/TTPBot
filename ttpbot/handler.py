@@ -254,6 +254,19 @@ class TTPRaceHandler(RaceHandler):
                                 self.data.get('name'), exc)
             return []
 
+    def _present_entrant_ids(self):
+        """racetime ids already entered in this room."""
+        entrants = self.data.get('entrants')
+        if not isinstance(entrants, list):
+            return set()
+        present = set()
+        for entrant in entrants:
+            user = entrant.get('user') if isinstance(entrant, dict) else None
+            user_id = (user or {}).get('id') if isinstance(user, dict) else None
+            if isinstance(user_id, str) and user_id:
+                present.add(user_id)
+        return present
+
     async def _send_league_invites(self):
         """Invite both racers exactly once.
 
@@ -271,11 +284,36 @@ class TTPRaceHandler(RaceHandler):
         invite_ids = self._league_invite_ids()
         if not invite_ids:
             return
+        # Only those not already in the room. invite_user() just writes to the
+        # socket and never learns whether racetime accepted it, so a duplicate
+        # invitation is not something we would find out about - and a retry
+        # after a half-sent batch, or after a restart, would otherwise re-send
+        # for a racer who is already an entrant.
+        present = self._present_entrant_ids()
+        invite_ids = [i for i in invite_ids if i not in present]
+        if not invite_ids:
+            if state is not None:
+                state['league_invited'] = True
+            return
         # Set before awaiting so a concurrent begin() cannot double-invite.
         if state is not None:
             state['league_invited'] = True
-        for racetime_id in invite_ids:
-            await self.invite_user(racetime_id)
+        try:
+            for racetime_id in invite_ids:
+                await self.invite_user(racetime_id)
+        except Exception:
+            # The guard is claimed before the sends, so a websocket that dies
+            # midway would otherwise leave it set with nobody invited, and
+            # every rebuilt handler would skip. Release it and let the next
+            # handler try; re-inviting an existing entrant is harmless, being
+            # stranded is not.
+            if state is not None:
+                state['league_invited'] = False
+            self.logger.warning(
+                '[%s] League invites failed; released for retry',
+                self.data.get('name'), exc_info=True,
+            )
+            raise
         self.logger.info('[%s] invited %d League racers',
                          self.data.get('name'), len(invite_ids))
 

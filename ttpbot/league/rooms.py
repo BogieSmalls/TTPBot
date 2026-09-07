@@ -18,7 +18,13 @@ def league_room_form_data(race):
     """Return Racetime form fields for a League room."""
     return {
         'goal': POST_SEASON_GOAL_NAME,
-        'info_bot': race.title,
+        # info_user only. Racetime renders both fields, so writing the title
+        # to each showed it twice. info_user is also the durable one: info_bot
+        # is what the `setinfo` action writes, so any authorised category bot
+        # can replace it - SahasrahBot does exactly that when it rolls a seed.
+        # Leaving info_bot clear means the room reads title + seed rather than
+        # title + title, and the restart recovery in _league_invite_ids()
+        # stops depending on a field somebody else owns.
         'info_user': race.title,
         'invitational': 'false',
         'unlisted': 'false',

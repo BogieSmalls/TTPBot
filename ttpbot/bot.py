@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import os
 
 import aiohttp
+import websockets.exceptions
 
 from racetime_bot import Bot
 
@@ -163,6 +164,53 @@ class TTPBot(Bot):
                 'League scheduling is off (roster or state is unusable); '
                 'TTP scheduling is unaffected', exc_info=True)
             return None
+
+    #: Network failures that must never stop the bot.
+    #:
+    #: racetime_bot's own handler stops the event loop for any exception whose
+    #: exact class is not in `continue_on`, and that list holds only the
+    #: ConnectionClosed family - a socket that closed *after* connecting. A
+    #: handshake rejected by an upstream 5xx raises InvalidStatus instead, so
+    #: on 2026-09-07 a transient racetime 502 stopped the loop, the process
+    #: exited 0, and `Restart=on-failure` correctly did nothing. The bot was
+    #: down for two minutes with a League race 30 minutes out.
+    #:
+    #: Matched with isinstance, unlike the library's exact-class check, so a
+    #: new websockets subclass does not reopen the same hole.
+    TRANSIENT_LOOP_ERRORS = (websockets.exceptions.WebSocketException,)
+
+    #: WebSocketExceptions that are not transient at all. Both mean the code
+    #: used the socket wrongly, and pretending otherwise would spin.
+    FATAL_WEBSOCKET_ERRORS = (
+        websockets.exceptions.InvalidState,
+        websockets.exceptions.ConcurrencyError,
+    )
+
+    def handle_exception(self, loop, context):
+        """Keep the loop alive through a websocket fault, and only that.
+
+        Deliberately narrow. refresh_races rebuilds any race handler whose
+        task died within one scan cycle, so a websocket failure genuinely
+        recovers on its own - but nothing else here does.
+
+        In particular this must not swallow OSError. requests' exceptions
+        inherit from it, racetime_bot's reauthorize() loop has no try/except
+        of its own, and suppressing that would kill the token refresh forever
+        while leaving a process systemd still considers healthy. Letting the
+        loop stop is the better outcome there: with Restart=always the service
+        comes back with a working token.
+        """
+        exception = context.get('exception')
+        if (
+            isinstance(exception, self.TRANSIENT_LOOP_ERRORS)
+            and not isinstance(exception, self.FATAL_WEBSOCKET_ERRORS)
+        ):
+            self.logger.warning(
+                'Transient network error, continuing: %r (%s)',
+                exception, context.get('message', ''),
+            )
+            return
+        super().handle_exception(loop, context)
 
     def run(self):
         """Add the race scheduler task alongside the standard bot tasks."""

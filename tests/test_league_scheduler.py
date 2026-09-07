@@ -702,3 +702,278 @@ class ScheduleSourceMatchupsTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(races), 1)
         self.assertIsNone(races[0].fixture)
+
+
+class LateContinuationCorrectionTests(unittest.IsolatedAsyncioTestCase):
+    """A booth that answers after the post must not leave it standing wrong."""
+
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.created = DestinationStateStore(
+            'league_races.json', DESTINATION, 'league_created_races', data_dir=root)
+        self.webhooks = DestinationStateStore(
+            'league_webhooks.json', DESTINATION, 'league_sent_webhooks', data_dir=root)
+
+    def scheduler(self):
+        return LeagueScheduler(
+            bot=FakeBot(), source=FakeSource([STAGED_RACE]),
+            created_store=self.created, webhook_store=self.webhooks,
+            webhook_url='https://discord.com/api/webhooks/1/token',
+            logger=QUIET, crew=FakeCrew(),
+            booth_url='https://cp.example', booth_token='tok',
+        )
+
+    async def test_corrects_the_post_when_a_retry_reveals_a_continuation(self):
+        scheduler = self.scheduler()
+        booth = AsyncMock(side_effect=[BoothOutcome(), BoothOutcome('continuation', 'b0')])
+        announce = AsyncMock(return_value=True)
+        correct = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth', booth), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+
+        # The first post went out with normal wording because nothing knew
+        # better yet; the correction carries the one fact that changed.
+        announce.assert_awaited_once()
+        self.assertFalse(announce.await_args.kwargs['continuation'])
+        correct.assert_awaited_once()
+
+    async def test_says_nothing_more_when_the_retry_is_a_normal_booth(self):
+        scheduler = self.scheduler()
+        booth = AsyncMock(side_effect=[BoothOutcome(), BoothOutcome('staged', 'b1')])
+        correct = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth', booth), \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+
+        # Nothing was wrong with the original post, so there is nothing to say.
+        correct.assert_not_awaited()
+
+    async def test_corrects_only_once_across_many_ticks(self):
+        scheduler = self.scheduler()
+        booth = AsyncMock(side_effect=[
+            BoothOutcome(), BoothOutcome('continuation', 'b0'),
+        ])
+        correct = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth', booth), \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+            await scheduler.tick(START - timedelta(minutes=28))
+
+        self.assertEqual(correct.await_count, 1)
+
+    async def test_a_restart_does_not_repost_the_correction(self):
+        scheduler = self.scheduler()
+        correct = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(side_effect=[BoothOutcome(), BoothOutcome('continuation', 'b0')])), \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+
+        # A fresh scheduler reading the same stores, as after a restart.
+        restarted = self.scheduler()
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(return_value=BoothOutcome('continuation', 'b0'))), \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await restarted.tick(START - timedelta(minutes=28))
+
+        # The correction is persisted alongside the announcement, so it
+        # survives the restart that its in-memory booth state does not.
+        self.assertEqual(correct.await_count, 1)
+
+    async def test_retries_the_correction_when_discord_refuses_it(self):
+        scheduler = self.scheduler()
+        correct = AsyncMock(side_effect=[False, True])
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(side_effect=[BoothOutcome(), BoothOutcome('continuation', 'b0'),
+                                          BoothOutcome('continuation', 'b0')])), \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+            await scheduler.tick(START - timedelta(minutes=28))
+
+        # Not recorded unless Discord accepted it.
+        self.assertEqual(correct.await_count, 2)
+
+
+class FailedAnnouncementTests(unittest.IsolatedAsyncioTestCase):
+    """A webhook Discord never accepted must not count as announced."""
+
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.created = DestinationStateStore(
+            'league_races.json', DESTINATION, 'league_created_races', data_dir=root)
+        self.webhooks = DestinationStateStore(
+            'league_webhooks.json', DESTINATION, 'league_sent_webhooks', data_dir=root)
+
+    def scheduler(self):
+        return LeagueScheduler(
+            bot=FakeBot(), source=FakeSource([STAGED_RACE]),
+            created_store=self.created, webhook_store=self.webhooks,
+            webhook_url='https://discord.com/api/webhooks/1/token',
+            logger=QUIET, crew=FakeCrew(),
+            booth_url='https://cp.example', booth_token='tok',
+        )
+
+    async def test_retries_an_announcement_discord_refused(self):
+        scheduler = self.scheduler()
+        announce = AsyncMock(side_effect=[False, True])
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(return_value=BoothOutcome('staged', 'b1'))), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce):
+            await scheduler.tick(START - timedelta(minutes=30))
+            # Refused, so nothing is recorded: recording a post that never
+            # landed would lose the announcement for good.
+            self.assertNotIn(STAGED_RACE.key, self.webhooks.load())
+
+            await scheduler.tick(START - timedelta(minutes=29))
+
+        # The next tick posts it again, and that one is recorded.
+        self.assertEqual(announce.await_count, 2)
+        self.assertIn(STAGED_RACE.key, self.webhooks.load())
+
+    async def test_a_refused_post_is_retried_in_full_not_as_a_correction(self):
+        scheduler = self.scheduler()
+        announce = AsyncMock(side_effect=[False, True])
+        correct = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(side_effect=[BoothOutcome(), BoothOutcome('continuation', 'b0')])), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+
+        # There is no earlier post to correct, so the retry has to be the whole
+        # announcement - carrying the already-on-air warning itself.
+        self.assertTrue(announce.await_args.kwargs['continuation'])
+        correct.assert_not_awaited()
+
+    async def test_records_an_announcement_discord_accepted(self):
+        scheduler = self.scheduler()
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(return_value=BoothOutcome('staged', 'b1'))), \
+             patch('ttpbot.league.scheduler.send_league_announcement',
+                   AsyncMock(return_value=True)):
+            await scheduler.tick(START - timedelta(minutes=30))
+
+        self.assertIn(STAGED_RACE.key, self.webhooks.load())
+
+
+class ContinuationSaidOnlyOnceTests(unittest.IsolatedAsyncioTestCase):
+    """The on-air warning is one fact, however it reached Discord.
+
+    It can arrive in the announcement itself, when the booth answered before
+    the post, or as a correction, when it answered after. Recording only the
+    latter would leave the former looking uncommunicated, and every later tick
+    would correct a message that was never wrong.
+    """
+
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.created = DestinationStateStore(
+            'league_races.json', DESTINATION, 'league_created_races', data_dir=root)
+        self.webhooks = DestinationStateStore(
+            'league_webhooks.json', DESTINATION, 'league_sent_webhooks', data_dir=root)
+
+    def scheduler(self):
+        return LeagueScheduler(
+            bot=FakeBot(), source=FakeSource([STAGED_RACE]),
+            created_store=self.created, webhook_store=self.webhooks,
+            webhook_url='https://discord.com/api/webhooks/1/token',
+            logger=QUIET, crew=FakeCrew(),
+            booth_url='https://cp.example', booth_token='tok',
+        )
+
+    async def test_an_immediate_continuation_is_never_corrected(self):
+        scheduler = self.scheduler()
+        announce = AsyncMock(return_value=True)
+        correct = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(return_value=BoothOutcome('continuation', 'b0'))), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+
+        # The announcement carried the warning itself.
+        announce.assert_awaited_once()
+        self.assertTrue(announce.await_args.kwargs['continuation'])
+        correct.assert_not_awaited()
+
+    async def test_a_refused_post_retried_as_a_continuation_is_not_corrected(self):
+        scheduler = self.scheduler()
+        announce = AsyncMock(side_effect=[False, True])
+        correct = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(side_effect=[BoothOutcome(), BoothOutcome('continuation', 'b0'),
+                                          BoothOutcome('continuation', 'b0')])), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+            await scheduler.tick(START - timedelta(minutes=28))
+
+        # The retry was a full post carrying the warning, so there is nothing
+        # left to correct on the tick after it.
+        self.assertEqual(announce.await_count, 2)
+        correct.assert_not_awaited()
+
+    async def test_a_restart_after_a_continuation_post_does_not_correct(self):
+        scheduler = self.scheduler()
+        correct = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(return_value=BoothOutcome('continuation', 'b0'))), \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await scheduler.tick(START - timedelta(minutes=30))
+
+        # A fresh scheduler on the same stores, with no in-memory booth state.
+        restarted = self.scheduler()
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(return_value=BoothOutcome('continuation', 'b0'))), \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await restarted.tick(START - timedelta(minutes=28))
+
+        correct.assert_not_awaited()
+
+    async def test_the_marker_is_persisted_by_the_announcement_itself(self):
+        scheduler = self.scheduler()
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(return_value=BoothOutcome('continuation', 'b0'))), \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)):
+            await scheduler.tick(START - timedelta(minutes=30))
+
+        stored = self.webhooks.load()
+        self.assertIn(STAGED_RACE.key, stored)
+        self.assertIn(STAGED_RACE.key + '-continuation', stored)

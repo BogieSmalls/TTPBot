@@ -12,7 +12,7 @@ import aiohttp
 
 from ..config import DEFAULT_SCHEDULE_URL
 from ..state import UNCERTAIN_RACE
-from .announce import send_league_announcement
+from .announce import send_league_announcement, send_league_continuation_notice
 from .booth import BoothOutcome, request_booth
 from .broadcast_request import build_broadcast_request
 from .wake import wake_control_plane
@@ -170,10 +170,13 @@ class LeagueScheduler:
         self.booth_token = booth_token
         #: Race keys whose control plane has been woken and crew re-read.
         self._prepared = set()
-        #: Race keys whose booth request came back with a definite answer.
+        #: Race key -> the definite answer its booth request came back with.
         #: Kept apart from `announced` so an unanswered booth is retried while
-        #: the Discord post still goes out exactly once.
-        self._booth_done = set()
+        #: the Discord post still goes out exactly once, and kept as the
+        #: outcome rather than a bare flag because a later tick still needs to
+        #: know *what* the answer was - a continuation has a correction to
+        #: post even after the booth itself is settled.
+        self._booth_outcomes = {}
 
     async def run(self):
         """Tick forever. Never let a League failure kill the process."""
@@ -280,8 +283,9 @@ class LeagueScheduler:
         The answer decides what the announcement says, which is why this runs
         before it rather than after.
         """
-        if race.key in self._booth_done:
-            return BoothOutcome()
+        settled = self._booth_outcomes.get(race.key)
+        if settled is not None:
+            return settled
         if not race.channel or not self.booth_url or not self.booth_token:
             return BoothOutcome()
         payload = build_broadcast_request(race, _room_slug(room_url), self.crew, self.logger)
@@ -295,7 +299,7 @@ class LeagueScheduler:
             self.logger.warning('League booth request failed for %s', race.title, exc_info=True)
             return BoothOutcome()
         if outcome.outcome is not None:
-            self._booth_done.add(race.key)
+            self._booth_outcomes[race.key] = outcome
         return outcome
 
     async def _handle(self, race, now):
@@ -332,12 +336,67 @@ class LeagueScheduler:
         booth = await self._request_booth(race, room_url)
 
         if race.key in self.announced:
+            # The post has already gone. If the booth only answered on a later
+            # tick, and answered `continuation`, that post told the crew the
+            # wrong thing - so correct it rather than leaving it standing.
+            await self._correct_announcement(race, room_url, booth)
             return
-        await send_league_announcement(
+        sent = await send_league_announcement(
             race, room_url, self.webhook_url, self.logger, crew=self.crew,
             continuation=booth.is_continuation,
         )
+        if not sent:
+            # Left unrecorded so the next tick posts it. Recording a webhook
+            # Discord never accepted would lose the announcement entirely, and
+            # a later continuation would then post a correction to a message
+            # that does not exist.
+            return
         self.announced.add(race.key)
+        if booth.is_continuation:
+            # This post already carried the already-on-air warning, so the
+            # marker is set here too. It means "the warning was communicated",
+            # not "a correction was posted" - without that, the next tick
+            # would see a continuation with no marker and correct a message
+            # that was never wrong.
+            self.announced.add(self._continuation_key(race))
+        self._save_announced()
+
+    async def _correct_announcement(self, race, room_url, booth):
+        """Say the channel is already on air, when the first post could not.
+
+        Only reachable when the booth request had no answer at announcement
+        time and a retry later came back `continuation`. The correction is
+        recorded in the same store as the announcement, keyed per race, so a
+        restart cannot repost it. The key keeps the timestamp prefix that the
+        store's age-based cleanup reads.
+        """
+        if not booth.is_continuation:
+            return
+        key = self._continuation_key(race)
+        if key in self.announced:
+            return
+        sent = await send_league_continuation_notice(
+            race, room_url, self.webhook_url, self.logger, crew=self.crew,
+        )
+        if not sent:
+            # Left unrecorded so the next tick tries again; the booth outcome
+            # is already known, so no further work is repeated.
+            return
+        self.announced.add(key)
+        self._save_announced()
+
+    @staticmethod
+    def _continuation_key(race):
+        """Marker meaning the already-on-air warning reached Discord.
+
+        Appended to the slug rather than added as a third '|' segment: the
+        state store validates a League key as exactly `timestamp|slug` and
+        refuses the latter. The timestamp prefix is untouched, so age-based
+        cleanup retires it alongside the announcement it belongs to.
+        """
+        return '{}-continuation'.format(race.key)
+
+    def _save_announced(self):
         self.webhook_store.save({key: True for key in self.announced})
 
     def _seed_handler_state(self, race, room_url):
