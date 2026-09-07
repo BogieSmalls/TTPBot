@@ -254,6 +254,19 @@ class TTPRaceHandler(RaceHandler):
                                 self.data.get('name'), exc)
             return []
 
+    def _present_entrant_ids(self):
+        """racetime ids already entered in this room."""
+        entrants = self.data.get('entrants')
+        if not isinstance(entrants, list):
+            return set()
+        present = set()
+        for entrant in entrants:
+            user = entrant.get('user') if isinstance(entrant, dict) else None
+            user_id = (user or {}).get('id') if isinstance(user, dict) else None
+            if isinstance(user_id, str) and user_id:
+                present.add(user_id)
+        return present
+
     async def _send_league_invites(self):
         """Invite both racers exactly once.
 
@@ -270,6 +283,17 @@ class TTPRaceHandler(RaceHandler):
             return
         invite_ids = self._league_invite_ids()
         if not invite_ids:
+            return
+        # Only those not already in the room. invite_user() just writes to the
+        # socket and never learns whether racetime accepted it, so a duplicate
+        # invitation is not something we would find out about - and a retry
+        # after a half-sent batch, or after a restart, would otherwise re-send
+        # for a racer who is already an entrant.
+        present = self._present_entrant_ids()
+        invite_ids = [i for i in invite_ids if i not in present]
+        if not invite_ids:
+            if state is not None:
+                state['league_invited'] = True
             return
         # Set before awaiting so a concurrent begin() cannot double-invite.
         if state is not None:

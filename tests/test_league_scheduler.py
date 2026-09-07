@@ -812,3 +812,71 @@ class LateContinuationCorrectionTests(unittest.IsolatedAsyncioTestCase):
 
         # Not recorded unless Discord accepted it.
         self.assertEqual(correct.await_count, 2)
+
+
+class FailedAnnouncementTests(unittest.IsolatedAsyncioTestCase):
+    """A webhook Discord never accepted must not count as announced."""
+
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.created = DestinationStateStore(
+            'league_races.json', DESTINATION, 'league_created_races', data_dir=root)
+        self.webhooks = DestinationStateStore(
+            'league_webhooks.json', DESTINATION, 'league_sent_webhooks', data_dir=root)
+
+    def scheduler(self):
+        return LeagueScheduler(
+            bot=FakeBot(), source=FakeSource([STAGED_RACE]),
+            created_store=self.created, webhook_store=self.webhooks,
+            webhook_url='https://discord.com/api/webhooks/1/token',
+            logger=QUIET, crew=FakeCrew(),
+            booth_url='https://cp.example', booth_token='tok',
+        )
+
+    async def test_retries_an_announcement_discord_refused(self):
+        scheduler = self.scheduler()
+        announce = AsyncMock(side_effect=[False, True])
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(return_value=BoothOutcome('staged', 'b1'))), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce):
+            await scheduler.tick(START - timedelta(minutes=30))
+            # Refused, so nothing is recorded: recording a post that never
+            # landed would lose the announcement for good.
+            self.assertNotIn(STAGED_RACE.key, self.webhooks.load())
+
+            await scheduler.tick(START - timedelta(minutes=29))
+
+        # The next tick posts it again, and that one is recorded.
+        self.assertEqual(announce.await_count, 2)
+        self.assertIn(STAGED_RACE.key, self.webhooks.load())
+
+    async def test_a_refused_post_is_retried_in_full_not_as_a_correction(self):
+        scheduler = self.scheduler()
+        announce = AsyncMock(side_effect=[False, True])
+        correct = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(side_effect=[BoothOutcome(), BoothOutcome('continuation', 'b0')])), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce), \
+             patch('ttpbot.league.scheduler.send_league_continuation_notice', correct):
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+
+        # There is no earlier post to correct, so the retry has to be the whole
+        # announcement - carrying the already-on-air warning itself.
+        self.assertTrue(announce.await_args.kwargs['continuation'])
+        correct.assert_not_awaited()
+
+    async def test_records_an_announcement_discord_accepted(self):
+        scheduler = self.scheduler()
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(return_value=BoothOutcome('staged', 'b1'))), \
+             patch('ttpbot.league.scheduler.send_league_announcement',
+                   AsyncMock(return_value=True)):
+            await scheduler.tick(START - timedelta(minutes=30))
+
+        self.assertIn(STAGED_RACE.key, self.webhooks.load())

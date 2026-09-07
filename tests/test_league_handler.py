@@ -259,3 +259,77 @@ class LeagueInviteRetryTests(unittest.IsolatedAsyncioTestCase):
         # The release must not cost the double-invite protection.
         self.assertEqual(handler.invite_user.await_count, 2)
         self.assertTrue(state.get('league_invited'))
+
+
+def make_handler_with_entrants(state, entrant_ids):
+    handler = make_handler(state)
+    handler.data = dict(
+        LEAGUE_DATA,
+        entrants=[{'user': {'id': i}} for i in entrant_ids],
+    )
+    return handler
+
+
+class LeagueInviteSkipsExistingEntrantsTests(unittest.IsolatedAsyncioTestCase):
+    """invite_user() only writes to the socket - it never learns the answer.
+
+    So a duplicate invitation is not something the bot would find out about,
+    and a retry after a half-sent batch, or after a restart, must not re-send
+    for somebody already in the room.
+    """
+
+    async def test_retries_only_the_racer_who_is_still_missing(self):
+        state = {'league_race': {'invite': ['rt-sir', 'rt-wind']}}
+        # The first send landed, the second died with the socket.
+        failing = make_handler(state)
+        failing.invite_user = AsyncMock(side_effect=[None, OSError('socket died')])
+        with self.assertRaises(OSError):
+            await failing._send_league_invites()
+
+        retry = make_handler_with_entrants(state, ['rt-sir'])
+        await retry._send_league_invites()
+
+        self.assertEqual(
+            [c.args[0] for c in retry.invite_user.await_args_list], ['rt-wind'],
+        )
+
+    async def test_a_restart_with_both_present_invites_nobody(self):
+        # No seeded state, as after a restart: _league_invite_ids falls back to
+        # the room title and resolves the real roster ids, so the entrants have
+        # to be those same ids for this to mean anything.
+        handler = make_handler_with_entrants(
+            {}, ['vrZyM4orOEWqDJX0', 'd17DexWEMqWak64R'])
+
+        await handler._send_league_invites()
+
+        # State is gone after a restart, so the title fallback resolves both
+        # again - but they are already entrants and need nothing.
+        handler.invite_user.assert_not_awaited()
+
+    async def test_marks_the_work_done_when_everyone_is_already_in(self):
+        state = {'league_race': {'invite': ['rt-sir', 'rt-wind']}}
+        handler = make_handler_with_entrants(state, ['rt-sir', 'rt-wind'])
+
+        await handler._send_league_invites()
+
+        # Nothing left to do, so later handlers should not re-check.
+        self.assertTrue(state.get('league_invited'))
+
+    async def test_invites_everyone_when_the_room_is_empty(self):
+        state = {'league_race': {'invite': ['rt-sir', 'rt-wind']}}
+        handler = make_handler_with_entrants(state, [])
+
+        await handler._send_league_invites()
+
+        self.assertEqual(
+            [c.args[0] for c in handler.invite_user.await_args_list],
+            ['rt-sir', 'rt-wind'],
+        )
+
+    async def test_tolerates_a_room_payload_without_entrants(self):
+        state = {'league_race': {'invite': ['rt-sir', 'rt-wind']}}
+        handler = make_handler(state)
+
+        await handler._send_league_invites()
+
+        self.assertEqual(handler.invite_user.await_count, 2)

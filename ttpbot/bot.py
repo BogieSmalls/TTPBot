@@ -177,23 +177,34 @@ class TTPBot(Bot):
     #:
     #: Matched with isinstance, unlike the library's exact-class check, so a
     #: new websockets subclass does not reopen the same hole.
-    TRANSIENT_LOOP_ERRORS = (
-        websockets.exceptions.WebSocketException,
-        aiohttp.ClientError,
-        asyncio.TimeoutError,
-        OSError,
+    TRANSIENT_LOOP_ERRORS = (websockets.exceptions.WebSocketException,)
+
+    #: WebSocketExceptions that are not transient at all. Both mean the code
+    #: used the socket wrongly, and pretending otherwise would spin.
+    FATAL_WEBSOCKET_ERRORS = (
+        websockets.exceptions.InvalidState,
+        websockets.exceptions.ConcurrencyError,
     )
 
     def handle_exception(self, loop, context):
-        """Keep the loop alive through transient network faults.
+        """Keep the loop alive through a websocket fault, and only that.
 
-        Everything else still goes to the library, which stops the loop. That
-        is the right call for a genuine programming error; it is the wrong one
-        for racetime having a bad thirty seconds, because refresh_races
-        rebuilds any handler whose task died within one scan cycle.
+        Deliberately narrow. refresh_races rebuilds any race handler whose
+        task died within one scan cycle, so a websocket failure genuinely
+        recovers on its own - but nothing else here does.
+
+        In particular this must not swallow OSError. requests' exceptions
+        inherit from it, racetime_bot's reauthorize() loop has no try/except
+        of its own, and suppressing that would kill the token refresh forever
+        while leaving a process systemd still considers healthy. Letting the
+        loop stop is the better outcome there: with Restart=always the service
+        comes back with a working token.
         """
         exception = context.get('exception')
-        if isinstance(exception, self.TRANSIENT_LOOP_ERRORS):
+        if (
+            isinstance(exception, self.TRANSIENT_LOOP_ERRORS)
+            and not isinstance(exception, self.FATAL_WEBSOCKET_ERRORS)
+        ):
             self.logger.warning(
                 'Transient network error, continuing: %r (%s)',
                 exception, context.get('message', ''),

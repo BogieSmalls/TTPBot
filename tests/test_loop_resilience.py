@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import Mock
 
 import aiohttp
+import requests.exceptions
 import websockets.exceptions
 
 from ttpbot.bot import TTPBot
@@ -62,7 +63,12 @@ class TransientErrorsDoNotStopTheLoop(unittest.TestCase):
 
         self.assertFalse(loop.stopped)
 
-    def test_survives_http_and_socket_level_faults(self):
+    def test_does_not_swallow_faults_the_loop_cannot_recover_from(self):
+        # Only a websocket failure self-heals: refresh_races rebuilds the
+        # handler within a scan cycle. Nothing else does, and suppressing
+        # these would leave a dead task inside a process systemd still calls
+        # healthy. Stopping the loop is the better outcome now that the unit
+        # restarts on `always`.
         for exception in (
             aiohttp.ClientError('racetime unreachable'),
             asyncio.TimeoutError(),
@@ -71,7 +77,33 @@ class TransientErrorsDoNotStopTheLoop(unittest.TestCase):
             with self.subTest(exception=type(exception).__name__):
                 bot, loop = _bot(), _Loop()
                 bot.handle_exception(loop, {'exception': exception})
-                self.assertFalse(loop.stopped)
+                self.assertTrue(loop.stopped)
+
+    def test_a_token_refresh_failure_is_never_suppressed(self):
+        # racetime_bot.authorize() uses requests, and every requests exception
+        # inherits OSError. reauthorize() has no try/except of its own, so
+        # suppressing this would kill the token refresh for the life of the
+        # process while leaving the bot apparently fine.
+        bot, loop = _bot(), _Loop()
+
+        bot.handle_exception(loop, {
+            'message': 'Task exception was never retrieved',
+            'exception': requests.exceptions.ConnectionError('token endpoint down'),
+        })
+
+        self.assertTrue(loop.stopped)
+
+    def test_websocket_misuse_still_stops_the_loop(self):
+        # Both inherit WebSocketException but mean the socket was used wrongly.
+        # Tolerating them would spin rather than recover.
+        for exception in (
+            websockets.exceptions.InvalidState('unexpected frame'),
+            websockets.exceptions.ConcurrencyError('two readers'),
+        ):
+            with self.subTest(exception=type(exception).__name__):
+                bot, loop = _bot(), _Loop()
+                bot.handle_exception(loop, {'exception': exception})
+                self.assertTrue(loop.stopped)
 
     def test_matches_by_isinstance_not_exact_class(self):
         class NewerWebsocketsFailure(websockets.exceptions.InvalidHandshake):

@@ -341,10 +341,16 @@ class LeagueScheduler:
             # wrong thing - so correct it rather than leaving it standing.
             await self._correct_announcement(race, room_url, booth)
             return
-        await send_league_announcement(
+        sent = await send_league_announcement(
             race, room_url, self.webhook_url, self.logger, crew=self.crew,
             continuation=booth.is_continuation,
         )
+        if not sent:
+            # Left unrecorded so the next tick posts it. Recording a webhook
+            # Discord never accepted would lose the announcement entirely, and
+            # a later continuation would then post a correction to a message
+            # that does not exist.
+            return
         self.announced.add(race.key)
         self._save_announced()
 
