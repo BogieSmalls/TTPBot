@@ -63,8 +63,10 @@ class BuildBroadcastRequestTests(unittest.TestCase):
         # away. Taking slot order from the Schedule would put the teams on the
         # wrong sides about half the time.
         self.assertEqual(self.payload['racers'], [
-            {'slot': 1, 'channel': 'ozzsolo', 'displayName': 'OzzSolo'},
-            {'slot': 2, 'channel': 'customshield', 'displayName': 'cUstOm'},
+            {'slot': 1, 'channel': 'ozzsolo', 'displayName': 'OzzSolo',
+             'racetimeId': 'rt-ozzsolo'},
+            {'slot': 2, 'channel': 'customshield', 'displayName': 'cUstOm',
+             'racetimeId': 'rt-custom'},
         ])
 
     def test_titles_with_the_week_abbreviations_and_game(self):
@@ -158,3 +160,43 @@ class DriftBetweenTabsTests(unittest.TestCase):
         # Not a fixture that can exist, and picking the first is still a guess.
         self.assertIsNone(wrong.away_racer)
         self.assertFalse(wrong.orchestratable)
+
+
+class RacetimeIdSlotTests(unittest.TestCase):
+    """The id is what makes the slot binding exact rather than inferred."""
+
+    def payload_for(self, one, two):
+        race = LeagueRace(
+            start=datetime(2026, 9, 6, 23, 0, tzinfo=TIMEZONE),
+            runner_one=one, runner_two=two,
+            channel='Z1Rracing', comms=('Bogie',), tracker='shatty', game=2,
+            fixture=Fixture(week=1, away='Three Unique Gamers',
+                            home='Midwest Is Best'),
+        )
+        return build_broadcast_request(race, "z1r/adequate-link-4500",
+                                       CREW, QUIET)
+
+    def test_sends_the_roster_id_for_each_slot(self):
+        payload = self.payload_for(CUSTOM, OZZ)
+
+        # The control plane binds the slot to the race entrant with this,
+        # instead of guessing from the Twitch channel.
+        self.assertEqual(
+            [slot.get('racetimeId') for slot in payload['racers']],
+            ['rt-ozzsolo', 'rt-custom'],
+        )
+
+    def test_omits_the_key_when_the_roster_has_no_id(self):
+        nameless = Racer(
+            sheet_name='Nameless', team='TUG', team_full='Three Unique Gamers',
+            display_name='Nameless', twitch_channel='nameless',
+            racetime_id='', discord_id='1',
+        )
+
+        payload = self.payload_for(CUSTOM, nameless)
+
+        # Absent, not empty: the far end reads absence as "match by channel,
+        # as before", while an empty string is a malformed id and is rejected.
+        away = [slot for slot in payload['racers'] if slot['slot'] == 1][0]
+        self.assertNotIn('racetimeId', away)
+        self.assertEqual(away['channel'], 'nameless')
