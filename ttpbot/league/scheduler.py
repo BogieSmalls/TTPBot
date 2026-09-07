@@ -352,6 +352,13 @@ class LeagueScheduler:
             # that does not exist.
             return
         self.announced.add(race.key)
+        if booth.is_continuation:
+            # This post already carried the already-on-air warning, so the
+            # marker is set here too. It means "the warning was communicated",
+            # not "a correction was posted" - without that, the next tick
+            # would see a continuation with no marker and correct a message
+            # that was never wrong.
+            self.announced.add(self._continuation_key(race))
         self._save_announced()
 
     async def _correct_announcement(self, race, room_url, booth):
@@ -365,11 +372,7 @@ class LeagueScheduler:
         """
         if not booth.is_continuation:
             return
-        # Appended to the slug, not as a third '|' segment: the store
-        # validates a League key as exactly `timestamp|slug` and would refuse
-        # the latter. The timestamp prefix is untouched, so age-based cleanup
-        # still retires this alongside the announcement it corrects.
-        key = '{}-continuation'.format(race.key)
+        key = self._continuation_key(race)
         if key in self.announced:
             return
         sent = await send_league_continuation_notice(
@@ -381,6 +384,17 @@ class LeagueScheduler:
             return
         self.announced.add(key)
         self._save_announced()
+
+    @staticmethod
+    def _continuation_key(race):
+        """Marker meaning the already-on-air warning reached Discord.
+
+        Appended to the slug rather than added as a third '|' segment: the
+        state store validates a League key as exactly `timestamp|slug` and
+        refuses the latter. The timestamp prefix is untouched, so age-based
+        cleanup retires it alongside the announcement it belongs to.
+        """
+        return '{}-continuation'.format(race.key)
 
     def _save_announced(self):
         self.webhook_store.save({key: True for key in self.announced})
