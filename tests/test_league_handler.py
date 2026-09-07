@@ -210,3 +210,52 @@ class LeagueInviteTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class LeagueInviteRetryTests(unittest.IsolatedAsyncioTestCase):
+    """A half-sent invite must not strand the once-only guard.
+
+    The guard is claimed before the sends so a concurrent begin() cannot
+    double-invite. That is right, but it means a websocket dying mid-send
+    would leave it set with nobody invited, and every handler rebuilt by
+    refresh_races would skip straight past.
+    """
+
+    async def test_releases_the_guard_when_a_send_fails(self):
+        state = {'league_race': {'invite': ['rt-sir', 'rt-wind']}}
+        handler = make_handler(state)
+        handler.invite_user = AsyncMock(side_effect=OSError('socket died'))
+
+        with self.assertRaises(OSError):
+            await handler._send_league_invites()
+
+        # Released, so the next handler retries rather than assuming done.
+        self.assertFalse(state.get('league_invited'))
+
+    async def test_a_retry_after_a_failure_invites_both(self):
+        state = {'league_race': {'invite': ['rt-sir', 'rt-wind']}}
+        handler = make_handler(state)
+        handler.invite_user = AsyncMock(side_effect=OSError('socket died'))
+
+        with self.assertRaises(OSError):
+            await handler._send_league_invites()
+
+        # The rebuilt handler shares the same state dict.
+        retry = make_handler(state)
+        await retry._send_league_invites()
+
+        self.assertEqual(
+            [c.args[0] for c in retry.invite_user.await_args_list],
+            ['rt-sir', 'rt-wind'],
+        )
+
+    async def test_a_completed_invite_still_only_happens_once(self):
+        state = {'league_race': {'invite': ['rt-sir', 'rt-wind']}}
+        handler = make_handler(state)
+
+        await handler._send_league_invites()
+        await make_handler(state)._send_league_invites()
+
+        # The release must not cost the double-invite protection.
+        self.assertEqual(handler.invite_user.await_count, 2)
+        self.assertTrue(state.get('league_invited'))

@@ -31,13 +31,14 @@ class LeagueRoomFormTests(unittest.TestCase):
         self.assertEqual(self.form['goal'], POST_SEASON_GOAL_NAME)
 
     def test_titles_the_room_with_both_racers(self):
-        self.assertEqual(self.form['info_bot'], 'League: SirLinkalot vs. Windfox470')
-
-    def test_also_titles_info_user_with_both_racers(self):
-        # info_bot can be overwritten by another authorised category bot
-        # (e.g. SahasrahBot rolling a seed). info_user is untouched by that,
-        # so the title is written there too.
         self.assertEqual(self.form['info_user'], 'League: SirLinkalot vs. Windfox470')
+
+    def test_leaves_info_bot_clear_so_the_title_renders_once(self):
+        # Racetime renders both fields. Writing the title to each showed it
+        # twice in the room, and cost the seed info its place: SahasrahBot
+        # writes info_bot when it rolls, so leaving it clear means the room
+        # reads title + seed instead of title + title.
+        self.assertNotIn('info_bot', self.form)
 
     def test_room_is_open_so_commentators_can_join(self):
         self.assertEqual(self.form['invitational'], 'false')

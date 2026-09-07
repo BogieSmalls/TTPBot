@@ -83,6 +83,55 @@ def build_announcement(race, race_url, crew=None, continuation=False):
     }
 
 
+def build_continuation_notice(race, race_url, crew=None):
+    """A short follow-up saying the channel is already live.
+
+    Deliberately not a repeat of the announcement. This is only ever sent
+    after one has already gone out saying the opposite, so it carries the one
+    fact that changed and nothing else - a second full post would read as a
+    duplicate race and send people looking for a second room.
+    """
+    allowed = []
+    segments = [
+        _crew_line('Comms', getattr(race, 'comms', ()), crew, allowed),
+        _crew_line(
+            'Tracker',
+            (race.tracker,) if getattr(race, 'tracker', None) else (),
+            crew, allowed,
+        ),
+    ]
+    staffed = ' · '.join(segment for segment in segments if segment)
+    content = 'Correction for {} — {}'.format(race_url, ALREADY_ON_AIR)
+    if staffed:
+        content = BLANK_LINE.join((content, staffed))
+    return {
+        'content': content,
+        'allowed_mentions': {'parse': [], 'users': sorted(set(allowed))},
+    }
+
+
+async def send_league_continuation_notice(race, race_url, webhook_url, logger, crew=None):
+    """Post the already-on-air correction. True when Discord accepted it."""
+    if not webhook_url:
+        logger.warning('League Discord announcements are not configured')
+        return False
+    body = build_continuation_notice(race, race_url, crew=crew)
+    logger.info('Correcting League announcement (already on air): %s', race.title)
+    try:
+        async with aiohttp.request(
+            method='post',
+            url=webhook_url,
+            json=body,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as response:
+            if response.status in (200, 204):
+                return True
+            logger.error('League correction webhook failed (HTTP %d)', response.status)
+    except (aiohttp.ClientError, asyncio.TimeoutError, TypeError) as exc:
+        logger.error('League correction webhook failed safely (%s)', type(exc).__name__)
+    return False
+
+
 async def send_league_announcement(
     race, race_url, webhook_url, logger, crew=None, continuation=False,
 ):

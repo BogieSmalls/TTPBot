@@ -11,7 +11,9 @@ WorkingDirectory=/opt/ttpbot
 EnvironmentFile=/etc/ttpbot.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/flock --nonblock /run/ttpbot/scheduler.lock /opt/ttpbot/.venv/bin/python -m ttpbot
-Restart=on-failure
+# always, not on-failure: the bot can exit 0 when its event loop is
+# stopped, and an exit code of 0 is not the same as a job that is done.
+Restart=always
 RestartSec=5
 RuntimeDirectory=ttpbot
 RuntimeDirectoryMode=0750

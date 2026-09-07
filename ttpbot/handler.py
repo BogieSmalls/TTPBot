@@ -274,8 +274,22 @@ class TTPRaceHandler(RaceHandler):
         # Set before awaiting so a concurrent begin() cannot double-invite.
         if state is not None:
             state['league_invited'] = True
-        for racetime_id in invite_ids:
-            await self.invite_user(racetime_id)
+        try:
+            for racetime_id in invite_ids:
+                await self.invite_user(racetime_id)
+        except Exception:
+            # The guard is claimed before the sends, so a websocket that dies
+            # midway would otherwise leave it set with nobody invited, and
+            # every rebuilt handler would skip. Release it and let the next
+            # handler try; re-inviting an existing entrant is harmless, being
+            # stranded is not.
+            if state is not None:
+                state['league_invited'] = False
+            self.logger.warning(
+                '[%s] League invites failed; released for retry',
+                self.data.get('name'), exc_info=True,
+            )
+            raise
         self.logger.info('[%s] invited %d League racers',
                          self.data.get('name'), len(invite_ids))
 
