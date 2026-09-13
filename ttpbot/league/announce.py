@@ -1,7 +1,7 @@
 """Announce League rooms to Discord.
 
 Message content is assembled from a live spreadsheet, so mentions are
-allow-listed rather than parsed: only the two racers' ids can ping.
+allow-listed rather than parsed: only the scheduled racers' ids can ping.
 """
 
 import asyncio
@@ -54,18 +54,20 @@ def build_announcement(race, race_url, crew=None, continuation=False):
     optional on purpose: a race that cannot resolve its crew is announced with
     plain names, never skipped.
     """
-    racers = (race.runner_one, race.runner_two)
+    if race.coop:
+        racers = race.runners
+        matchup = 'League co-op: {} vs {}'.format(
+            ' & '.join(_mention(r) for r in race.away_runners),
+            ' & '.join(_mention(r) for r in race.home_runners),
+        )
+    else:
+        racers = (race.runner_one, race.runner_two)
+        matchup = 'League: {} vs {}'.format(_mention(race.runner_one), _mention(race.runner_two))
     allowed = [r.discord_id for r in racers if r.discord_id]
-    content = 'League: {} vs {} — {}'.format(
-        _mention(race.runner_one), _mention(race.runner_two), race_url,
-    )
+    content = '{} — {}'.format(matchup, race_url)
     segments = [
         _crew_line('Comms', getattr(race, 'comms', ()), crew, allowed),
-        _crew_line(
-            'Tracker',
-            (race.tracker,) if getattr(race, 'tracker', None) else (),
-            crew, allowed,
-        ),
+        _crew_line('Tracker', race.trackers, crew, allowed),
     ]
     staffed = ' · '.join(segment for segment in segments if segment)
     if staffed:
@@ -94,11 +96,7 @@ def build_continuation_notice(race, race_url, crew=None):
     allowed = []
     segments = [
         _crew_line('Comms', getattr(race, 'comms', ()), crew, allowed),
-        _crew_line(
-            'Tracker',
-            (race.tracker,) if getattr(race, 'tracker', None) else (),
-            crew, allowed,
-        ),
+        _crew_line('Tracker', race.trackers, crew, allowed),
     ]
     staffed = ' · '.join(segment for segment in segments if segment)
     content = 'Correction for {} — {}'.format(race_url, ALREADY_ON_AIR)

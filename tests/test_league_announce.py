@@ -172,3 +172,47 @@ class ContinuationAnnouncementTests(unittest.TestCase):
 
         self.assertIn('<@429>', body['content'])
         self.assertEqual(sorted(body['allowed_mentions']['users']), ['111', '222', '355', '429'])
+
+
+from unittest.mock import Mock
+
+from ttpbot.league.coop import group_coop_matches
+from ttpbot.league.matchups import Fixture
+
+COOP_FIXTURE = Fixture(week=3, away='Bow Mode', home='Shadow Cartel', label='Week 3 - Coop Info Share')
+
+
+def _away(name, discord_id):
+    return Racer(sheet_name=name, team='BM', team_full='Bow Mode',
+                 display_name=name, twitch_channel=name.lower(),
+                 racetime_id='rt-' + name.lower(), discord_id=discord_id)
+
+
+def _coop_match(tracker_one=None, tracker_two=None):
+    start = datetime(2026, 9, 20, 20, 0, tzinfo=TIMEZONE)
+    return group_coop_matches([
+        LeagueRace(start=start, runner_one=_racer('SirLinkalot', '111'),
+                   runner_two=_away('Windfox470', '222'), tracker=tracker_one,
+                   game=1, fixture=COOP_FIXTURE),
+        LeagueRace(start=start, runner_one=_away('seanfreston', '333'),
+                   runner_two=_racer('Stags28', '444'), tracker=tracker_two,
+                   game=1, fixture=COOP_FIXTURE),
+    ], Mock())[0]
+
+
+class CoopAnnouncementTests(unittest.TestCase):
+    def test_names_both_teams_away_first(self):
+        body = build_announcement(_coop_match(), ROOM)
+        self.assertEqual(body['content'], 'League co-op: <@222> & <@333> vs <@111> & <@444> — ' + ROOM)
+
+    def test_allow_lists_all_four_runners(self):
+        body = build_announcement(_coop_match(), ROOM)
+        self.assertEqual(body['allowed_mentions'], {'parse': [], 'users': ['111', '222', '333', '444']})
+
+    def test_credits_both_trackers_when_the_rows_differ(self):
+        body = build_announcement(_coop_match('droois', 'ISUMatt'), ROOM)
+        self.assertIn('Tracker: droois ISUMatt', body['content'])
+
+    def test_the_1v1_line_is_unchanged(self):
+        race = _race(_racer('SirLinkalot', '111'), _racer('Windfox470', '222'))
+        self.assertEqual(build_announcement(race, ROOM)['content'], 'League: <@111> vs <@222> — ' + ROOM)

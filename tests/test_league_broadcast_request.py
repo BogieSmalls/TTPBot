@@ -200,3 +200,13 @@ class RacetimeIdSlotTests(unittest.TestCase):
         away = [slot for slot in payload['racers'] if slot['slot'] == 1][0]
         self.assertNotIn('racetimeId', away)
         self.assertEqual(away['channel'], 'nameless')
+
+
+class CoopFlagTests(unittest.TestCase):
+    def test_a_coop_booth_says_so(self):
+        payload = build_broadcast_request(race(), 'z1r/adequate-link-4500', CREW, QUIET, coop=True)
+        self.assertIs(payload['coop'], True)
+
+    def test_a_1v1_booth_carries_no_coop_key(self):
+        payload = build_broadcast_request(race(), 'z1r/adequate-link-4500', CREW, QUIET)
+        self.assertNotIn('coop', payload)
