@@ -646,11 +646,11 @@ class ScheduleSourceMatchupsTests(unittest.IsolatedAsyncioTestCase):
         # away, and the booth declines without it.
         self.assertEqual(len(races), 1)
         self.assertEqual(races[0].fixture, Fixture(
-            week=2, away='Shadow Cartel', home='Midwest is Best'))
+            week=2, away='Shadow Cartel', home='Midwest is Best', label='Week 2 - TTP3 Power'))
         self.assertEqual(races[0].away_racer.sheet_name, 'Droois')
         self.assertTrue(races[0].orchestratable)
 
-    async def test_a_matchups_failure_still_opens_the_room(self):
+    async def test_opens_nothing_while_matchups_is_unavailable(self):
         source = self.source()
         with patch('ttpbot.league.scheduler.aiohttp.request', side_effect=[
             FakeHttpResponse(200, FIXTURE_CSV),
@@ -658,10 +658,39 @@ class ScheduleSourceMatchupsTests(unittest.IsolatedAsyncioTestCase):
         ]):
             races = await source.races(START)
 
-        # Phase 1 does not depend on the fixture: the room and the
-        # announcement go out, only the booth is skipped.
-        self.assertEqual(len(races), 1)
-        self.assertIsNone(races[0].fixture)
+        # Without Matchups a co-op week cannot be recognised, and its rows
+        # would open as ranked 1v1 rooms - which cannot be undone. A room a
+        # minute late can.
+        self.assertEqual(races, [])
+
+    async def test_recovers_on_the_next_tick_once_matchups_loads(self):
+        source = self.source()
+        with patch('ttpbot.league.scheduler.aiohttp.request', side_effect=[
+            FakeHttpResponse(200, FIXTURE_CSV),
+            OSError('matchups unreachable'),
+            FakeHttpResponse(200, FIXTURE_CSV),
+            FakeHttpResponse(200, MATCHUPS_CSV),
+        ]):
+            first = await source.races(START)
+            second = await source.races(START + timedelta(minutes=1))
+
+        self.assertEqual(first, [])
+        self.assertEqual(len(second), 1)
+        self.assertIsNotNone(second[0].fixture)
+
+    async def test_an_outage_after_matchups_loaded_changes_nothing(self):
+        source = self.source()
+        with patch('ttpbot.league.scheduler.aiohttp.request', side_effect=[
+            FakeHttpResponse(200, FIXTURE_CSV),
+            FakeHttpResponse(200, MATCHUPS_CSV),
+            FakeHttpResponse(200, FIXTURE_CSV),
+        ]):
+            await source.races(START)
+            later = await source.races(START + timedelta(minutes=1))
+
+        # Matchups is read once per process, so a later outage is invisible.
+        self.assertEqual(len(later), 1)
+        self.assertIsNotNone(later[0].fixture)
 
     async def test_does_not_cache_a_matchups_page_that_parsed_to_nothing(self):
         source = self.source()
@@ -676,7 +705,7 @@ class ScheduleSourceMatchupsTests(unittest.IsolatedAsyncioTestCase):
 
         # A sign-in page is a 200. Caching it would kill every booth for the
         # life of the process, so it has to be retried.
-        self.assertIsNone(first[0].fixture)
+        self.assertEqual(first, [])
         self.assertIsNotNone(second[0].fixture)
 
     async def test_reads_the_matchups_tab_only_once(self):
@@ -977,3 +1006,115 @@ class ContinuationSaidOnlyOnceTests(unittest.IsolatedAsyncioTestCase):
         stored = self.webhooks.load()
         self.assertIn(STAGED_RACE.key, stored)
         self.assertIn(STAGED_RACE.key + '-continuation', stored)
+
+
+from ttpbot.league.coop import CoopMatch
+
+COOP_FIXTURE = Fixture(week=3, away='Bow Mode', home='Shadow Cartel',
+                       label='Week 3 - Coop Info Share - 2023 Rookie Rumble')
+COOP_KEY = START.isoformat() + '|coop-bow-mode-vs-shadow-cartel'
+
+
+def _coop_rows(channel_one='Z1Rracing', channel_two=None):
+    return [
+        LeagueRace(start=START, runner_one=_racer('SirLinkalot', 'rt-sir', '111'),
+                   runner_two=_rival('Windfox470', 'rt-wind', '222'),
+                   channel=channel_one, comms=('SirLinkalot',), game=1, fixture=COOP_FIXTURE),
+        LeagueRace(start=START, runner_one=_rival('seanfreston', 'rt-sean', '333'),
+                   runner_two=_racer('Stags28', 'rt-stags', '444'),
+                   channel=channel_two, game=1, fixture=COOP_FIXTURE),
+    ]
+
+
+class CoopSchedulerTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.created = DestinationStateStore(
+            'league_races.json', DESTINATION, 'league_created_races', data_dir=root)
+        self.webhooks = DestinationStateStore(
+            'league_webhooks.json', DESTINATION, 'league_sent_webhooks', data_dir=root)
+        self.bot = FakeBot()
+
+    def scheduler(self, races):
+        return LeagueScheduler(
+            bot=self.bot, source=FakeSource(list(races)),
+            created_store=self.created, webhook_store=self.webhooks,
+            webhook_url='https://discord.com/api/webhooks/1/token',
+            logger=QUIET, crew=FakeCrew(),
+            booth_url='https://cp.example', booth_token='tok',
+        )
+
+    async def tick(self, scheduler, booth=None, announce=None, minutes=30):
+        booth = booth or AsyncMock(return_value=BoothOutcome('staged', 'b1'))
+        announce = announce or AsyncMock(return_value=True)
+        create = AsyncMock(return_value=ROOM)
+        with patch('ttpbot.league.scheduler.create_league_room', create), \
+             patch('ttpbot.league.scheduler.request_booth', booth), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce):
+            await scheduler.tick(START - timedelta(minutes=minutes))
+        return create, booth, announce
+
+    async def test_opens_one_room_for_the_two_rows(self):
+        create, _, _ = await self.tick(self.scheduler(_coop_rows()))
+
+        create.assert_awaited_once()
+        self.assertIsInstance(create.await_args.args[0], CoopMatch)
+        self.assertEqual(list(self.created.load()), [COOP_KEY])
+
+    async def test_seeds_all_four_invites(self):
+        await self.tick(self.scheduler(_coop_rows()))
+
+        self.assertEqual(self.bot.state['z1r/clever-slug-1234']['league_race']['invite'],
+                         ['rt-wind', 'rt-sean', 'rt-sir', 'rt-stags'])
+
+    async def test_announces_once(self):
+        scheduler = self.scheduler(_coop_rows())
+        _, _, announce = await self.tick(scheduler)
+        await self.tick(scheduler, announce=announce, minutes=29)
+
+        announce.assert_awaited_once()
+
+    async def test_asks_for_one_coop_booth_for_the_featured_row(self):
+        rows = _coop_rows()
+        _, booth, _ = await self.tick(self.scheduler(rows))
+
+        booth.assert_awaited_once()
+        payload = booth.await_args.args[0]
+        self.assertEqual(payload['leagueKey'], rows[0].key)
+        self.assertIs(payload['coop'], True)
+
+    async def test_two_rows_on_one_channel_ask_for_one_booth(self):
+        _, booth, announce = await self.tick(self.scheduler(_coop_rows(channel_two='Z1Rracing')))
+
+        booth.assert_awaited_once()
+        self.assertFalse(announce.await_args.kwargs['continuation'])
+
+    async def test_two_channels_ask_for_two_booths_and_report_a_continuation(self):
+        booth = AsyncMock(side_effect=[BoothOutcome('staged', 'b1'), BoothOutcome('continuation', 'b0')])
+        _, booth, announce = await self.tick(
+            self.scheduler(_coop_rows(channel_two='Z1Rracing2')), booth=booth)
+
+        self.assertEqual(booth.await_count, 2)
+        self.assertTrue(announce.await_args.kwargs['continuation'])
+
+    async def test_no_channel_means_no_booth_but_still_an_announcement(self):
+        _, booth, announce = await self.tick(self.scheduler(_coop_rows(channel_one=None)))
+
+        booth.assert_not_awaited()
+        announce.assert_awaited_once()
+
+    async def test_a_lone_row_opens_nothing(self):
+        create, booth, announce = await self.tick(self.scheduler(_coop_rows()[:1]))
+
+        create.assert_not_awaited()
+        booth.assert_not_awaited()
+        announce.assert_not_awaited()
+
+    async def test_reseeds_invites_for_a_room_opened_before_a_restart(self):
+        self.created.save({COOP_KEY: ROOM})
+        create, _, _ = await self.tick(self.scheduler(_coop_rows()))
+
+        create.assert_not_awaited()
+        self.assertEqual(len(self.bot.state['z1r/clever-slug-1234']['league_race']['invite']), 4)

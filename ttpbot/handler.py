@@ -210,6 +210,8 @@ class TTPRaceHandler(RaceHandler):
     def _league_invite_ids(self):
         """Return the racetime ids to invite in this League room.
 
+        Two for a 1v1, four for a co-op match (away team first).
+
         Prefers state seeded by the scheduler at room creation. After a
         restart that state is gone, so fall back to the room title, which
         this automation wrote itself to both info_user and info_bot. Another
@@ -221,8 +223,9 @@ class TTPRaceHandler(RaceHandler):
         invite = seeded.get('invite')
         if (
             isinstance(invite, list)
-            and len(invite) == 2
+            and len(invite) in (2, 4)
             and all(isinstance(i, str) and i for i in invite)
+            and len(set(invite)) == len(invite)
         ):
             return list(invite)
 
@@ -240,11 +243,14 @@ class TTPRaceHandler(RaceHandler):
                                 self.data.get('name'), info_bot)
             return []
         pairing = title[len(LEAGUE_ROOM_INFO_PREFIX):]
-        names = pairing.split(' vs. ')
-        if len(names) != 2:
+        # 'A vs. B' for a 1v1; 'A & C vs. B & D' for a co-op match, whose
+        # title lists the away team first.
+        sides = [side.split(' & ') for side in pairing.split(' vs. ')]
+        if len(sides) != 2 or len(sides[0]) != len(sides[1]) or len(sides[0]) not in (1, 2):
             self.logger.warning('[%s] League title is unparseable: %r',
-                                self.data.get('name'), info_bot)
+                                self.data.get('name'), title)
             return []
+        names = sides[0] + sides[1]
         from .league.roster import RosterError, UnknownRacerError, load_roster
         try:
             roster = load_roster()
@@ -268,7 +274,7 @@ class TTPRaceHandler(RaceHandler):
         return present
 
     async def _send_league_invites(self):
-        """Invite both racers exactly once.
+        """Invite the scheduled racers exactly once.
 
         The once-only guard lives in self.state, not an instance attribute:
         racetime_bot discards this handler when its websocket task ends and

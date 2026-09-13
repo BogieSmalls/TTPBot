@@ -120,6 +120,19 @@ class LeagueRace:
         return self.runner_two if away is self.runner_one else self.runner_one
 
     @property
+    def coop(self):
+        """Always False: a co-op match is a CoopMatch, built from two rows."""
+        return False
+
+    @property
+    def invite_ids(self):
+        return (self.runner_one.racetime_id, self.runner_two.racetime_id)
+
+    @property
+    def trackers(self):
+        return (self.tracker,) if self.tracker else ()
+
+    @property
     def orchestratable(self):
         """Whether a booth can be built for this race.
 

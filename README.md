@@ -42,6 +42,23 @@ Once a Z1RR room is live, TTPBot joins and handles:
 - **Seed rolling.** TTPBot handles `!race <preset>`, `!flags <flagstring>`, and the available curated pickers (`!ttp4`, `!ttp4rp`, `!ttp4hopla`, `!ttp4consternation`) directly in Z1RR rooms.
 - **Z1RR Discord.** `!z1rr` posts the configured Z1RR Discord invite.
 
+### League co-op weeks
+
+A Matchups week whose header names a co-op format ("Week 3 - Coop Info Share
+...", "Co-Op 4x4 ...") is a 2 vs 2 week. Its two Schedule rows for one fixture,
+start time and game become one match: one unranked "Beat the game" room titled
+`League: A & C vs. B & D` (away team first), all four runners invited, and one
+Discord post crediting every Comms and Tracker either row names. Only rows with
+a Channel get a booth, one per channel, sent with `coop: true` so the restream
+keeps the winner banner off for that race. A co-op match with one row, rows at
+different times or games, a repeated racer, or a row that does not line up with
+the fixture opens **no** room; it is logged as `League co-op match ... held`
+from 35 minutes before its start.
+
+**Matchups is required.** Until the Matchups tab has loaded once in a process,
+no League rooms open at all (`League matchups unavailable`), because co-op rows
+cannot be told from 1v1 rows without it. It retries every minute.
+
 ## Requirements
 
 - Python ≥ 3.10 (tested on 3.13)
