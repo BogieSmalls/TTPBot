@@ -646,7 +646,7 @@ class ScheduleSourceMatchupsTests(unittest.IsolatedAsyncioTestCase):
         # away, and the booth declines without it.
         self.assertEqual(len(races), 1)
         self.assertEqual(races[0].fixture, Fixture(
-            week=2, away='Shadow Cartel', home='Midwest is Best'))
+            week=2, away='Shadow Cartel', home='Midwest is Best', label='Week 2 - TTP3 Power'))
         self.assertEqual(races[0].away_racer.sheet_name, 'Droois')
         self.assertTrue(races[0].orchestratable)
 

@@ -28,6 +28,8 @@ import re
 from typing import Optional
 
 WEEK_HEADER = re.compile(r'^Week\s+(\d+)\b', re.IGNORECASE)
+#: "Coop", "Co-op", "Co Op" as a whole word, any case.
+COOP_WORD = re.compile(r'\bco[\s-]?op\b', re.IGNORECASE)
 NON_ALNUM = re.compile(r'[^a-z0-9]+')
 
 #: Placeholders for fixtures not yet decided. They are also the only repeated
@@ -53,6 +55,20 @@ class Fixture:
     week: int
     away: str
     home: str
+    #: The week header's text before its first ':' - the preset name, never
+    #: the flag string that follows it.
+    label: str = ''
+
+    @property
+    def coop(self) -> bool:
+        """Whether this week is a co-op format (two runners per team).
+
+        Read from the header so it needs no sheet change: the organisers
+        already name those weeks "Coop Info Share ..." and "Coop 4x4 ...".
+        A bounded word match, so "Scoop" or "Cooper" never turns a 1v1 week
+        into a co-op one.
+        """
+        return bool(COOP_WORD.search(self.label))
 
 
 class Matchups:
@@ -79,6 +95,7 @@ def parse_matchups(csv_text: str, logger) -> Matchups:
     by_pair = {}
     ambiguous = set()
     week = None
+    label = ''
 
     try:
         rows = list(csv.reader(io.StringIO(csv_text)))
@@ -93,6 +110,7 @@ def parse_matchups(csv_text: str, logger) -> Matchups:
         header = WEEK_HEADER.match(row[0].strip())
         if header:
             week = int(header.group(1))
+            label = row[0].strip().split(':', 1)[0].strip()
             continue
 
         if len(row) < 3:
@@ -119,7 +137,7 @@ def parse_matchups(csv_text: str, logger) -> Matchups:
             )
             ambiguous.add(pair)
             continue
-        by_pair[pair] = Fixture(week=week, away=away, home=home)
+        by_pair[pair] = Fixture(week=week, away=away, home=home, label=label)
 
     for pair in ambiguous:
         by_pair.pop(pair, None)
