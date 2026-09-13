@@ -650,7 +650,7 @@ class ScheduleSourceMatchupsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(races[0].away_racer.sheet_name, 'Droois')
         self.assertTrue(races[0].orchestratable)
 
-    async def test_a_matchups_failure_still_opens_the_room(self):
+    async def test_opens_nothing_while_matchups_is_unavailable(self):
         source = self.source()
         with patch('ttpbot.league.scheduler.aiohttp.request', side_effect=[
             FakeHttpResponse(200, FIXTURE_CSV),
@@ -658,10 +658,39 @@ class ScheduleSourceMatchupsTests(unittest.IsolatedAsyncioTestCase):
         ]):
             races = await source.races(START)
 
-        # Phase 1 does not depend on the fixture: the room and the
-        # announcement go out, only the booth is skipped.
-        self.assertEqual(len(races), 1)
-        self.assertIsNone(races[0].fixture)
+        # Without Matchups a co-op week cannot be recognised, and its rows
+        # would open as ranked 1v1 rooms - which cannot be undone. A room a
+        # minute late can.
+        self.assertEqual(races, [])
+
+    async def test_recovers_on_the_next_tick_once_matchups_loads(self):
+        source = self.source()
+        with patch('ttpbot.league.scheduler.aiohttp.request', side_effect=[
+            FakeHttpResponse(200, FIXTURE_CSV),
+            OSError('matchups unreachable'),
+            FakeHttpResponse(200, FIXTURE_CSV),
+            FakeHttpResponse(200, MATCHUPS_CSV),
+        ]):
+            first = await source.races(START)
+            second = await source.races(START + timedelta(minutes=1))
+
+        self.assertEqual(first, [])
+        self.assertEqual(len(second), 1)
+        self.assertIsNotNone(second[0].fixture)
+
+    async def test_an_outage_after_matchups_loaded_changes_nothing(self):
+        source = self.source()
+        with patch('ttpbot.league.scheduler.aiohttp.request', side_effect=[
+            FakeHttpResponse(200, FIXTURE_CSV),
+            FakeHttpResponse(200, MATCHUPS_CSV),
+            FakeHttpResponse(200, FIXTURE_CSV),
+        ]):
+            await source.races(START)
+            later = await source.races(START + timedelta(minutes=1))
+
+        # Matchups is read once per process, so a later outage is invisible.
+        self.assertEqual(len(later), 1)
+        self.assertIsNotNone(later[0].fixture)
 
     async def test_does_not_cache_a_matchups_page_that_parsed_to_nothing(self):
         source = self.source()
@@ -676,7 +705,7 @@ class ScheduleSourceMatchupsTests(unittest.IsolatedAsyncioTestCase):
 
         # A sign-in page is a 200. Caching it would kill every booth for the
         # life of the process, so it has to be retried.
-        self.assertIsNone(first[0].fixture)
+        self.assertEqual(first, [])
         self.assertIsNotNone(second[0].fixture)
 
     async def test_reads_the_matchups_tab_only_once(self):

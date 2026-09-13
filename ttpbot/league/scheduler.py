@@ -64,6 +64,14 @@ class ScheduleSource:
             return self._stale(now, exc)
 
         matchups = await self._matchup_table()
+        if matchups is None and self.matchups_url:
+            # Fail closed. Without fixtures a co-op week looks like 1v1 rows,
+            # and a ranked 1v1 room for a co-op race cannot be taken back.
+            # Matchups is cached once loaded, so this only bites before the
+            # first successful read in a process.
+            self.logger.error(
+                'League matchups unavailable; opening no League rooms until it loads')
+            return []
         parsed = parse_schedule(body, self.roster, self.logger, matchups=matchups)
         if not parsed and self._races:
             # A 200 with zero usable races, after previously having some,
@@ -85,9 +93,9 @@ class ScheduleSource:
         """The Matchups tab, fetched once and then kept for the process.
 
         A season's fixtures are fixed, so this does not need re-reading every
-        minute. Failure is not fatal and deliberately so: parse_schedule just
-        leaves `fixture` unset, which costs the booth but still opens the room
-        and posts the announcement.
+        minute. Until the first successful read, races() opens no League rooms
+        at all and retries next minute: without fixtures a co-op week cannot
+        be told from 1v1 rows, and a wrong ranked room cannot be undone.
         """
         if self._matchups is not None or not self.matchups_url:
             return self._matchups
