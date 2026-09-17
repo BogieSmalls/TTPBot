@@ -9,6 +9,8 @@ from difflib import get_close_matches
 import aiohttp
 from racetime_bot import RaceHandler
 
+from .grace import GRACE_START, GraceRace, entrants_from
+
 from .config import (
     HASH_ALIASES,
     HASH_ALIASES_MULTI,
@@ -134,6 +136,11 @@ class TTPRaceHandler(RaceHandler):
     TTP scheduled rooms also get the TTP welcome and timed reminders.
     """
 
+    #: Set by TTPBot at start-up. racetime_bot constructs handlers itself and
+    #: gives them no reference back to the bot, so shared state arrives here.
+    grace_ledger = None
+    grace_enforced = False
+
     stop_at = ['cancelled', 'finished']
 
     def __init__(self, **kwargs):
@@ -155,6 +162,9 @@ class TTPRaceHandler(RaceHandler):
             'self_confirm_attempts': [],
             'pbs': [],
         }
+        #: Grace minutes for this room, set up once the start time is known.
+        self.grace = None
+        self.grace_task = None
         self.sahasrahbot_present = False
         self.seed_rolled = False
         self.history_command_cutoff_utc = None
@@ -196,6 +206,12 @@ class TTPRaceHandler(RaceHandler):
                             self.reminders_sent.add(minutes_before)
 
                     self.reminder_task = asyncio.ensure_future(self._reminder_loop())
+
+                if self.grace_ledger is not None:
+                    self.grace = GraceRace(
+                        self.scheduled_time, self.grace_ledger,
+                        enforce=self.grace_enforced)
+                    self.grace_task = asyncio.ensure_future(self._grace_loop())
                 # If past the start time: skip reminders but still welcome.
         else:
             self.scheduled_time = None
@@ -490,6 +506,61 @@ class TTPRaceHandler(RaceHandler):
         except Exception:
             self.logger.error('Error in reminder loop', exc_info=True)
 
+    async def _grace_loop(self):
+        """Run the grace countdown until it settles or the race starts.
+
+        Separate from the reminder loop: reminders stop at the scheduled time,
+        which is exactly when this begins to matter.
+        """
+        try:
+            while True:
+                status = (self.data.get('status') or {}).get('value')
+                if status not in ('open', 'invitational'):
+                    return
+                decision = self.grace.tick(datetime.now(TIMEZONE), entrants_from(
+                    self.data,
+                    monitors=self.data.get('monitors'),
+                    opened_by=self.data.get('opened_by'),
+                ))
+                self.grace_ledger.apply(decision, entrants_from(self.data))
+                for line in decision.messages:
+                    await self.send_message(line)
+                if decision.blocked:
+                    self.logger.info('Grace: no force start in %s (%s)',
+                                     self.data.get('name'), decision.blocked)
+                if decision.force_start:
+                    self.logger.info('Grace: force starting %s', self.data.get('name'))
+                    await self.force_start()
+                if self.grace.finished:
+                    return
+                await asyncio.sleep(15)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            # A race that starts late is better than a bot that dies mid-room.
+            self.logger.error('Error in grace loop', exc_info=True)
+
+    async def ex_grace(self, args, message):
+        """`!grace` - your own balance, or a named racer's for anyone."""
+        ledger = self.grace_ledger
+        if ledger is None:
+            return
+        if args:
+            wanted = ' '.join(args).lstrip('@').lower()
+            for user_id, name in ledger.names.items():
+                if name.lower() == wanted:
+                    await self.send_message('{} has {} grace minute(s).'.format(
+                        name, ledger.balance(user_id)))
+                    return
+            await self.send_message(
+                'No grace record for {} yet - they start on {}.'.format(wanted, GRACE_START))
+            return
+        user = (message.get('user') or {})
+        if not user.get('id'):
+            return
+        await self.send_message('{}, you have {} grace minute(s).'.format(
+            user.get('name') or 'you', ledger.balance(str(user['id']))))
+
     def _log_chat(self, message):
         """Append a chat message to the per-race log file."""
         if not message:
@@ -694,6 +765,8 @@ class TTPRaceHandler(RaceHandler):
     async def end(self):
         if self.reminder_task and not self.reminder_task.done():
             self.reminder_task.cancel()
+        if self.grace_task and not self.grace_task.done():
+            self.grace_task.cancel()
 
         pass
 
@@ -874,5 +947,6 @@ class TTPRaceHandler(RaceHandler):
             '    !info                       TTP Season 5 details',
             '    !ttpflags                   TTP flagset details',
             '    !z1rr                       Z1RR Discord invite',
+            '    !grace [name]               Grace minutes left before a forced start',
         ]
         await self.send_message('\n'.join(lines))
