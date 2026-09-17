@@ -33,6 +33,23 @@ sudo cp /opt/ttpbot/deploy/ttpbot.service /etc/systemd/system/ttpbot.service
 sudo systemctl daemon-reload
 ```
 
+## League Scheduling Threads
+
+TTPBot opens one Discord thread per League fixture at 7:00 PM ET the evening
+before each week starts (week start dates live in
+`ttpbot/league/scheduling_threads.py`). A webhook cannot create threads, so
+this is the one feature that needs the bot token itself:
+
+```text
+TTPBOT_LEAGUE_DISCORD_BOT_TOKEN=
+TTPBOT_LEAGUE_SCHEDULING_CHANNEL_ID=
+```
+
+The bot needs **Create Public Threads** on that channel. Unset either value and
+the feature stays off; everything else about League scheduling is unaffected.
+Opened threads are recorded in `league_threads.json` and kept for 120 days, so
+a restart mid-week never reopens them.
+
 ## Configure Secrets
 
 ```bash

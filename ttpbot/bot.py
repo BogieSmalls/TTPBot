@@ -66,7 +66,9 @@ class TTPBot(Bot):
                  created_race_store=None, sent_webhook_store=None,
                  league_enabled=False, league_schedule_url=None,
                  league_matchups_url=None,
-                 league_discord_webhook_url=None, **kwargs):
+                 league_discord_webhook_url=None,
+                 league_discord_bot_token=None,
+                 league_scheduling_channel_id=None, **kwargs):
         self.provider = provider
         self.discord_webhook_url = discord_webhook_url
         self.race_seekers_role_id = race_seekers_role_id
@@ -74,6 +76,8 @@ class TTPBot(Bot):
         self.league_schedule_url = league_schedule_url
         self.league_matchups_url = league_matchups_url
         self.league_discord_webhook_url = league_discord_webhook_url
+        self.league_discord_bot_token = league_discord_bot_token
+        self.league_scheduling_channel_id = league_scheduling_channel_id
         self.data_dir = data_dir or configured_data_dir()
         if created_race_store is None or sent_webhook_store is None:
             default_created, default_sent = build_state_stores(provider, data_dir)
@@ -124,6 +128,7 @@ class TTPBot(Bot):
             from .league.crew import CrewDirectory
             from .league.roster import load_roster
             from .league.scheduler import LeagueScheduler, ScheduleSource
+            from .league.scheduling_threads import DiscordThreads
 
             roster = load_roster()
             root = self.data_dir
@@ -133,6 +138,9 @@ class TTPBot(Bot):
             webhooks = DestinationStateStore(
                 'league_webhooks.json', self.provider.destination_key,
                 'league_sent_webhooks', data_dir=root)
+            thread_store = DestinationStateStore(
+                'league_threads.json', self.provider.destination_key,
+                'league_scheduling_threads', data_dir=root)
             source = ScheduleSource(
                 self.league_schedule_url, roster, self.logger,
                 matchups_url=self.league_matchups_url)
@@ -149,6 +157,10 @@ class TTPBot(Bot):
                 webhook_store=webhooks,
                 webhook_url=self.league_discord_webhook_url, logger=self.logger,
                 crew=crew,
+                threads=DiscordThreads(
+                    self.league_discord_bot_token,
+                    self.league_scheduling_channel_id, self.logger),
+                thread_store=thread_store,
                 roster_url=os.environ.get('Z1RR_ROSTER_URL', '').strip(),
                 roster_token=os.environ.get('Z1RR_ROSTER_TOKEN', '').strip(),
                 # The relay runs on this host, so the wake is a loopback call

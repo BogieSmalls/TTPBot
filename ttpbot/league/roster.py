@@ -22,6 +22,11 @@ class UnknownRacerError(ValueError):
 
 ROSTER_PATH = Path(__file__).resolve().parent / 'roster.json'
 TEAM_PREFIX = re.compile(r'^\((?P<team>[^)]{1,20})\)\s+(?P<name>.+)$')
+NON_ALNUM = re.compile(r'[^a-z0-9]+')
+
+
+def _team_key(value):
+    return NON_ALNUM.sub('', (value or '').lower())
 REQUIRED_FIELDS = (
     'sheet_name', 'team', 'team_full', 'display_name',
     'twitch_channel', 'racetime_id',
@@ -67,6 +72,20 @@ class Roster:
 
     def __iter__(self):
         return iter(self._racers)
+
+    def by_team(self, team):
+        """Every racer on `team`, matched on its full name or its code.
+
+        The Matchups tab and roster.json do not spell teams identically
+        ("Midwest is Best" vs "Midwest Is Best"), so comparison ignores
+        anything that is not a letter or digit - the same rule matchups.py
+        uses for the pairings themselves.
+        """
+        wanted = _team_key(team)
+        if not wanted:
+            return []
+        return [r for r in self._racers
+                if _team_key(r.team_full) == wanted or _team_key(r.team) == wanted]
 
     def resolve(self, cell):
         """Resolve a schedule cell to a Racer, or raise. Never fuzzy-matches."""

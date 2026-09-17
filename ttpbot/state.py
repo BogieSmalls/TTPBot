@@ -15,7 +15,10 @@ class StateStoreError(ValueError):
     """Persistent scheduler state is unsafe, corrupt, or belongs elsewhere."""
 
 
-LEAGUE_ENTRY_KINDS = {"league_created_races", "league_sent_webhooks"}
+LEAGUE_ENTRY_KINDS = {
+    "league_created_races", "league_sent_webhooks",
+    "league_scheduling_threads",
+}
 CREATED_ENTRY_KINDS = {"created_races", "league_created_races"}
 ENTRY_KINDS = {"created_races", "sent_webhooks"} | LEAGUE_ENTRY_KINDS
 LEAGUE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")

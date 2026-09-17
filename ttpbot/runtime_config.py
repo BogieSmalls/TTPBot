@@ -30,6 +30,8 @@ class BotRuntimeConfig:
     league_schedule_url: Optional[str] = None
     league_matchups_url: Optional[str] = None
     league_discord_webhook_url: Optional[str] = None
+    league_discord_bot_token: Optional[str] = None
+    league_scheduling_channel_id: Optional[str] = None
     _origin: Optional[str] = field(default=None, repr=False)
     _category: Optional[str] = field(default=None, repr=False)
 
@@ -44,6 +46,15 @@ class BotRuntimeConfig:
     @property
     def league_announcements_enabled(self):
         return bool(self.league_enabled and self.league_discord_webhook_url)
+
+    @property
+    def league_threads_enabled(self):
+        """Scheduling threads need a bot token; a webhook cannot make one."""
+        return bool(
+            self.league_enabled
+            and self.league_discord_bot_token
+            and self.league_scheduling_channel_id
+        )
 
     def __repr__(self):
         origin = self.provider.origin if self.provider else self._origin
@@ -165,6 +176,17 @@ def resolve_bot_config(args, env=None):
         _arg_or_env(args, "league_discord_webhook_url", source,
                     "TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL")
     )
+    league_bot_token = _clean(
+        _arg_or_env(args, "league_discord_bot_token", source,
+                    "TTPBOT_LEAGUE_DISCORD_BOT_TOKEN")
+    )
+    league_channel = _clean(
+        _arg_or_env(args, "league_scheduling_channel_id", source,
+                    "TTPBOT_LEAGUE_SCHEDULING_CHANNEL_ID")
+    )
+    if league_channel and not league_channel.isdigit():
+        raise RuntimeConfigurationError(
+            "TTPBOT_LEAGUE_SCHEDULING_CHANNEL_ID must be a Discord channel id")
     return BotRuntimeConfig(
         provider=provider,
         client_id=_arg_or_env(args, "client_id", source, "TTPBOT_RACETIME_CLIENT_ID"),
@@ -177,6 +199,8 @@ def resolve_bot_config(args, env=None):
         league_schedule_url=league_schedule_url,
         league_matchups_url=league_matchups_url,
         league_discord_webhook_url=league_webhook,
+        league_discord_bot_token=league_bot_token,
+        league_scheduling_channel_id=league_channel,
         _origin=origin,
         _category=category,
     )
