@@ -42,6 +42,11 @@ THREAD_OPEN_TIME = time(19, 0)
 #: it should not open week 2's threads in week 5.
 OPEN_WINDOW = timedelta(hours=36)
 
+#: Where the agreed date and time is recorded. The short link is the one the
+#: League Team posts in #league-announcements, and it survives the form being
+#: rebuilt behind it.
+SCHEDULING_FORM_URL = 'https://forms.gle/dFpq13NUxPLPqUJ78'
+
 #: Discord's limit is 100 characters. Team names are long ("Dodongo Ate My
 #: Baby" vs "Horny Steel Crushers" is already 60 with the week prefix).
 THREAD_NAME_LIMIT = 100
@@ -136,9 +141,11 @@ def build_thread_post(week, fixture, roster, week_label=None):
         '',
         'Each of the week\'s two races must be raced by a different team member '
         '(co-op weeks excepted). If a team changes racer(s) after scheduling, '
-        'the opponent may change theirs too. Agree a date and time here, then '
-        'submit it as the rules require. If you cannot reach your opponent, '
+        'the opponent may change theirs too. If you cannot reach your opponent, '
         'tell the League Team.',
+        '',
+        'Agree a date and time here, then submit it on the scheduling form: '
+        '<{}>'.format(SCHEDULING_FORM_URL),
     ]
     return ThreadPost(content='\n'.join(lines), allowed_user_ids=away_ids + home_ids)
 
