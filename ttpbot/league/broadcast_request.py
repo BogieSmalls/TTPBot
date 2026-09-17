@@ -64,7 +64,7 @@ def _crew_user_id(crew, name, logger):
     return user_id
 
 
-def build_broadcast_request(race, race_slug, crew, logger):
+def build_broadcast_request(race, race_slug, crew, logger, coop=False):
     """The booth request body, or None when this race must not get a booth.
 
     `crew` resolves a schedule name to a managed-user id - not a Discord id.
@@ -100,7 +100,7 @@ def build_broadcast_request(race, race_slug, crew, logger):
             _crew_user_id(crew, name, logger) for name in race.comms
         ) if user_id
     ]
-    return {
+    payload = {
         'leagueKey': race.key,
         'twitchChannel': race.channel,
         'raceSlug': race_slug,
@@ -116,3 +116,9 @@ def build_broadcast_request(race, race_slug, crew, logger):
         'commentatorUserIds': commentators,
         'trackerUserId': _crew_user_id(crew, race.tracker, logger),
     }
+    if coop:
+        # One runner from each team is on this booth; their finishing order
+        # is not the match result, so the control plane keeps the winner
+        # banner off for this race room.
+        payload['coop'] = True
+    return payload

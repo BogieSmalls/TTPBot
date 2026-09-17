@@ -109,3 +109,57 @@ class ParseMatchupsTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+from ttpbot.league.matchups import Fixture
+
+COOP_SHEET = '\n'.join([
+    '"Week 2 - TTP3 Power: 143oNtDD4PAvBt5G8xyCFu5kwp7tS8vUBVpiZY","",""',
+    '"Division","Away Team","Home Team"',
+    '"Hyrule Division","Shadow Cartel","Midwest is Best"',
+    '"Week 3 - Coop Info Share - 2023 Rookie Rumble: abcdef","",""',
+    '"Division","Away Team","Home Team"',
+    '"Hyrule Division","Fahrenheit 451","Shadow Cartel"',
+    '"Week 5 - Co-Op 4x4 - TC #30: xyz","",""',
+    '"Division","Away Team","Home Team"',
+    '"Hyrule Division","Three Unique Gamers","Midwest is Best"',
+    '',
+])
+
+
+class CoopWeekTests(unittest.TestCase):
+    def setUp(self):
+        self.matchups = parse_matchups(COOP_SHEET, QUIET)
+
+    def test_a_coop_week_header_marks_its_fixtures_coop(self):
+        fixture = self.matchups.fixture_for('Fahrenheit 451', 'Shadow Cartel')
+        self.assertTrue(fixture.coop)
+        self.assertEqual(fixture.label, 'Week 3 - Coop Info Share - 2023 Rookie Rumble')
+
+    def test_hyphenated_co_op_also_counts(self):
+        self.assertTrue(self.matchups.fixture_for('Three Unique Gamers', 'Midwest is Best').coop)
+
+    def test_an_ordinary_week_is_not_coop(self):
+        self.assertFalse(self.matchups.fixture_for('Shadow Cartel', 'Midwest is Best').coop)
+
+    def test_the_flag_string_after_the_colon_is_never_read(self):
+        sheet = '\n'.join([
+            '"Week 2 - TTP3 Power: xx Co-Op xx","",""',
+            '"Division","Away Team","Home Team"',
+            '"Hyrule Division","Shadow Cartel","Midwest is Best"',
+        ])
+        fixture = parse_matchups(sheet, QUIET).fixture_for('Shadow Cartel', 'Midwest is Best')
+        self.assertFalse(fixture.coop)
+
+    def test_existing_constructions_default_to_not_coop(self):
+        self.assertFalse(Fixture(week=1, away='A', home='B').coop)
+
+    def test_accepts_the_spellings_organisers_use(self):
+        for label in ('Week 3 - Coop Info Share', 'Week 5 - Co-op 4x4', 'Week 5 - CO OP 4x4', 'Week 6 - co-op'):
+            with self.subTest(label=label):
+                self.assertTrue(Fixture(week=1, away='A', home='B', label=label).coop)
+
+    def test_does_not_mistake_words_that_merely_contain_coop(self):
+        for label in ('Week 4 - Scoop Showdown', 'Week 4 - Cooper Cup', 'Week 4 - Coopers', 'Week 4 - TTP3 Power'):
+            with self.subTest(label=label):
+                self.assertFalse(Fixture(week=1, away='A', home='B', label=label).coop)

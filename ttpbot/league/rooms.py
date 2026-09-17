@@ -16,7 +16,7 @@ from ..state import UNCERTAIN_RACE
 
 def league_room_form_data(race):
     """Return Racetime form fields for a League room."""
-    return {
+    form = {
         'goal': POST_SEASON_GOAL_NAME,
         # info_user only. Racetime renders both fields, so writing the title
         # to each showed it twice. info_user is also the durable one: info_bot
@@ -38,6 +38,11 @@ def league_room_form_data(race):
         'chat_message_delay': '0',
         'hide_comments': 'true',
     }
+    if race.coop:
+        # Co-op teams are scored by summed times outside racetime, so a room
+        # result between four individuals is not a rating event.
+        form['ranked'] = 'false'
+    return form
 
 
 async def create_league_room(race, provider, access_token, logger):

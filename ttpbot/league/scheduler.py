@@ -17,6 +17,7 @@ from .booth import BoothOutcome, request_booth
 from .broadcast_request import build_broadcast_request
 from .wake import wake_control_plane
 from .rooms import create_league_room
+from .coop import group_coop_matches
 from .matchups import parse_matchups
 from .schedule import parse_schedule
 from .scheduling_threads import open_week_threads, week_due
@@ -74,6 +75,14 @@ class ScheduleSource:
             return self._stale(now, exc)
 
         matchups = await self._matchup_table()
+        if matchups is None and self.matchups_url:
+            # Fail closed. Without fixtures a co-op week looks like 1v1 rows,
+            # and a ranked 1v1 room for a co-op race cannot be taken back.
+            # Matchups is cached once loaded, so this only bites before the
+            # first successful read in a process.
+            self.logger.error(
+                'League matchups unavailable; opening no League rooms until it loads')
+            return []
         parsed = parse_schedule(body, self.roster, self.logger, matchups=matchups)
         if not parsed and self._races:
             # A 200 with zero usable races, after previously having some,
@@ -95,9 +104,9 @@ class ScheduleSource:
         """The Matchups tab, fetched once and then kept for the process.
 
         A season's fixtures are fixed, so this does not need re-reading every
-        minute. Failure is not fatal and deliberately so: parse_schedule just
-        leaves `fixture` unset, which costs the booth but still opens the room
-        and posts the announcement.
+        minute. Until the first successful read, races() opens no League rooms
+        at all and retries next minute: without fixtures a co-op week cannot
+        be told from 1v1 rows, and a wrong ranked room cannot be undone.
         """
         if self._matchups is not None or not self.matchups_url:
             return self._matchups
@@ -237,7 +246,8 @@ class LeagueScheduler:
         await self._refresh_crew(now)
         self._prune(now)
         await self._open_scheduling_threads(now)
-        for race in await self.source.races(now):
+        races = group_coop_matches(await self.source.races(now), self.logger, now=now)
+        for race in races:
             try:
                 await self._handle(race, now)
             except Exception:
@@ -324,7 +334,7 @@ class LeagueScheduler:
         self._crew_refreshed_at = None
         self._prepared.add(race.key)
 
-    async def _request_booth(self, race, room_url):
+    async def _request_booth(self, race, room_url, coop=False):
         """Ask the control plane for a booth. Never raises.
 
         The answer decides what the announcement says, which is why this runs
@@ -335,7 +345,8 @@ class LeagueScheduler:
             return settled
         if not race.channel or not self.booth_url or not self.booth_token:
             return BoothOutcome()
-        payload = build_broadcast_request(race, _room_slug(room_url), self.crew, self.logger)
+        payload = build_broadcast_request(
+            race, _room_slug(room_url), self.crew, self.logger, coop=coop)
         if payload is None:
             return BoothOutcome()
         try:
@@ -348,6 +359,25 @@ class LeagueScheduler:
         if outcome.outcome is not None:
             self._booth_outcomes[race.key] = outcome
         return outcome
+
+    async def _request_booths(self, race, room_url):
+        """A 1v1 race's booth, or one booth per featured row of a co-op match.
+
+        A co-op match is one room, but each restreamed channel is its own
+        booth showing that row's two runners. Outcomes stay keyed by row, so a
+        retry repeats only the booth that has not answered. Any continuation
+        wins: the announcement must warn that a channel is already on air.
+        """
+        if not race.coop:
+            return await self._request_booth(race, room_url)
+        outcomes = [
+            await self._request_booth(row, room_url, coop=True)
+            for row in race.featured_rows
+        ]
+        for outcome in outcomes:
+            if outcome.is_continuation:
+                return outcome
+        return outcomes[0] if outcomes else BoothOutcome()
 
     async def _handle(self, race, now):
         minutes_until = (race.start - now).total_seconds() / 60
@@ -369,18 +399,22 @@ class LeagueScheduler:
                 return
             self.created[race.key] = room_url
             self.created_store.save(self.created)
-            if room_url != UNCERTAIN_RACE:
-                self._seed_handler_state(race, room_url)
 
         if room_url == UNCERTAIN_RACE:
             return
+
+        # Every tick, not only at creation. Handler state does not survive a
+        # restart, and for a co-op match the title is the only other record of
+        # four runners; re-seeding keeps the scheduler's list authoritative.
+        # Harmless once invites are out: the once-only guard is a separate key.
+        self._seed_handler_state(race, room_url)
 
         # Booth first, announcement second: a continuation has to carry the
         # already-on-air warning and only the control plane knows that. The
         # booth call sits ahead of the `announced` guard so an attempt whose
         # answer never arrived is retried on later ticks; the announcement
         # itself is still posted exactly once.
-        booth = await self._request_booth(race, room_url)
+        booth = await self._request_booths(race, room_url)
 
         if race.key in self.announced:
             # The post has already gone. If the booth only answered on a later
@@ -458,7 +492,7 @@ class LeagueScheduler:
             return
         entry = self.bot.state.setdefault(race_name, {})
         entry['league_race'] = {
-            'invite': [race.runner_one.racetime_id, race.runner_two.racetime_id],
+            'invite': list(race.invite_ids),
             'title': race.title,
         }
 

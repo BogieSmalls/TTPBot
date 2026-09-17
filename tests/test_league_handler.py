@@ -333,3 +333,47 @@ class LeagueInviteSkipsExistingEntrantsTests(unittest.IsolatedAsyncioTestCase):
         await handler._send_league_invites()
 
         self.assertEqual(handler.invite_user.await_count, 2)
+
+
+from ttpbot.league.roster import load_roster
+
+
+class CoopInviteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_invites_four_seeded_runners(self):
+        handler = make_handler({'league_race': {'invite': ['rt-a', 'rt-b', 'rt-c', 'rt-d']}})
+
+        await handler.begin()
+
+        self.assertEqual([c.args[0] for c in handler.invite_user.await_args_list],
+                         ['rt-a', 'rt-b', 'rt-c', 'rt-d'])
+
+    async def test_falls_through_to_title_when_seeded_ids_repeat(self):
+        handler = make_handler({'league_race': {'invite': ['rt-sir', 'rt-sir']}})
+
+        await handler.begin()
+
+        invited = [c.args[0] for c in handler.invite_user.await_args_list]
+        self.assertEqual(len(invited), 2)
+        self.assertEqual(len(set(invited)), 2)
+
+    async def test_recovers_four_invites_from_a_coop_title_after_a_restart(self):
+        handler = make_handler({})
+        handler.data = dict(
+            LEAGUE_DATA, info_bot='',
+            info_user='League: Windfox470 & seanfreston vs. SirLinkalot & Stags28',
+        )
+        roster = load_roster()
+        expected = [roster.resolve(name).racetime_id
+                    for name in ('Windfox470', 'seanfreston', 'SirLinkalot', 'Stags28')]
+
+        await handler.begin()
+
+        self.assertEqual([c.args[0] for c in handler.invite_user.await_args_list], expected)
+
+    async def test_invites_nobody_when_the_sides_are_uneven(self):
+        handler = make_handler({})
+        handler.data = dict(LEAGUE_DATA, info_bot='League: Windfox470 & seanfreston vs. SirLinkalot')
+
+        await handler.begin()
+
+        handler.invite_user.assert_not_awaited()

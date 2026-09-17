@@ -27,8 +27,11 @@ import io
 import re
 from typing import Optional
 
-WEEK_HEADER = re.compile(
-    r'^Week\s+(\d+)\b\s*[-–]?\s*(?P<label>.*)$', re.IGNORECASE)
+WEEK_HEADER = re.compile(r'^Week\s+(\d+)\b', re.IGNORECASE)
+#: Everything after the week number: the preset name and its flag string.
+WEEK_HEADER_TAIL = re.compile(r'^Week\s+\d+\s*[-–]?\s*', re.IGNORECASE)
+#: "Coop", "Co-op", "Co Op" as a whole word, any case.
+COOP_WORD = re.compile(r'\bco[\s-]?op\b', re.IGNORECASE)
 NON_ALNUM = re.compile(r'[^a-z0-9]+')
 
 #: Placeholders for fixtures not yet decided. They are also the only repeated
@@ -54,6 +57,20 @@ class Fixture:
     week: int
     away: str
     home: str
+    #: The week header's text before its first ':' - the preset name, never
+    #: the flag string that follows it.
+    label: str = ''
+
+    @property
+    def coop(self) -> bool:
+        """Whether this week is a co-op format (two runners per team).
+
+        Read from the header so it needs no sheet change: the organisers
+        already name those weeks "Coop Info Share ..." and "Coop 4x4 ...".
+        A bounded word match, so "Scoop" or "Cooper" never turns a 1v1 week
+        into a co-op one.
+        """
+        return bool(COOP_WORD.search(self.label))
 
 
 class Matchups:
@@ -95,6 +112,7 @@ def parse_matchups(csv_text: str, logger) -> Matchups:
     labels = {}
     ambiguous = set()
     week = None
+    label = ''
 
     try:
         rows = list(csv.reader(io.StringIO(csv_text)))
@@ -109,9 +127,10 @@ def parse_matchups(csv_text: str, logger) -> Matchups:
         header = WEEK_HEADER.match(row[0].strip())
         if header:
             week = int(header.group(1))
-            label = (header.group('label') or '').strip().strip(',').strip()
-            if label:
-                labels[week] = label
+            label = row[0].strip().split(':', 1)[0].strip()
+            full = WEEK_HEADER_TAIL.sub('', row[0].strip()).strip().strip(',').strip()
+            if full:
+                labels[week] = full
             continue
 
         if len(row) < 3:
@@ -138,7 +157,7 @@ def parse_matchups(csv_text: str, logger) -> Matchups:
             )
             ambiguous.add(pair)
             continue
-        fixture = Fixture(week=week, away=away, home=home)
+        fixture = Fixture(week=week, away=away, home=home, label=label)
         by_pair[pair] = fixture
         by_week.setdefault(week, []).append(fixture)
 
