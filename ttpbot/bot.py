@@ -67,6 +67,7 @@ class TTPBot(Bot):
                  league_enabled=False, league_schedule_url=None,
                  league_matchups_url=None,
                  league_discord_webhook_url=None,
+                 grace_enabled=False, grace_enforced=False, grace_season='',
                  league_discord_bot_token=None,
                  league_scheduling_channel_id=None, **kwargs):
         self.provider = provider
@@ -76,6 +77,16 @@ class TTPBot(Bot):
         self.league_schedule_url = league_schedule_url
         self.league_matchups_url = league_matchups_url
         self.league_discord_webhook_url = league_discord_webhook_url
+        self.grace_enforced = grace_enforced
+        self.grace_ledger = None
+        if grace_enabled:
+            from .grace import GraceLedger
+            self.grace_ledger = GraceLedger(
+                os.path.join(self.data_dir or '.', 'grace.json'),
+                grace_season or 'default', self.logger)
+        # Handlers are built by racetime_bot with no link back here.
+        TTPRaceHandler.grace_ledger = self.grace_ledger
+        TTPRaceHandler.grace_enforced = grace_enforced
         self.league_discord_bot_token = league_discord_bot_token
         self.league_scheduling_channel_id = league_scheduling_channel_id
         self.data_dir = data_dir or configured_data_dir()

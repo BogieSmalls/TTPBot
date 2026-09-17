@@ -30,6 +30,11 @@ def main():
                         help='enable Z1RR League scheduling (default off)')
     parser.add_argument('--league-schedule-url')
     parser.add_argument('--league-discord-webhook-url')
+    parser.add_argument('--grace-enabled', default=None,
+                        help='track grace minutes on scheduled races')
+    parser.add_argument('--grace-enforced', default=None,
+                        help='actually force start (off = watch-only)')
+    parser.add_argument('--grace-season')
     parser.add_argument('--league-discord-bot-token')
     parser.add_argument('--league-scheduling-channel-id')
     parser.add_argument('--allow-insecure-loopback', action='store_true', default=None,
@@ -88,6 +93,9 @@ def main():
         league_schedule_url=config.league_schedule_url,
         league_matchups_url=config.league_matchups_url,
         league_discord_webhook_url=config.league_discord_webhook_url,
+        grace_enabled=config.grace_enabled,
+        grace_enforced=config.grace_enforced,
+        grace_season=config.grace_season,
         league_discord_bot_token=config.league_discord_bot_token,
         league_scheduling_channel_id=config.league_scheduling_channel_id,
     )

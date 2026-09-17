@@ -28,6 +28,9 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL",
             "TTPBOT_LEAGUE_DISCORD_BOT_TOKEN",
             "TTPBOT_LEAGUE_SCHEDULING_CHANNEL_ID",
+            "TTPBOT_GRACE_ENABLED",
+            "TTPBOT_GRACE_ENFORCED",
+            "TTPBOT_GRACE_SEASON",
         }
         variables = {
             line.split("=", 1)[0]

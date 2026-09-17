@@ -33,6 +33,28 @@ sudo cp /opt/ttpbot/deploy/ttpbot.service /etc/systemd/system/ttpbot.service
 sudo systemctl daemon-reload
 ```
 
+## Grace Minutes
+
+Scheduled TTP races start on time without anyone holding a sword. Each racer
+holds grace minutes (start 3, cap 5): being ready at the scheduled time earns
+one, holding the room up spends one a minute. The race is force started when
+the racers holding it up run out, or at five minutes past, whichever comes
+first - racetime removes whoever is still not ready.
+
+```text
+TTPBOT_GRACE_ENABLED=false     # track balances and say what would happen
+TTPBOT_GRACE_ENFORCED=false    # actually force start
+TTPBOT_GRACE_SEASON=TTP5       # changing this wipes every balance back to 3
+```
+
+Enabled without enforced is the watch-only mode: the bot keeps the ledger and
+posts what it would have done, and removes nobody. Balances live in
+`grace.json` in the data directory.
+
+Two refusals are deliberate and are logged rather than acted on: the bot never
+force starts while a race monitor is unready (they are there to judge it), and
+never when fewer than two racers are ready.
+
 ## League Scheduling Threads
 
 TTPBot opens one Discord thread per League fixture at 7:00 PM ET the evening
