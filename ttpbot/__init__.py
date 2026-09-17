@@ -30,6 +30,8 @@ def main():
                         help='enable Z1RR League scheduling (default off)')
     parser.add_argument('--league-schedule-url')
     parser.add_argument('--league-discord-webhook-url')
+    parser.add_argument('--league-discord-bot-token')
+    parser.add_argument('--league-scheduling-channel-id')
     parser.add_argument('--allow-insecure-loopback', action='store_true', default=None,
                         help='allow HTTP only on localhost/127.0.0.1 outside production')
     parser.add_argument('--check-config', action='store_true',
@@ -86,6 +88,8 @@ def main():
         league_schedule_url=config.league_schedule_url,
         league_matchups_url=config.league_matchups_url,
         league_discord_webhook_url=config.league_discord_webhook_url,
+        league_discord_bot_token=config.league_discord_bot_token,
+        league_scheduling_channel_id=config.league_scheduling_channel_id,
     )
     bot.run()
     return 0

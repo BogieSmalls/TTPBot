@@ -20,11 +20,17 @@ from .rooms import create_league_room
 from .coop import group_coop_matches
 from .matchups import parse_matchups
 from .schedule import parse_schedule
+from .scheduling_threads import open_week_threads, week_due
 
 LEAGUE_ROOM_OPEN_MINUTES_BEFORE = 30
 LEAGUE_START_BUFFER_MINUTES = 5
 SCHEDULE_CACHE_MAX_AGE = timedelta(hours=6)
 STATE_RETENTION = timedelta(hours=2)
+
+#: Scheduling-thread keys outlive a race by design: a week stays open for
+#: scheduling long after its rooms are gone, and forgetting a key would reopen
+#: seven threads. Kept for a season rather than the two hours races need.
+THREAD_STATE_RETENTION = timedelta(days=120)
 TICK_SECONDS = 60
 
 #: Crew changes rarely and the control plane sleeps, so this is deliberately
@@ -50,6 +56,10 @@ class ScheduleSource:
         self._races = []
         self._fetched_at = None
         self._matchups = None
+
+    async def matchups(self):
+        """The Matchups tab, or None while it cannot be read."""
+        return await self._matchup_table()
 
     async def races(self, now):
         try:
@@ -159,7 +169,8 @@ class LeagueScheduler:
     def __init__(self, bot, source, created_store, webhook_store,
                  webhook_url, logger, crew=None, roster_url=None,
                  roster_token=None, relay_wake_url=None, relay_wake_token=None,
-                 wake_target='production', booth_url=None, booth_token=None):
+                 wake_target='production', booth_url=None, booth_token=None,
+                 threads=None, thread_store=None):
         self.bot = bot
         self.source = source
         self.created_store = created_store
@@ -179,6 +190,10 @@ class LeagueScheduler:
         self.booth_token = booth_token
         #: Race keys whose control plane has been woken and crew re-read.
         self._prepared = set()
+        #: Scheduling threads: the Discord client and the keys already opened.
+        self.threads = threads
+        self.thread_store = thread_store
+        self.opened_threads = set(thread_store.load()) if thread_store else set()
         #: Race key -> the definite answer its booth request came back with.
         #: Kept apart from `announced` so an unanswered booth is retried while
         #: the Discord post still goes out exactly once, and kept as the
@@ -230,6 +245,7 @@ class LeagueScheduler:
     async def tick(self, now):
         await self._refresh_crew(now)
         self._prune(now)
+        await self._open_scheduling_threads(now)
         races = group_coop_matches(await self.source.races(now), self.logger, now=now)
         for race in races:
             try:
@@ -237,6 +253,37 @@ class LeagueScheduler:
             except Exception:
                 self.logger.error('Error handling League race %s',
                                   race.title, exc_info=True)
+
+    async def _open_scheduling_threads(self, now):
+        """Open this week's scheduling threads, once each.
+
+        Never fatal: the League's races matter more than its threads, so a
+        Discord outage costs a thread and nothing else.
+        """
+        if self.threads is None or not self.threads.configured:
+            return
+        week = week_due(now)
+        if week is None:
+            return
+        matchups = await self.source.matchups()
+        if matchups is None:
+            return
+        fixtures = matchups.fixtures_for_week(week)
+        if not fixtures:
+            self.logger.warning(
+                'League week %d is due its scheduling threads but the Matchups '
+                'tab lists no fixtures for it', week)
+            return
+        created = await open_week_threads(
+            week, fixtures, self.source.roster, self.threads,
+            self.opened_threads, self.logger, matchups.label_for_week(week))
+        if not created:
+            return
+        self.opened_threads.update(created)
+        entries = {key: True for key in self.opened_threads}
+        self.thread_store.save(entries)
+        self.opened_threads = set(
+            self.thread_store.cleanup_before(now - THREAD_STATE_RETENTION))
 
     async def _prepare_control_plane(self, race):
         """Wake the control plane, then force a fresh crew lookup.

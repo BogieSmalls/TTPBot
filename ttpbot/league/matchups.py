@@ -28,6 +28,8 @@ import re
 from typing import Optional
 
 WEEK_HEADER = re.compile(r'^Week\s+(\d+)\b', re.IGNORECASE)
+#: Everything after the week number: the preset name and its flag string.
+WEEK_HEADER_TAIL = re.compile(r'^Week\s+\d+\s*[-–]?\s*', re.IGNORECASE)
 #: "Coop", "Co-op", "Co Op" as a whole word, any case.
 COOP_WORD = re.compile(r'\bco[\s-]?op\b', re.IGNORECASE)
 NON_ALNUM = re.compile(r'[^a-z0-9]+')
@@ -74,12 +76,25 @@ class Fixture:
 class Matchups:
     """Team pairings resolved to a fixture, in either order."""
 
-    def __init__(self, by_pair):
+    def __init__(self, by_pair, by_week=None, labels=None):
         self._by_pair = by_pair
+        #: Fixtures in sheet order, so a week's threads open in the order the
+        #: League Team laid them out rather than in hash order.
+        self._by_week = by_week or {}
+        #: The rest of the week header, e.g. "TC #29: <flag string>".
+        self._labels = labels or {}
 
     @property
     def count(self) -> int:
         return len(self._by_pair)
+
+    def fixtures_for_week(self, week: int):
+        """Every fixture in that week, in sheet order."""
+        return list(self._by_week.get(week, ()))
+
+    def label_for_week(self, week: int) -> Optional[str]:
+        """The week header's text after the week number, if it had any."""
+        return self._labels.get(week)
 
     def fixture_for(self, team_a: str, team_b: str) -> Optional[Fixture]:
         """The one fixture these two teams play, or None.
@@ -93,6 +108,8 @@ class Matchups:
 def parse_matchups(csv_text: str, logger) -> Matchups:
     """Read the Matchups tab. Total: a row it cannot use is skipped."""
     by_pair = {}
+    by_week = {}
+    labels = {}
     ambiguous = set()
     week = None
     label = ''
@@ -111,6 +128,9 @@ def parse_matchups(csv_text: str, logger) -> Matchups:
         if header:
             week = int(header.group(1))
             label = row[0].strip().split(':', 1)[0].strip()
+            full = WEEK_HEADER_TAIL.sub('', row[0].strip()).strip().strip(',').strip()
+            if full:
+                labels[week] = full
             continue
 
         if len(row) < 3:
@@ -137,8 +157,15 @@ def parse_matchups(csv_text: str, logger) -> Matchups:
             )
             ambiguous.add(pair)
             continue
-        by_pair[pair] = Fixture(week=week, away=away, home=home, label=label)
+        fixture = Fixture(week=week, away=away, home=home, label=label)
+        by_pair[pair] = fixture
+        by_week.setdefault(week, []).append(fixture)
 
     for pair in ambiguous:
-        by_pair.pop(pair, None)
-    return Matchups(by_pair)
+        dropped = by_pair.pop(pair, None)
+        if dropped is not None:
+            by_week[dropped.week] = [
+                f for f in by_week.get(dropped.week, [])
+                if frozenset((_key(f.away), _key(f.home))) != pair
+            ]
+    return Matchups(by_pair, by_week, labels)
