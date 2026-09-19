@@ -41,6 +41,18 @@ one, holding the room up spends one a minute. The race is force started when
 the racers holding it up run out, or at five minutes past, whichever comes
 first - racetime removes whoever is still not ready.
 
+League results are recorded automatically when this is on. A finished
+League room is matched to its pairings from the Archives and Schedule tabs -
+Archives keeps a race after Schedule drops it - and each pairing is submitted
+to the results form exactly as a racer would submit it. A co-op room files two
+submissions, one per pairing. Every submission is recorded in
+`league_results.json` before the next is attempted, so a restart mid-run
+resumes rather than repeating.
+
+```text
+TTPBOT_LEAGUE_RESULTS_ENABLED=false   # post finished League races to the form
+```
+
 ```text
 TTPBOT_GRACE_ENABLED=false     # track balances and say what would happen
 TTPBOT_GRACE_ENFORCED=false    # actually force start

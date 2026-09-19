@@ -67,6 +67,7 @@ class TTPBot(Bot):
                  league_enabled=False, league_schedule_url=None,
                  league_matchups_url=None,
                  league_discord_webhook_url=None,
+                 league_results_enabled=False,
                  grace_enabled=False, grace_enforced=False, grace_season='',
                  league_discord_bot_token=None,
                  league_scheduling_channel_id=None, **kwargs):
@@ -76,6 +77,7 @@ class TTPBot(Bot):
         self.league_enabled = league_enabled
         self.league_schedule_url = league_schedule_url
         self.league_matchups_url = league_matchups_url
+        self.league_results_enabled = league_results_enabled
         self.league_discord_webhook_url = league_discord_webhook_url
         self.league_discord_bot_token = league_discord_bot_token
         self.league_scheduling_channel_id = league_scheduling_channel_id
@@ -99,6 +101,7 @@ class TTPBot(Bot):
         # Handlers are built by racetime_bot with no link back here.
         TTPRaceHandler.grace_ledger = self.grace_ledger
         TTPRaceHandler.grace_enforced = grace_enforced
+        TTPRaceHandler.results_recorder = self._build_results_recorder()
         self.created_races = self._load_created_races()
         self.sent_webhooks = self._load_sent_webhooks()
 
@@ -134,6 +137,36 @@ class TTPBot(Bot):
         if not super().should_handle(race_data):
             return False
         return is_ttp_scheduled_room(race_data) or is_league_room(race_data)
+
+    def _build_results_recorder(self):
+        """Construct the results recorder, or None if it is switched off.
+
+        Kept separate from the scheduler: a room that finishes is recorded
+        whoever opened it, including rooms opened by hand and rooms the bot
+        only rejoined after a restart.
+        """
+        if not (self.league_enabled and self.league_results_enabled):
+            return None
+        try:
+            from .config import DEFAULT_ARCHIVES_URL
+            from .league.results import ResultsRecorder
+            from .league.roster import load_roster
+
+            store = DestinationStateStore(
+                'league_results.json', self.provider.destination_key,
+                'league_results', data_dir=self.data_dir)
+            return ResultsRecorder(
+                roster=load_roster(),
+                store=store,
+                logger=self.logger,
+                archives_url=DEFAULT_ARCHIVES_URL,
+                schedule_url=self.league_schedule_url,
+            )
+        except Exception:
+            # A results recorder that cannot be built must not stop races
+            # being run; the results simply stay manual, as they were.
+            self.logger.exception('League results recorder unavailable')
+            return None
 
     def _build_league_scheduler(self):
         """Construct the League scheduler, or None if it cannot start."""

@@ -143,6 +143,10 @@ class TTPRaceHandler(RaceHandler):
 
     stop_at = ['cancelled', 'finished']
 
+    #: Set by TTPBot at start-up, as the grace ledger is. None when League
+    #: result recording is switched off.
+    results_recorder = None
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.reminders_sent = set()
@@ -768,7 +772,13 @@ class TTPRaceHandler(RaceHandler):
         if self.grace_task and not self.grace_task.done():
             self.grace_task.cancel()
 
-        pass
+        # A finished League race records itself. end() also fires for a
+        # cancelled room, which the recorder ignores: there is no result.
+        if self.league_room and self.results_recorder is not None:
+            try:
+                await self.results_recorder.record(self.data)
+            except Exception:
+                self.logger.exception('League result could not be recorded')
 
     async def ex_schedule(self, args, message):
         """!schedule - Show today's remaining race times."""
