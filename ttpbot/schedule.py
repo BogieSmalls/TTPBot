@@ -15,8 +15,13 @@ MIDNIGHT = time(0, 0)
 
 
 def is_within_season(dt):
-    """Check if a datetime falls within the active TTP regular season."""
-    return SEASON_START <= dt.date() <= SEASON_END
+    """Check if a race belongs to a slate inside the active TTP regular season.
+
+    Judged by slate date, not calendar date: the final Saturday's 12:00 AM
+    race lands on the Sunday after SEASON_END but still closes out the
+    final slate.
+    """
+    return SEASON_START <= slate_date(dt.date(), dt.time()) <= SEASON_END
 
 
 def is_scheduled_date(d):

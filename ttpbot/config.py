@@ -59,15 +59,11 @@ Z1RR_RACEROOM_URL = _env_or_default(
 )
 
 # Map race time -> (TTP number, day name uses previous day)
-# Evening slate: 8 PM=TTP1, 10 PM=TTP2, 12 AM=TTP3
-# Saturday slate: 12 PM=TTP1, 3 PM=TTP2, 6 PM=TTP3
+# Every slate, Mon-Sat: 8 PM=TTP1, 10 PM=TTP2, 12 AM=TTP3
 RACE_NUMBER_MAP = {
     time(20, 0): (1, False),  # TTP1, same day
     time(22, 0): (2, False),  # TTP2, same day
     time(0, 0):  (3, True),   # TTP3, use previous day's name
-    time(12, 0): (1, False),  # TTP1 (Saturday)
-    time(15, 0): (2, False),  # TTP2 (Saturday)
-    time(18, 0): (3, False),  # TTP3 (Saturday)
 }
 
 # (minutes_before_start, message)
@@ -79,16 +75,18 @@ REMINDER_SCHEDULE = [
 ]
 
 # Race times by day of week (0=Monday, 6=Sunday), in US/Eastern.
-# The 12:00 AM slots on Tue-Sat are the "midnight" races following the
-# previous evening's session (e.g. Monday's 3rd race lands on Tuesday 00:00).
+# Mon-Sat each run an 8 PM / 10 PM / 12 AM slate. The 12:00 AM slots on
+# Tue-Sun are the "midnight" races closing out the previous evening's slate
+# (e.g. Monday's 3rd race lands on Tuesday 00:00, Saturday's on Sunday 00:00).
+# There is no Sunday evening slate, so Monday has no midnight race.
 WEEKLY_SCHEDULE = {
-    0: [time(20, 0), time(22, 0)],                          # Monday
-    1: [time(0, 0), time(20, 0), time(22, 0)],              # Tuesday
-    2: [time(0, 0), time(20, 0), time(22, 0)],              # Wednesday
-    3: [time(0, 0), time(20, 0), time(22, 0)],              # Thursday
-    4: [time(0, 0), time(20, 0), time(22, 0)],              # Friday
-    5: [time(0, 0), time(12, 0), time(15, 0), time(18, 0)], # Saturday
-    6: [],                                                    # Sunday
+    0: [time(20, 0), time(22, 0)],              # Monday
+    1: [time(0, 0), time(20, 0), time(22, 0)],  # Tuesday
+    2: [time(0, 0), time(20, 0), time(22, 0)],  # Wednesday
+    3: [time(0, 0), time(20, 0), time(22, 0)],  # Thursday
+    4: [time(0, 0), time(20, 0), time(22, 0)],  # Friday
+    5: [time(0, 0), time(20, 0), time(22, 0)],  # Saturday
+    6: [time(0, 0)],                            # Sunday
 }
 
 # Hash item alias map: lowercase alias -> canonical name.
