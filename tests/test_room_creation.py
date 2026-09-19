@@ -116,6 +116,26 @@ class AnnouncementTests(unittest.IsolatedAsyncioTestCase):
             call["json"]["content"],
         )
 
+    async def test_saturday_evening_slate_is_announced_as_saturday_ttp1_to_3(self):
+        # Saturday runs 8 PM / 10 PM / 12 AM like the weekdays. The 12 AM race
+        # lands on Sunday's date but closes out Saturday's slate.
+        webhook = "https://discord.com/api/webhooks/12345/test-token"
+        cases = (
+            (datetime(2026, 9, 26, 20, 0, tzinfo=TIMEZONE), "Saturday TTP1:"),
+            (datetime(2026, 9, 26, 22, 0, tzinfo=TIMEZONE), "Saturday TTP2:"),
+            (datetime(2026, 9, 27, 0, 0, tzinfo=TIMEZONE), "Saturday TTP3:"),
+        )
+        for scheduled, label in cases:
+            with self.subTest(scheduled=scheduled):
+                recorder = RequestRecorder([FakeResponse(204)])
+                bot = bot_for("https://racetime.gg", webhook=webhook, role="12345")
+                with patch("ttpbot.bot.aiohttp.request", recorder):
+                    result = await bot._send_webhook(
+                        scheduled, "https://racetime.gg/z1rr/example-room"
+                    )
+                self.assertTrue(result)
+                self.assertIn(label, recorder.calls[0]["json"]["content"])
+
     async def test_disabled_announcements_make_no_request(self):
         scheduled = datetime(2026, 8, 24, 20, 0, tzinfo=TIMEZONE)
         recorder = RequestRecorder([])

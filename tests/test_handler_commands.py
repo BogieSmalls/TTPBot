@@ -258,8 +258,8 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         await handler.ex_help([], {})
 
         self.assertIn('TTP Season 5 regular season runs Aug 31 - Dec 19, 2026', handler.messages[0])
-        self.assertIn('Mon-Fri at 8 PM, 10 PM, 12 AM ET', handler.messages[0])
-        self.assertIn('Sat at 12 PM, 3 PM, 6 PM ET', handler.messages[0])
+        self.assertIn('Mon-Sat at 8 PM, 10 PM, 12 AM ET', handler.messages[0])
+        self.assertNotIn('12 PM, 3 PM, 6 PM', handler.messages[0])
         self.assertIn('TTP Season 5 goal', handler.messages[0])
         self.assertIn('TTP Season 5 details', handler.messages[1])
         self.assertIn('!z1rr                       Z1RR Discord invite', handler.messages[1])
