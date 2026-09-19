@@ -789,7 +789,7 @@ class TTPRaceHandler(RaceHandler):
         await self.send_message(
             "TTP Season 5 regular season runs Aug 31 - Dec 19, 2026. "
             "Rooms use the TTP Season 5 goal during this window. "
-            "Races: Mon-Sat at 8 PM, 10 PM, 12 AM ET "
+            "Races: Mon-Sat at 8 PM, 10 PM, 12 AM ET, plus 6 PM on Saturday "
             "(the 12 AM race closes out the previous evening). "
             "No Sunday evening races."
         )

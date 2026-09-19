@@ -116,11 +116,13 @@ class AnnouncementTests(unittest.IsolatedAsyncioTestCase):
             call["json"]["content"],
         )
 
-    async def test_saturday_evening_slate_is_announced_as_saturday_ttp1_to_3(self):
-        # Saturday runs 8 PM / 10 PM / 12 AM like the weekdays. The 12 AM race
-        # lands on Sunday's date but closes out Saturday's slate.
+    async def test_saturday_slate_is_announced_as_saturday_ttp0_to_3(self):
+        # Saturday adds a 6 PM TTP0 ahead of the weekday 8 PM / 10 PM / 12 AM
+        # slate. TTP0 guards the race-number check: 0 is falsy but valid.
+        # The 12 AM race lands on Sunday's date but closes out Saturday.
         webhook = "https://discord.com/api/webhooks/12345/test-token"
         cases = (
+            (datetime(2026, 9, 26, 18, 0, tzinfo=TIMEZONE), "Saturday TTP0:"),
             (datetime(2026, 9, 26, 20, 0, tzinfo=TIMEZONE), "Saturday TTP1:"),
             (datetime(2026, 9, 26, 22, 0, tzinfo=TIMEZONE), "Saturday TTP2:"),
             (datetime(2026, 9, 27, 0, 0, tzinfo=TIMEZONE), "Saturday TTP3:"),

@@ -5,9 +5,11 @@ from unittest.mock import patch
 from ttpbot.config import (
     GOAL_NAME,
     POST_SEASON_GOAL_NAME,
+    RACE_NUMBER_MAP,
     SEASON_END,
     SEASON_START,
     TIMEZONE,
+    WEEKLY_SCHEDULE,
 )
 from ttpbot.schedule import (
     get_races_for_date,
@@ -42,12 +44,12 @@ class ScheduleTests(unittest.TestCase):
             [time(0, 0), time(20, 0), time(22, 0)],
         )
 
-        # The final Saturday runs the same 8 PM / 10 PM evening slate as the
-        # weekdays, after the 12:00 AM race that closes out Friday.
+        # The final Saturday runs the 6 PM / 8 PM / 10 PM slate, after the
+        # 12:00 AM race that closes out Friday.
         final_day_races = get_races_for_date(date(2026, 12, 19))
         self.assertEqual(
             [race.time() for race in final_day_races],
-            [time(0, 0), time(20, 0), time(22, 0)],
+            [time(0, 0), time(18, 0), time(20, 0), time(22, 0)],
         )
 
         # Saturday's third race lands at 12:00 AM on the Sunday.
@@ -57,11 +59,11 @@ class ScheduleTests(unittest.TestCase):
             [time(0, 0)],
         )
 
-    def test_saturday_runs_the_weekday_evening_slate(self):
+    def test_saturday_adds_a_6_pm_race_to_the_weekday_evening_slate(self):
         saturday = get_races_for_date(date(2026, 9, 26))
         self.assertEqual(
             [race.time() for race in saturday],
-            [time(0, 0), time(20, 0), time(22, 0)],
+            [time(0, 0), time(18, 0), time(20, 0), time(22, 0)],
         )
 
         # Sunday's only race is Saturday's 12:00 AM closer; no Sunday evening.
@@ -75,6 +77,22 @@ class ScheduleTests(unittest.TestCase):
             [race.time() for race in monday],
             [time(20, 0), time(22, 0)],
         )
+
+    def test_every_scheduled_time_has_an_announcement_number(self):
+        # RACE_NUMBER_MAP is keyed by clock time alone, so a time is only safe
+        # to use on a given day if it means the same race number everywhere.
+        for weekday, times in WEEKLY_SCHEDULE.items():
+            for slot in times:
+                with self.subTest(weekday=weekday, slot=slot):
+                    self.assertIn(slot, RACE_NUMBER_MAP)
+
+        # 6 PM is TTP0, which only exists on Saturday. A weekday 6 PM race
+        # would be announced as TTP0 too.
+        days_with_6_pm = [
+            weekday for weekday, times in WEEKLY_SCHEDULE.items()
+            if time(18, 0) in times
+        ]
+        self.assertEqual(days_with_6_pm, [5])
 
     def test_midnight_race_belongs_to_the_previous_evening_slate(self):
         # A 12:00 AM race is the third race of the prior evening's slate, so it
