@@ -30,6 +30,7 @@ class BotRuntimeConfig:
     league_schedule_url: Optional[str] = None
     league_matchups_url: Optional[str] = None
     league_discord_webhook_url: Optional[str] = None
+    league_results_enabled: bool = False
     grace_enabled: bool = False
     grace_enforced: bool = False
     grace_season: str = ''
@@ -179,6 +180,11 @@ def resolve_bot_config(args, env=None):
         _arg_or_env(args, "league_discord_webhook_url", source,
                     "TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL")
     )
+    league_results_enabled = _boolean(
+        _arg_or_env(args, "league_results_enabled", source,
+                    "TTPBOT_LEAGUE_RESULTS_ENABLED"),
+        "TTPBOT_LEAGUE_RESULTS_ENABLED",
+    )
     grace_enabled = _boolean(
         _arg_or_env(args, "grace_enabled", source, "TTPBOT_GRACE_ENABLED"),
         "TTPBOT_GRACE_ENABLED",
@@ -212,6 +218,7 @@ def resolve_bot_config(args, env=None):
         league_schedule_url=league_schedule_url,
         league_matchups_url=league_matchups_url,
         league_discord_webhook_url=league_webhook,
+        league_results_enabled=league_results_enabled,
         grace_enabled=grace_enabled,
         grace_enforced=grace_enforced,
         grace_season=grace_season,

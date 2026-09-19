@@ -39,6 +39,30 @@ DEFAULT_MATCHUPS_URL = (
     '?format=csv&gid=264392304'
 )
 
+#: The Archives tab of the same workbook. Schedule drops a race once it has
+#: happened, so a finished race's pairing -- who was racing whom, which the
+#: room itself cannot say -- is only recoverable here.
+DEFAULT_ARCHIVES_URL = (
+    'https://docs.google.com/spreadsheets/d/'
+    '1MEyO03Wib6iyH7-75e-orh2K75AATwEoJB9HlTe9VgM/export'
+    '?format=csv&gid=1495655076'
+)
+
+#: The League results form, and the field ids behind its questions. Recording
+#: a result has always been a human filling this in after racing; the bot
+#: submits the same form, so nothing downstream has to change.
+LEAGUE_RESULTS_FORM_URL = (
+    'https://docs.google.com/forms/d/e/'
+    '1FAIpQLSfuWlCZ-bWMv7g4ysPPE3fJ-EDrpUXNtcJnNv50b6R04AtPXg/formResponse'
+)
+LEAGUE_RESULTS_FIELDS = {
+    'winner': 'entry.2010877951',
+    'winner_time': 'entry.1814337419',
+    'loser': 'entry.309845690',
+    'loser_dnf': 'entry.1202898048',
+    'loser_time': 'entry.1704083761',
+}
+
 ROOM_OPEN_MINUTES_BEFORE = 30
 WEBHOOK_MINUTES_BEFORE = 20  # Post webhook 20 min before race (10 min after room opens)
 

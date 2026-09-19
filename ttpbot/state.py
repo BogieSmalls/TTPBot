@@ -17,7 +17,7 @@ class StateStoreError(ValueError):
 
 LEAGUE_ENTRY_KINDS = {
     "league_created_races", "league_sent_webhooks",
-    "league_scheduling_threads",
+    "league_scheduling_threads", "league_results",
 }
 CREATED_ENTRY_KINDS = {"created_races", "league_created_races"}
 ENTRY_KINDS = {"created_races", "sent_webhooks"} | LEAGUE_ENTRY_KINDS
