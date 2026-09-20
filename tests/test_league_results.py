@@ -29,6 +29,7 @@ ROOMS = [
     {
         'name': 'z1r/obedient-rope-9691',
         'status': {'value': 'finished'},
+        'started_at': '2026-09-18T23:03:00.000Z',
         'ended_at': '2026-09-19T00:18:07.470Z',
         'entrants': [
             {'user': {'id': 'r1', 'name': 'Moneymerks'}, 'status': {'value': 'done'},
@@ -73,7 +74,7 @@ class PairingsTest(unittest.TestCase):
     def test_reads_pairings_by_column_name(self):
         pairings = pairings_from(ARCHIVE_ROWS, ROSTER)
         self.assertEqual(
-            [(a.sheet_name, b.sheet_name) for a, b in pairings],
+            [(p.one.sheet_name, p.two.sheet_name) for p in pairings],
             [('ISUMatt', 'Merks'), ('Sigil', 'Thomjay')],
         )
 
@@ -121,6 +122,33 @@ class SubmissionsTest(unittest.TestCase):
             ],
         )
 
+    def test_a_later_game_between_the_same_racers_is_not_this_race(self):
+        # The bug this caught in production: the same matchup plays again, the
+        # row is sitting in Schedule unplayed, and every racer in it is an
+        # entrant here -- so it was filed as a result of tonight's race, with
+        # the pairings of another night.
+        rows = list(ARCHIVE_ROWS) + [
+            ['9/25/2026', '7:00:00 PM', '1', '(TBC) ISUMatt', '(TML) Thomjay', ''],
+            ['9/25/2026', '7:00:00 PM', '1', '(TBC) Sigil', '(TML) Merks', ''],
+        ]
+        submissions, _ = submissions_for(ROOMS[0], pairings_from(rows, ROSTER), ROSTER)
+        self.assertEqual(
+            [s.describe() for s in submissions],
+            [
+                '(TML) Merks 0:59:00 beat (TBC) ISUMatt 1:12:09',
+                '(TML) Thomjay 1:00:00 beat (TBC) Sigil 1:08:18',
+            ],
+        )
+
+    def test_a_race_with_no_start_time_is_refused(self):
+        race = dict(ROOMS[0])
+        race.pop('started_at')
+        race.pop('opened_at', None)
+        submissions, problems = submissions_for(
+            race, pairings_from(ARCHIVE_ROWS, ROSTER), ROSTER)
+        self.assertEqual(submissions, [])
+        self.assertEqual(len(problems), 1)
+
     def test_ignores_pairings_that_did_not_race_here(self):
         rows = list(ARCHIVE_ROWS) + [
             ['9/20/2026', '8:00:00 PM', '1', '(MiB) jessandy8', '(Tek) Bogie', ''],
@@ -130,6 +158,7 @@ class SubmissionsTest(unittest.TestCase):
 
     def test_a_dnf_loses_and_files_no_time(self):
         race = {
+            'started_at': '2026-09-18T23:03:00.000Z',
             'entrants': [
                 {'user': {'name': 'ISUMatt'}, 'status': {'value': 'done'},
                  'finish_time': 'P0DT01H00M00S'},
@@ -147,6 +176,7 @@ class SubmissionsTest(unittest.TestCase):
 
     def test_a_race_nobody_finished_is_reported_not_guessed(self):
         race = {
+            'started_at': '2026-09-18T23:03:00.000Z',
             'entrants': [
                 {'user': {'name': 'ISUMatt'}, 'status': {'value': 'dnf'}, 'finish_time': None},
                 {'user': {'name': 'Merks'}, 'status': {'value': 'dnf'}, 'finish_time': None},
