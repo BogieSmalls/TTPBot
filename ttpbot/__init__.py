@@ -93,6 +93,7 @@ def main():
         league_schedule_url=config.league_schedule_url,
         league_matchups_url=config.league_matchups_url,
         league_discord_webhook_url=config.league_discord_webhook_url,
+        league_results_enabled=config.league_results_enabled,
         grace_enabled=config.grace_enabled,
         grace_enforced=config.grace_enforced,
         grace_season=config.grace_season,
