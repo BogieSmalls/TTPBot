@@ -1,7 +1,7 @@
 """The League results recorder: what it submits, and what it refuses to."""
 import tempfile
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from ttpbot.state import DestinationStateStore
 
@@ -288,3 +288,47 @@ class RecorderTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class HandlerHookTest(unittest.IsolatedAsyncioTestCase):
+    """end() is the wire between a finished race and the recorder.
+
+    Every other part of this feature was exercised against real data before it
+    shipped; this hop was not, and a missing hop is exactly what kept results
+    out of the sheet for a day.
+    """
+
+    def _handler(self, *, league_room, recorder):
+        from ttpbot.handler import TTPRaceHandler
+
+        handler = object.__new__(TTPRaceHandler)
+        handler.logger = MagicMock()
+        handler.reminder_task = None
+        handler.grace_task = None
+        handler.league_room = league_room
+        handler.results_recorder = recorder
+        handler.data = ROOMS[0]
+        return handler
+
+    async def test_a_finished_league_race_reaches_the_recorder(self):
+        recorder = MagicMock()
+        recorder.record = AsyncMock(return_value=2)
+        await self._handler(league_room=True, recorder=recorder).end()
+        recorder.record.assert_awaited_once_with(ROOMS[0])
+
+    async def test_a_ttp_race_does_not(self):
+        recorder = MagicMock()
+        recorder.record = AsyncMock()
+        await self._handler(league_room=False, recorder=recorder).end()
+        recorder.record.assert_not_awaited()
+
+    async def test_recording_switched_off_is_not_an_error(self):
+        handler = self._handler(league_room=True, recorder=None)
+        await handler.end()  # must not raise
+
+    async def test_a_recorder_that_throws_does_not_break_the_handler(self):
+        recorder = MagicMock()
+        recorder.record = AsyncMock(side_effect=RuntimeError('boom'))
+        handler = self._handler(league_room=True, recorder=recorder)
+        await handler.end()  # swallowed and logged, never raised
+        handler.logger.exception.assert_called_once()
