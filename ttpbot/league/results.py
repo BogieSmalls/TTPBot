@@ -23,6 +23,7 @@ silently drops those rows rather than failing loudly.
 import asyncio
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 import aiohttp
 
@@ -47,6 +48,23 @@ POST_TIMEOUT = aiohttp.ClientTimeout(total=10)
 #: A Google Form answers a successful post with 200, or 302 to its own
 #: confirmation page. Neither is the 204 the Discord webhooks return.
 FORM_ACCEPTED = (200, 302)
+
+
+def state_key(ended_at, slug, index):
+    """The idempotency key for one submission: "<timestamp>|<slug>-<index>".
+
+    racetime writes times with a trailing "Z", which Python cannot read back
+    before 3.11 -- and the bot runs on 3.10 in production. The state store
+    parses this timestamp when it validates the key, so the offset is spelled
+    the way every Python understands.
+    """
+    stamp = str(ended_at or '').strip()
+    if stamp.endswith('Z'):
+        stamp = stamp[:-1] + '+00:00'
+    # Anything unparseable would be rejected by the store on save, after the
+    # form had already been posted -- so it is caught here instead.
+    datetime.fromisoformat(stamp)
+    return '{}|{}-{}'.format(stamp, slug, index)
 
 
 class PairingsUnavailable(RuntimeError):
@@ -264,10 +282,18 @@ class ResultsRecorder:
             self.logger.warning('League race %s produced no results to submit', slug)
             return 0
 
+        try:
+            keys = [state_key(ended, slug, index) for index in range(len(submissions))]
+        except ValueError:
+            self.logger.error(
+                'League result skipped for %s: end time %r cannot be keyed', slug, ended,
+            )
+            return 0
+
         sent = 0
         recorded = self.store.load()
         for index, submission in enumerate(submissions):
-            key = '{}|{}-{}'.format(ended, slug, index)
+            key = keys[index]
             if key in recorded:
                 continue
             if not await self._post(submission):

@@ -1,10 +1,14 @@
 """The League results recorder: what it submits, and what it refuses to."""
+import tempfile
 import unittest
 from unittest.mock import MagicMock
+
+from ttpbot.state import DestinationStateStore
 
 from ttpbot.league.results import (
     ResultsRecorder,
     Submission,
+    state_key,
     entrants_by_racer,
     finish_clock,
     pairings_from,
@@ -167,22 +171,32 @@ class SubmissionsTest(unittest.TestCase):
         })
 
 
-class FakeStore:
-    def __init__(self):
-        self.entries = {}
+class StateKeyTest(unittest.TestCase):
+    def test_racetime_timestamps_are_keyed_in_a_form_python_can_read(self):
+        # Production runs 3.10, where fromisoformat refuses a trailing "Z" --
+        # and the state store parses this timestamp when it validates the key.
+        self.assertEqual(
+            state_key('2026-09-19T00:18:07.470Z', 'obedient-rope-9691', 0),
+            '2026-09-19T00:18:07.470+00:00|obedient-rope-9691-0',
+        )
 
-    def load(self):
-        return dict(self.entries)
-
-    def save(self, entries):
-        self.entries = dict(entries)
+    def test_an_unreadable_time_is_refused_here_not_after_posting(self):
+        with self.assertRaises(ValueError):
+            state_key('last tuesday', 'obedient-rope-9691', 0)
 
 
 class RecorderTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.posted = []
-        self.store = FakeStore()
         self.accept = True
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        # The real store, not a stand-in: it is the thing that validates the
+        # key, and a permissive fake hid a production-only failure once.
+        self.store = DestinationStateStore(
+            'league_results.json', 'https://racetime.gg|z1r', 'league_results',
+            data_dir=self._dir.name,
+        )
 
     def _recorder(self):
         async def requester(url, data):
@@ -219,7 +233,7 @@ class RecorderTest(unittest.IsolatedAsyncioTestCase):
         recorder = self._recorder()
         self.assertEqual(await recorder.record(ROOMS[0]), 0)
         self.assertEqual(len(self.posted), 1)
-        self.assertEqual(self.store.entries, {})
+        self.assertEqual(self.store.load(), {})
 
         # The form recovers; the run resumes and nothing is duplicated.
         self.accept = True
