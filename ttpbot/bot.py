@@ -146,6 +146,7 @@ class TTPBot(Bot):
         only rejoined after a restart.
         """
         if not (self.league_enabled and self.league_results_enabled):
+            self.logger.info('League result recording is off')
             return None
         try:
             from .config import DEFAULT_ARCHIVES_URL
@@ -155,6 +156,7 @@ class TTPBot(Bot):
             store = DestinationStateStore(
                 'league_results.json', self.provider.destination_key,
                 'league_results', data_dir=self.data_dir)
+            self.logger.info('League result recording is enabled')
             return ResultsRecorder(
                 roster=load_roster(),
                 store=store,
