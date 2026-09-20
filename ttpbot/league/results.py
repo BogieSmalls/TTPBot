@@ -23,7 +23,7 @@ silently drops those rows rather than failing loudly.
 import asyncio
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import aiohttp
 
@@ -32,6 +32,7 @@ from ..config import (
     LEAGUE_RESULTS_FORM_URL,
 )
 from .roster import strip_team_prefix
+from .schedule import _parse_start
 
 #: racetime writes a finish as an ISO-8601 duration: "P0DT01H14M39.189022S".
 DURATION = re.compile(
@@ -136,31 +137,65 @@ def _column_index(header, *names):
     return -1
 
 
+#: How far a sheet row may sit from a room's start and still be that race.
+#: Games of one matchup are hours apart, and a room opens half an hour early,
+#: so ninety minutes separates them without being brittle about a late start.
+NEAR_START = timedelta(minutes=90)
+
+
+@dataclass(frozen=True)
+class Pairing:
+    """One scheduled race: two racers, and when they were due to run."""
+
+    one: object
+    two: object
+    when: object
+
+
 def pairings_from(rows, roster):
-    """Every (racer, racer) pairing a schedule-shaped tab lists.
+    """Every pairing a schedule-shaped tab lists, with its scheduled time.
 
     Rows naming anyone the roster does not know are skipped rather than
-    guessed at: a pairing we cannot resolve is one we must not submit.
+    guessed at: a pairing we cannot resolve is one we must not submit. A row
+    with no readable time is skipped too -- without it the pairing cannot be
+    tied to the race it belongs to.
     """
     if not rows:
         return []
     header = rows[0]
     one = _column_index(header, 'runner 1', 'runner one')
     two = _column_index(header, 'runner 2', 'runner two')
-    if one < 0 or two < 0:
+    date = _column_index(header, 'date')
+    time = _column_index(header, 'time')
+    if one < 0 or two < 0 or date < 0 or time < 0:
         return []
 
     pairings = []
     for row in rows[1:]:
-        if max(one, two) >= len(row):
+        if max(one, two, date, time) >= len(row):
             continue
         try:
             left = roster.resolve(strip_team_prefix(row[one]))
             right = roster.resolve(strip_team_prefix(row[two]))
+            when = _parse_start(row[date], row[time])
         except (ValueError, KeyError):
             continue
-        pairings.append((left, right))
+        pairings.append(Pairing(one=left, two=right, when=when))
     return pairings
+
+
+def _started(race_data):
+    """When the race went off, as an aware datetime, or None."""
+    stamp = str(race_data.get('started_at') or race_data.get('opened_at') or '').strip()
+    if not stamp:
+        return None
+    if stamp.endswith('Z'):
+        stamp = stamp[:-1] + '+00:00'
+    try:
+        parsed = datetime.fromisoformat(stamp)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def entrants_by_racer(race_data, roster):
@@ -203,13 +238,26 @@ def _finished(seat):
 def submissions_for(race_data, pairings, roster):
     """The form rows this finished race produces, and anything unresolvable.
 
-    A pairing belongs to this race when both of its racers are entrants, so a
-    co-op room simply matches two pairings and needs no special case.
+    A pairing belongs to this race when both of its racers are entrants *and*
+    it was scheduled around the time the race went off. Entrants alone is not
+    enough: the same four racers meet again in a later game, and those rows --
+    still sitting in Schedule, unplayed -- would otherwise be filed as results
+    of this race, with the pairings of a different night.
+
+    With both tests, a co-op room simply matches its two pairings and needs no
+    special case.
     """
+    started = _started(race_data)
+    if started is None:
+        return [], ['the race has no start time, so its pairings cannot be found']
+
     seats = entrants_by_racer(race_data, roster)
     submissions = []
     problems = []
-    for left, right in pairings:
+    for pairing in pairings:
+        if pairing.when is None or abs(pairing.when - started) > NEAR_START:
+            continue
+        left, right = pairing.one, pairing.two
         first = seats.get(left.sheet_name)
         second = seats.get(right.sheet_name)
         if first is None or second is None:
