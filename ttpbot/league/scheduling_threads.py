@@ -33,13 +33,14 @@ WEEK_STARTS = {
     7: date(2026, 10, 13),
 }
 
-#: 7:00 PM ET the evening before the week starts: late enough that the day's
-#: racing chatter has settled, early enough that teams can start scheduling.
-THREAD_OPEN_TIME = time(19, 0)
+#: Midnight ET at the start of the day before the week begins, so a team
+#: opening Discord that day finds the thread already waiting instead of it
+#: arriving the evening before racing starts. A whole day to agree a time.
+THREAD_OPEN_TIME = time(0, 0)
 
 #: How long after the opening time a missed week is still opened. A bot that
-#: was down at 7 PM should still open Sunday's threads on Monday morning;
-#: it should not open week 2's threads in week 5.
+#: was down at midnight should still open the threads later that day; it
+#: should not open week 2's threads in week 5.
 OPEN_WINDOW = timedelta(hours=36)
 
 #: Where the agreed date and time is recorded. The short link is the one the
