@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import logging
 import unittest
 
@@ -57,15 +57,15 @@ class FakeThreads:
 
 
 class WeekTimingTests(unittest.TestCase):
-    def test_threads_open_at_7pm_the_evening_before_the_week(self):
+    def test_threads_open_a_full_day_before_the_week(self):
         self.assertEqual(
             open_at(4, STARTS),
-            datetime(2026, 9, 21, 19, 0, tzinfo=TIMEZONE),
+            datetime(2026, 9, 21, 0, 0, tzinfo=TIMEZONE),
         )
 
     def test_week_is_due_from_its_opening_time_until_the_window_closes(self):
         opens = open_at(4, STARTS)
-        self.assertIsNone(week_due(opens.replace(hour=18, minute=59), STARTS))
+        self.assertIsNone(week_due(opens - timedelta(minutes=1), STARTS))
         self.assertEqual(week_due(opens, STARTS), 4)
         self.assertEqual(week_due(opens + OPEN_WINDOW / 2, STARTS), 4)
         self.assertIsNone(week_due(opens + OPEN_WINDOW, STARTS))
@@ -139,7 +139,7 @@ class ThreadKeyTests(unittest.TestCase):
     def test_key_is_the_week_opening_timestamp_and_the_fixture(self):
         key = thread_key(4, Fixture(week=4, away='Fahrenheit 451', home='Shadow Cartel'), STARTS)
         timestamp, _, slug = key.partition('|')
-        self.assertEqual(timestamp, '2026-09-21T19:00:00-04:00')
+        self.assertEqual(timestamp, '2026-09-21T00:00:00-04:00')
         self.assertEqual(slug, 'w4-fahrenheit451-shadowcartel')
 
     def test_key_survives_the_state_store_rules(self):
