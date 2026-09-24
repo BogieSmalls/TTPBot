@@ -38,6 +38,10 @@ GRACE_CAP = 5
 #: they race again. Deliberately generous -- the ledger is meant to catch
 #: repeat lateness, not to punish one late night indefinitely.
 GRACE_PER_IDLE_DAY = 1
+#: Idle days only restore the starting balance. Anything above it is earned by
+#: being ready on time, so waiting a fortnight never buys what punctuality
+#: does -- and the people at the cap are there because they turn up on time.
+GRACE_REGEN_CAP = GRACE_START
 #: The rules doc's grace period, and the longest the bot will ever wait.
 MAX_WAIT = timedelta(minutes=5)
 #: A racer who joins after the scheduled time is charged from a minute after
@@ -150,7 +154,7 @@ class GraceLedger:
         return self.balances.get(str(user_id), GRACE_START)
 
     def accrue(self, now):
-        """Grant a minute per whole idle day, up to the cap.
+        """Grant a minute per whole idle day, up to the starting balance.
 
         Only racers who already hold a balance accrue: someone who has never
         spent or earned is on the starting balance anyway, and inventing an
@@ -165,9 +169,9 @@ class GraceLedger:
                     days = (today - date.fromisoformat(last)).days
                 except ValueError:
                     days = 0
-                if days > 0 and balance < GRACE_CAP:
+                if days > 0 and balance < GRACE_REGEN_CAP:
                     self.balances[user_id] = min(
-                        GRACE_CAP, balance + days * GRACE_PER_IDLE_DAY,
+                        GRACE_REGEN_CAP, balance + days * GRACE_PER_IDLE_DAY,
                     )
             if last != today.isoformat():
                 self.accrued[user_id] = today.isoformat()
