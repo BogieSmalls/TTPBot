@@ -7,6 +7,7 @@ import unittest
 from ttpbot.config import TIMEZONE
 from ttpbot.grace import (
     GRACE_CAP,
+    GRACE_REGEN_CAP,
     GRACE_START,
     Entrant,
     GraceLedger,
@@ -229,22 +230,34 @@ class IdleAccrualTests(unittest.TestCase):
 
         self.assertEqual(ledger.balance('a'), 2)
 
-    def test_a_gap_grants_a_minute_per_day_up_to_the_cap(self):
-        ledger = _ledger({'spent': 0, 'partial': 3})
+    def test_a_gap_grants_a_minute_per_day_up_to_the_starting_balance(self):
+        ledger = _ledger({'spent': 0, 'partial': 2})
         ledger.accrue(START)
 
         ledger.accrue(START + timedelta(days=3))
 
-        self.assertEqual(ledger.balance('spent'), 3)
-        self.assertEqual(ledger.balance('partial'), GRACE_CAP)
+        self.assertEqual(ledger.balance('spent'), GRACE_REGEN_CAP)
+        self.assertEqual(ledger.balance('partial'), GRACE_REGEN_CAP)
 
-    def test_accrual_never_exceeds_the_cap(self):
+    def test_idle_days_never_carry_past_the_starting_balance(self):
+        # Above the starting balance is earned by being on time, never by
+        # waiting: idling for a season still leaves you at the baseline.
         ledger = _ledger({'a': 1})
         ledger.accrue(START)
 
         ledger.accrue(START + timedelta(days=90))
 
-        self.assertEqual(ledger.balance('a'), GRACE_CAP)
+        self.assertEqual(ledger.balance('a'), GRACE_REGEN_CAP)
+        self.assertLess(GRACE_REGEN_CAP, GRACE_CAP)
+
+    def test_earned_minutes_above_the_baseline_are_left_alone(self):
+        ledger = _ledger({'earner': 5, 'above': 4})
+        ledger.accrue(START)
+
+        ledger.accrue(START + timedelta(days=30))
+
+        self.assertEqual(ledger.balance('earner'), 5)
+        self.assertEqual(ledger.balance('above'), 4)
 
     def test_accrual_does_not_invent_balances_for_unseen_racers(self):
         ledger = _ledger({'a': 1})
