@@ -200,3 +200,87 @@ class CountdownTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class IdleAccrualTests(unittest.TestCase):
+    """Grace regenerates a minute a day, so a bad night is not permanent.
+
+    Someone who spends their balance and then races again a week later has
+    earned it back in between, which is the point: the ledger punishes repeat
+    lateness, not one bad night months ago.
+    """
+
+    def test_an_idle_day_grants_one_minute(self):
+        ledger = _ledger({'a': 2})
+
+        ledger.accrue(START)
+        self.assertEqual(ledger.balance('a'), 2)
+
+        ledger.accrue(START + timedelta(days=1))
+        self.assertEqual(ledger.balance('a'), 3)
+
+    def test_accrual_is_idempotent_within_a_day(self):
+        ledger = _ledger({'a': 2})
+        ledger.accrue(START)
+
+        # START is 20:00, so these stay inside the same calendar day.
+        for hour in (1, 2, 3):
+            ledger.accrue(START + timedelta(hours=hour))
+
+        self.assertEqual(ledger.balance('a'), 2)
+
+    def test_a_gap_grants_a_minute_per_day_up_to_the_cap(self):
+        ledger = _ledger({'spent': 0, 'partial': 3})
+        ledger.accrue(START)
+
+        ledger.accrue(START + timedelta(days=3))
+
+        self.assertEqual(ledger.balance('spent'), 3)
+        self.assertEqual(ledger.balance('partial'), GRACE_CAP)
+
+    def test_accrual_never_exceeds_the_cap(self):
+        ledger = _ledger({'a': 1})
+        ledger.accrue(START)
+
+        ledger.accrue(START + timedelta(days=90))
+
+        self.assertEqual(ledger.balance('a'), GRACE_CAP)
+
+    def test_accrual_does_not_invent_balances_for_unseen_racers(self):
+        ledger = _ledger({'a': 1})
+        ledger.accrue(START)
+        ledger.accrue(START + timedelta(days=2))
+
+        self.assertNotIn('stranger', ledger.balances)
+        self.assertEqual(ledger.balance('stranger'), GRACE_START)
+
+    def test_spending_today_still_accrues_exactly_one_tomorrow(self):
+        ledger = _ledger()
+        ledger.accrue(START)
+        ledger.apply(type('D', (), {'spend': {'a': 2}, 'earn': []})())
+        self.assertEqual(ledger.balance('a'), 1)
+
+        ledger.accrue(START + timedelta(days=1))
+
+        self.assertEqual(ledger.balance('a'), 2)
+
+    def test_accrual_survives_a_restart(self):
+        directory = Path(tempfile.mkdtemp())
+        ledger = GraceLedger(directory / 'grace.json', 'TTP5')
+        ledger.balances['a'] = 1
+        ledger.accrue(START)
+        ledger.save()
+
+        reloaded = GraceLedger(directory / 'grace.json', 'TTP5')
+        reloaded.accrue(START + timedelta(days=1))
+
+        self.assertEqual(reloaded.balance('a'), 2)
+
+    def test_a_race_accrues_before_it_reports_balances(self):
+        ledger = _ledger({'late': 0})
+        ledger.accrue(START - timedelta(days=2))
+
+        race = GraceRace(START, ledger, enforce=True)
+        race.tick(START - timedelta(minutes=5), [_entrant('Late', ready=False)])
+
+        self.assertEqual(ledger.balance('late'), 2)

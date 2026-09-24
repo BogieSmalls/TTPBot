@@ -24,7 +24,7 @@ Deliberate exceptions:
 """
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, timedelta
 import json
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -33,6 +33,11 @@ from typing import Dict, List, Optional
 GRACE_START = 3
 #: Earned minutes stop accumulating here, so nobody banks a season of lateness.
 GRACE_CAP = 5
+#: Minutes regained per idle day, so a bad night is not a permanent sentence:
+#: someone who spent their balance a week ago has earned it back by the time
+#: they race again. Deliberately generous -- the ledger is meant to catch
+#: repeat lateness, not to punish one late night indefinitely.
+GRACE_PER_IDLE_DAY = 1
 #: The rules doc's grace period, and the longest the bot will ever wait.
 MAX_WAIT = timedelta(minutes=5)
 #: A racer who joins after the scheduled time is charged from a minute after
@@ -99,6 +104,9 @@ class GraceLedger:
         self.logger = logger
         self.balances = {}
         self.names = {}
+        #: user id -> the day their balance was last brought up to date.
+        self.accrued = {}
+        self._accrued_on = None
         self._load()
 
     def _load(self):
@@ -123,6 +131,9 @@ class GraceLedger:
         names = document.get('names')
         if isinstance(names, dict):
             self.names = {str(k): str(v) for k, v in names.items()}
+        accrued = document.get('accrued')
+        if isinstance(accrued, dict):
+            self.accrued = {str(k): str(v) for k, v in accrued.items()}
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,11 +142,39 @@ class GraceLedger:
             'season': self.season,
             'balances': self.balances,
             'names': self.names,
+            'accrued': self.accrued,
         }, indent=2, sort_keys=True), encoding='utf-8')
         temporary.replace(self.path)
 
     def balance(self, user_id):
         return self.balances.get(str(user_id), GRACE_START)
+
+    def accrue(self, now):
+        """Grant a minute per whole idle day, up to the cap.
+
+        Only racers who already hold a balance accrue: someone who has never
+        spent or earned is on the starting balance anyway, and inventing an
+        entry for them would fill the ledger with people who have done nothing.
+        """
+        today = now.date() if hasattr(now, 'date') else now
+        changed = False
+        for user_id, balance in list(self.balances.items()):
+            last = self.accrued.get(user_id)
+            if last is not None:
+                try:
+                    days = (today - date.fromisoformat(last)).days
+                except ValueError:
+                    days = 0
+                if days > 0 and balance < GRACE_CAP:
+                    self.balances[user_id] = min(
+                        GRACE_CAP, balance + days * GRACE_PER_IDLE_DAY,
+                    )
+            if last != today.isoformat():
+                self.accrued[user_id] = today.isoformat()
+                changed = True
+        self._accrued_on = today.isoformat()
+        if changed:
+            self.save()
 
     def apply(self, decision, entrants=()):
         """Apply a decision's spends and earnings, and remember the names."""
@@ -145,6 +184,11 @@ class GraceLedger:
             self.balances[str(user_id)] = max(0, self.balance(user_id) - minutes)
         for user_id in decision.earn:
             self.balances[str(user_id)] = min(GRACE_CAP, self.balance(user_id) + 1)
+        # A balance created today is already up to date; without this it would
+        # be treated as never accrued and lose its first idle day.
+        if self._accrued_on is not None:
+            for user_id in list(decision.spend) + list(decision.earn):
+                self.accrued.setdefault(str(user_id), self._accrued_on)
         if decision.spend or decision.earn:
             self.save()
 
@@ -164,6 +208,7 @@ class GraceRace:
         self.enforce = enforce
         self.first_seen = {}
         self.charged = {}
+        self.accrued_this_race = False
         self.earned = False
         self.announced = False
         self.finished = False
@@ -176,6 +221,11 @@ class GraceRace:
         return seen + LATECOMER_FREE
 
     def tick(self, now, entrants):
+        # Bring balances up to date before anything reads or reports them, so
+        # the room is told what people actually hold right now.
+        if not self.accrued_this_race:
+            self.accrued_this_race = True
+            self.ledger.accrue(now)
         decision = Decision()
         if self.finished or now < self.scheduled:
             for entrant in entrants:
