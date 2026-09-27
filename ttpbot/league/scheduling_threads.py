@@ -33,15 +33,25 @@ WEEK_STARTS = {
     7: date(2026, 10, 13),
 }
 
-#: Midnight ET at the start of the day before the week begins, so a team
-#: opening Discord that day finds the thread already waiting instead of it
-#: arriving the evening before racing starts. A whole day to agree a time.
-THREAD_OPEN_TIME = time(0, 0)
+#: 5:00 PM ET, two days before the week begins -- so the threads are up on the
+#: Sunday evening for a week that starts Tuesday. Evening rather than midnight
+#: because that is when people are actually reading Discord, and two days out
+#: rather than one because a team that has to work around two timezones needs
+#: more than the day itself to settle on an hour.
+THREAD_OPEN_TIME = time(17, 0)
+THREAD_OPEN_LEAD = timedelta(days=2)
 
 #: How long after the opening time a missed week is still opened. A bot that
-#: was down at midnight should still open the threads later that day; it
-#: should not open week 2's threads in week 5.
-OPEN_WINDOW = timedelta(hours=36)
+#: was down at 5:00 PM should still open the threads that evening, or through
+#: the Monday if it was down longer; it should not open week 2's threads in
+#: week 5.
+#:
+#: Thirty hours, not the thirty-six this was when the threads opened a day
+#: later: from 5:00 PM two days out there are only thirty-one hours left before
+#: the week starts, and a window reaching past that would open threads for
+#: racing already under way. `test_the_window_closes_before_the_week_it_belongs
+#: _to_starts` holds the two numbers together.
+OPEN_WINDOW = timedelta(hours=30)
 
 #: Where the agreed date and time is recorded. The short link is the one the
 #: League Team posts in #league-announcements, and it survives the form being
@@ -62,7 +72,7 @@ def open_at(week, starts=None):
     start = (starts or WEEK_STARTS).get(week)
     if start is None:
         return None
-    return datetime.combine(start - timedelta(days=1), THREAD_OPEN_TIME, tzinfo=TIMEZONE)
+    return datetime.combine(start - THREAD_OPEN_LEAD, THREAD_OPEN_TIME, tzinfo=TIMEZONE)
 
 
 def week_due(now, starts=None):

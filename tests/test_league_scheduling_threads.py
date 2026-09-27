@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 import logging
 import unittest
 
@@ -57,11 +57,30 @@ class FakeThreads:
 
 
 class WeekTimingTests(unittest.TestCase):
-    def test_threads_open_a_full_day_before_the_week(self):
+    def test_threads_open_two_evenings_before_the_week(self):
+        # Week 4 starts Tuesday 22 September, so the threads go up at 5:00 PM
+        # on the Sunday: an evening when people are reading Discord, with the
+        # whole of Monday still left to agree an hour.
         self.assertEqual(
             open_at(4, STARTS),
-            datetime(2026, 9, 21, 0, 0, tzinfo=TIMEZONE),
+            datetime(2026, 9, 20, 17, 0, tzinfo=TIMEZONE),
         )
+
+    def test_the_window_closes_before_the_week_it_belongs_to_starts(self):
+        # The lead time and the window are set independently, and a window that
+        # ran past the week's first race would open threads for racing already
+        # under way.
+        for week, start in STARTS.items():
+            closes = open_at(week, STARTS) + OPEN_WINDOW
+            first_race = datetime.combine(start, time(0, 0), tzinfo=TIMEZONE)
+            self.assertLess(closes, first_race, 'week {}'.format(week))
+
+    def test_one_week_is_due_at_a_time(self):
+        # The windows must not overlap, or a late run could open two weeks.
+        for week in STARTS:
+            opens = open_at(week, STARTS)
+            for moment in (opens, opens + OPEN_WINDOW / 2):
+                self.assertEqual(week_due(moment, STARTS), week)
 
     def test_week_is_due_from_its_opening_time_until_the_window_closes(self):
         opens = open_at(4, STARTS)
@@ -139,7 +158,7 @@ class ThreadKeyTests(unittest.TestCase):
     def test_key_is_the_week_opening_timestamp_and_the_fixture(self):
         key = thread_key(4, Fixture(week=4, away='Fahrenheit 451', home='Shadow Cartel'), STARTS)
         timestamp, _, slug = key.partition('|')
-        self.assertEqual(timestamp, '2026-09-21T00:00:00-04:00')
+        self.assertEqual(timestamp, '2026-09-20T17:00:00-04:00')
         self.assertEqual(slug, 'w4-fahrenheit451-shadowcartel')
 
     def test_key_survives_the_state_store_rules(self):
