@@ -225,6 +225,35 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(handler.messages), 2)
         self.assertIn('TTPBot commands:', handler.messages[0])
 
+    async def test_summary_describes_a_flag_string_even_with_sahasrahbot_present(self):
+        handler = command_handler()
+        handler.sahasrahbot_present = True
+
+        await handler.ex_summary(['CKnGaCG0jI3PvaGohjRZIOxiM8Y9W8GjoIpZfdC'], {})
+
+        self.assertEqual(len(handler.messages), 1)
+        self.assertIn('A/C/WS: Bow / Recorder / Ladder', handler.messages[0])
+        self.assertEqual(handler.race_info_updates, [])
+
+    async def test_summary_defaults_to_the_rooms_rolled_flags(self):
+        handler = command_handler()
+        handler.data['info_bot'] = (
+            'Test room | Seed: 123 - Flags: 24hJoDaoq92qaumIfio4Qq8LtfU0Xt8tpG3Iafo'
+        )
+
+        await handler.ex_summary([], {})
+
+        self.assertTrue(handler.messages[0].startswith('Flags (ttp4rp) 1/2: '))
+
+    async def test_summary_explains_itself_without_flags_to_read(self):
+        handler = command_handler()
+
+        await handler.ex_summary([], {})
+        await handler.ex_summary(['not-a-flag-string'], {})
+
+        self.assertIn('Usage: !summary', handler.messages[0])
+        self.assertEqual(handler.messages[1], "Couldn't read that flag string.")
+
     async def test_sahasrahbot_detected_from_chat_history(self):
         handler = command_handler()
         handler.sahasrahbot_present = False
