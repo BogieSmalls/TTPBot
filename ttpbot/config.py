@@ -254,3 +254,19 @@ TTP2_PRESETS = [
 ]
 TTP3_PRESETS = ['power', 'courage', 'wisdom']
 TTP4_PRESETS = ['ttp4rp', 'ttp4hopla', 'ttp4consternation']
+
+# Z1RR League weekly flagsets, copied from the week headers on the Matchups
+# tab (DEFAULT_MATCHUPS_URL). Week 8 is championship week with various flags,
+# so it has no single preset. !leagueweekN rolls these; !race leagueweekN too.
+LEAGUE_WEEKS = {
+    1: ('TTP3 Wisdom', 'oIbnPfPb0mR7ggY12zwI0QNIY620UnhU8kiC3'),
+    2: ('TTP3 Power', '143oNtDD4PAvBt5G8xyCFu5kwp7tS8vUBVpiZY'),
+    3: ('Coop Info Share - 2023 Rookie Rumble', 'oIbnPfPb011Sy7qwMZCd02sSqmmF7EOlypJGA'),
+    4: ('TC #29', 'oJ5LOsot2OL6WwQr15hZEaydnt0!RcZLT7Z7q'),
+    5: ('Coop 4x4 - TC #30', '248ktImaOpBMdBuEa3O1bTV!cDcFZwQyfpns1Eb'),
+    6: ('TC #20', 'CKnGaCG0jI3PvaGohjRZIOxiM8Y9W8GjoIpZfdC'),
+    7: ('TTP3 Courage', 'oIbnQLMCpyScZbUVFbgpGKPLsHFflaoYKIxoA'),
+}
+SEED_PRESETS.update(
+    {f'leagueweek{week}': flags for week, (_name, flags) in LEAGUE_WEEKS.items()}
+)

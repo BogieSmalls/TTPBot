@@ -73,7 +73,7 @@ class FlagSummaryTests(unittest.TestCase):
         self.assertNotIn('(', messages[0].split(':')[0])
 
     def test_single_message_is_unnumbered(self):
-        self.assertTrue(format_summary(WEEK_SIX)[0].startswith('Flags: '))
+        self.assertTrue(format_summary(WEEK_SIX)[0].startswith('Flags (leagueweek6): '))
 
     def test_never_exceeds_the_message_limit(self):
         for flags in (RANDOM_PERCENT, WEEK_SIX):
