@@ -18,12 +18,15 @@ from .config import (
     HASH_ALIASES_MULTI,
     LEAGUE_ROOM_INFO_PREFIX,
     LEAGUE_WEEKS,
+    PRESET_ALIASES,
+    PRESET_NAMES,
     RACE_NUMBER_MAP,
     REMINDER_SCHEDULE,
     SEED_PRESETS,
     TTP2_PRESETS,
     TTP3_PRESETS,
     TTP4_PRESETS,
+    TTP5_PRESETS,
     TIMEZONE,
     Z1RR_DISCORD_URL,
 )
@@ -810,11 +813,11 @@ class TTPRaceHandler(RaceHandler):
     async def ex_ttpflags(self, args, message):
         """!ttpflags - Show TTP flagset presets."""
         await self.send_message(
-            "TTP flagset presets:\n"
-            "  !ttp4 -- Random pick from the three TTP4 flagsets\n"
-            "  !ttp4rp -- Random% Remastered\n"
-            "  !ttp4hopla -- Hopla Remastered\n"
-            "  !ttp4consternation -- Consternation Remastered\n"
+            "TTP5 flagset presets:\n"
+            "  !ttp5 -- Random pick from the three TTP5 flagsets\n"
+            "  !ttp5uphill -- Uphill Battle\n"
+            "  !ttp5muffle -- Muffle Rug\n"
+            "  !ttp5pick5 -- Pick 5\n"
             "In-season races have no required flagset -- flags are chosen by "
             "mutual agreement (majority vote if disagreement). The three "
             "official flagsets are encouraged but not required during the season."
@@ -865,12 +868,16 @@ class TTPRaceHandler(RaceHandler):
         self.logger.info('[%s] Seed rolled via !flags: %s', self.data.get('name'), seed_str)
 
     async def ex_summary(self, args, message):
-        """!summary [flagstring] -- Describe a flag string in plain words.
+        """!summary [flagstring|preset] -- Describe a flag string in plain words.
 
         Informational, so it answers even with SahasrahBot present. With no
         flag string it reads the one this room's seed was rolled with.
         """
         flags = args[0] if args else self._room_flag_string()
+        if flags:
+            # A preset name, e.g. !summary ttp5uphill, stands for its flags.
+            preset = PRESET_ALIASES.get(flags.lower(), flags.lower())
+            flags = SEED_PRESETS.get(preset, flags)
         if not flags:
             await self.send_message(
                 'Usage: !summary <flagstring> (no seed has been rolled here yet)'
@@ -906,7 +913,7 @@ class TTPRaceHandler(RaceHandler):
             await self.send_message(f'No preset specified. Available presets: {presets}')
             return
 
-        preset = args[0].lower()
+        preset = PRESET_ALIASES.get(args[0].lower(), args[0].lower())
         if preset not in SEED_PRESETS:
             presets = ', '.join(sorted(SEED_PRESETS.keys()))
             await self.send_message(
@@ -968,14 +975,42 @@ class TTPRaceHandler(RaceHandler):
             return
         await self.ex_race(['ttp4consternation'], message)
 
+    async def ex_ttp5(self, args, message):
+        """!ttp5 -- Roll a random TTP Season 5 preset."""
+        await self._roll_unknown_to_sahasrahbot(random.choice(TTP5_PRESETS), message)
+
+    async def ex_ttp5uphill(self, args, message):
+        """!ttp5uphill -- Roll the TTP5 Uphill Battle preset."""
+        await self._roll_unknown_to_sahasrahbot('ttp5uphill', message)
+
+    async def ex_ttp5muffle(self, args, message):
+        """!ttp5muffle -- Roll the TTP5 Muffle Rug preset."""
+        await self._roll_unknown_to_sahasrahbot('ttp5muffle', message)
+
+    async def ex_ttp5pick5(self, args, message):
+        """!ttp5pick5 -- Roll the TTP5 Pick 5 preset."""
+        await self._roll_unknown_to_sahasrahbot('ttp5pick5', message)
+
+    async def _roll_unknown_to_sahasrahbot(self, preset, message):
+        """Roll a preset SahasrahBot has no command for.
+
+        With SahasrahBot present TTPBot never rolls, to avoid two seeds, but
+        staying silent would leave the command unanswered.
+        """
+        if self.sahasrahbot_present:
+            await self._hand_off_flags(PRESET_NAMES.get(preset, preset), SEED_PRESETS[preset])
+            return
+        await self.ex_race([preset], message)
+
+    async def _hand_off_flags(self, name, flags):
+        # Kept off the start of the line so no bot reads it as a command.
+        await self.send_message(f'{name} flags: {flags} -- roll with !flags {flags}')
+
     async def _league_week(self, week, message):
         name, flags = LEAGUE_WEEKS[week]
         if self.sahasrahbot_present:
-            # SahasrahBot has no League presets, so the flags are what it
-            # needs. Kept off the start of the line so no bot reads a command.
-            await self.send_message(
-                f'League Week {week} ({name}) flags: {flags} -- roll with !flags {flags}'
-            )
+            # SahasrahBot has no League presets.
+            await self._hand_off_flags(f'League Week {week} ({name})', flags)
             return
         await self.ex_flags([flags], message)
 
@@ -1032,9 +1067,11 @@ class TTPRaceHandler(RaceHandler):
             '    !ttp3                       Random TTP Season 3 preset',
             '    !ttp4                       Random TTP Season 4 preset',
             '    !ttp4rp / !ttp4hopla / !ttp4consternation  TTP4 presets directly',
+            '    !ttp5                       Random TTP Season 5 preset',
+            '    !ttp5uphill / !ttp5muffle / !ttp5pick5  TTP5 presets directly',
             '    !leagueweek1 ... !leagueweek7  Z1RR League weekly flagsets',
             '  Flags:',
-            "    !summary [flagstring]       Summarize a flag string (default: this room's seed)",
+            "    !summary [flagstring]       Summarize a flag string or preset (default: this room's seed)",
             '  Season info:',
             '    !schedule                   Today\'s remaining race times',
             '    !info                       TTP Season 5 details',
@@ -1044,3 +1081,15 @@ class TTPRaceHandler(RaceHandler):
             '    !grace [name]               Grace minutes left before a forced start',
         ]
         await self.send_message('\n'.join(lines))
+
+
+def _alias_command(preset):
+    async def command(self, args, message):
+        await self._roll_unknown_to_sahasrahbot(preset, message)
+    command.__doc__ = f'Roll the {preset} preset.'
+    return command
+
+
+# Each alias is a command of its own, e.g. !ttp4rr rolls ttp4rp.
+for _alias, _preset in PRESET_ALIASES.items():
+    setattr(TTPRaceHandler, f'ex_{_alias}', _alias_command(_preset))

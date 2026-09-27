@@ -245,6 +245,9 @@ SEED_PRESETS = {
     'afbns_swiss':       '1K9hKZCQamJvAprO0CLKqHgZk0MR1RqiE9bfe9xv',
     'afbns_bracket':     '12V4XiZA!b3mWgwigt9JQcwZSUlpadoHsJNny3J',
     'afbns_top8':        '12V4XiZA!b3mWh!GQFcZr9rUkzjsoaFlYFS64EU',
+    'ttp5uphill':        '143oNtDD4Pw3Yw6SRryTCXlqTsRz2fxg4s4pJW',
+    'ttp5muffle':        '2487lt0moGMFLRug1ofQdxPuUBWnJVSsi7d202I',
+    'ttp5pick5':         'p8GIOeYEAonHy5131VdG6b94Ts3EMMvBaQoWR',
 }
 
 # Presets used by !ttp2 / !ttp3 / !ttp4 random pickers
@@ -254,6 +257,33 @@ TTP2_PRESETS = [
 ]
 TTP3_PRESETS = ['power', 'courage', 'wisdom']
 TTP4_PRESETS = ['ttp4rp', 'ttp4hopla', 'ttp4consternation']
+TTP5_PRESETS = ['ttp5uphill', 'ttp5muffle', 'ttp5pick5']
+
+# Full names, for the hand-off message posted when SahasrahBot is present.
+PRESET_NAMES = {
+    'ttp4rp': 'TTP4 Random% Remastered',
+    'ttp4hopla': 'TTP4 Hopla Remastered',
+    'ttp4consternation': 'TTP4 Consternation Remastered',
+    'ttp5uphill': 'TTP5 Uphill Battle',
+    'ttp5muffle': 'TTP5 Muffle Rug',
+    'ttp5pick5': 'TTP5 Pick 5',
+}
+
+# Other names for a preset. Each is also a !command, and !race and !summary
+# accept them. SahasrahBot knows none of them, so with SahasrahBot present
+# these hand over the flags rather than stay silent.
+PRESET_ALIASES = {
+    'ttp4random': 'ttp4rp',
+    'ttp4randomrm': 'ttp4rp',
+    'ttp4rr': 'ttp4rp',
+    'ttp4rrm': 'ttp4rp',
+    'ttp4hoplar': 'ttp4hopla',
+    'ttp4hoplarm': 'ttp4hopla',
+    'ttp4constr': 'ttp4consternation',
+    'ttp4constrm': 'ttp4consternation',
+    'ttp5uphillbattle': 'ttp5uphill',
+    'ttp5mufflerug': 'ttp5muffle',
+}
 
 # Z1RR League weekly flagsets, copied from the week headers on the Matchups
 # tab (DEFAULT_MATCHUPS_URL). Week 8 is championship week with various flags,
