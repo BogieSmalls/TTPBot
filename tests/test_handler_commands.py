@@ -261,9 +261,11 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
             await handler.ex_leagueweek6([], {})
 
         self.assertTrue(handler.seed_rolled)
-        self.assertTrue(handler.messages[0].startswith(
-            'leagueweek6 - Flags: CKnGaCG0jI3PvaGohjRZIOxiM8Y9W8GjoIpZfdC Seed: '
-        ))
+        # Same shape as !flags, which is what racers type for League weeks.
+        self.assertRegex(
+            handler.messages[0],
+            r'^Seed: \d+ - Flags: CKnGaCG0jI3PvaGohjRZIOxiM8Y9W8GjoIpZfdC$',
+        )
 
     async def test_leagueweek_hands_sahasrahbot_the_flags(self):
         # SahasrahBot has no League presets, so silence would leave no roll.

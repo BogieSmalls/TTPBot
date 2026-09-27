@@ -976,7 +976,7 @@ class TTPRaceHandler(RaceHandler):
                 f'League Week {week} ({name}) flags: {flags} -- roll with !flags {flags}'
             )
             return
-        await self.ex_race([f'leagueweek{week}'], message)
+        await self.ex_flags([flags], message)
 
     async def ex_leagueweek1(self, args, message):
         """!leagueweek1 -- Roll the Z1RR League Week 1 flagset."""
