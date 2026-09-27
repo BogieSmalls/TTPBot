@@ -9,6 +9,7 @@ from difflib import get_close_matches
 import aiohttp
 from racetime_bot import RaceHandler
 
+from .flag_summary import FlagStringError, format_summary
 from .grace import GRACE_START, GraceRace, entrants_from
 
 from .config import (
@@ -861,6 +862,34 @@ class TTPRaceHandler(RaceHandler):
         await self.send_message('Seed rolling complete.  See race info for details.')
         self.logger.info('[%s] Seed rolled via !flags: %s', self.data.get('name'), seed_str)
 
+    async def ex_summary(self, args, message):
+        """!summary [flagstring] -- Describe a flag string in plain words.
+
+        Informational, so it answers even with SahasrahBot present. With no
+        flag string it reads the one this room's seed was rolled with.
+        """
+        flags = args[0] if args else self._room_flag_string()
+        if not flags:
+            await self.send_message(
+                'Usage: !summary <flagstring> (no seed has been rolled here yet)'
+            )
+            return
+        try:
+            replies = format_summary(flags)
+        except FlagStringError:
+            await self.send_message("Couldn't read that flag string.")
+            return
+        for reply in replies:
+            await self.send_message(reply)
+
+    def _room_flag_string(self):
+        """The flag string in this room's race info, if a seed has been rolled."""
+        for key in ('info_bot', 'info_user'):
+            match = re.search(r'Flags: (\S+)', self.data.get(key, '') or '')
+            if match:
+                return match.group(1)
+        return None
+
     async def ex_race(self, args, message):
         """!race <preset> -- Roll a seed by named preset."""
         if self.sahasrahbot_present:
@@ -952,6 +981,8 @@ class TTPRaceHandler(RaceHandler):
             '    !ttp3                       Random TTP Season 3 preset',
             '    !ttp4                       Random TTP Season 4 preset',
             '    !ttp4rp / !ttp4hopla / !ttp4consternation  TTP4 presets directly',
+            '  Flags:',
+            "    !summary [flagstring]       Summarize a flag string (default: this room's seed)",
             '  Season info:',
             '    !schedule                   Today\'s remaining race times',
             '    !info                       TTP Season 5 details',
