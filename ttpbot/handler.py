@@ -16,6 +16,7 @@ from .config import (
     HASH_ALIASES,
     HASH_ALIASES_MULTI,
     LEAGUE_ROOM_INFO_PREFIX,
+    LEAGUE_WEEKS,
     RACE_NUMBER_MAP,
     REMINDER_SCHEDULE,
     SEED_PRESETS,
@@ -966,6 +967,45 @@ class TTPRaceHandler(RaceHandler):
             return
         await self.ex_race(['ttp4consternation'], message)
 
+    async def _league_week(self, week, message):
+        name, flags = LEAGUE_WEEKS[week]
+        if self.sahasrahbot_present:
+            # SahasrahBot has no League presets, so the flags are what it
+            # needs. Kept off the start of the line so no bot reads a command.
+            await self.send_message(
+                f'League Week {week} ({name}) flags: {flags} -- roll with !flags {flags}'
+            )
+            return
+        await self.ex_race([f'leagueweek{week}'], message)
+
+    async def ex_leagueweek1(self, args, message):
+        """!leagueweek1 -- Roll the Z1RR League Week 1 flagset."""
+        await self._league_week(1, message)
+
+    async def ex_leagueweek2(self, args, message):
+        """!leagueweek2 -- Roll the Z1RR League Week 2 flagset."""
+        await self._league_week(2, message)
+
+    async def ex_leagueweek3(self, args, message):
+        """!leagueweek3 -- Roll the Z1RR League Week 3 flagset."""
+        await self._league_week(3, message)
+
+    async def ex_leagueweek4(self, args, message):
+        """!leagueweek4 -- Roll the Z1RR League Week 4 flagset."""
+        await self._league_week(4, message)
+
+    async def ex_leagueweek5(self, args, message):
+        """!leagueweek5 -- Roll the Z1RR League Week 5 flagset."""
+        await self._league_week(5, message)
+
+    async def ex_leagueweek6(self, args, message):
+        """!leagueweek6 -- Roll the Z1RR League Week 6 flagset."""
+        await self._league_week(6, message)
+
+    async def ex_leagueweek7(self, args, message):
+        """!leagueweek7 -- Roll the Z1RR League Week 7 flagset."""
+        await self._league_week(7, message)
+
     async def ex_z1rr(self, args, message):
         """!z1rr -- Show the Z1RR Discord invite."""
         await self.send_message(f'Join the Z1RR Discord! {Z1RR_DISCORD_URL}')
@@ -981,6 +1021,7 @@ class TTPRaceHandler(RaceHandler):
             '    !ttp3                       Random TTP Season 3 preset',
             '    !ttp4                       Random TTP Season 4 preset',
             '    !ttp4rp / !ttp4hopla / !ttp4consternation  TTP4 presets directly',
+            '    !leagueweek1 ... !leagueweek7  Z1RR League weekly flagsets',
             '  Flags:',
             "    !summary [flagstring]       Summarize a flag string (default: this room's seed)",
             '  Season info:',

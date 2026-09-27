@@ -254,6 +254,39 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('Usage: !summary', handler.messages[0])
         self.assertEqual(handler.messages[1], "Couldn't read that flag string.")
 
+    async def test_leagueweek_rolls_the_weeks_flagset(self):
+        handler = command_handler()
+
+        with patch('ttpbot.handler.asyncio.sleep', new=AsyncMock()):
+            await handler.ex_leagueweek6([], {})
+
+        self.assertTrue(handler.seed_rolled)
+        self.assertTrue(handler.messages[0].startswith(
+            'leagueweek6 - Flags: CKnGaCG0jI3PvaGohjRZIOxiM8Y9W8GjoIpZfdC Seed: '
+        ))
+
+    async def test_leagueweek_hands_sahasrahbot_the_flags(self):
+        # SahasrahBot has no League presets, so silence would leave no roll.
+        handler = command_handler()
+        handler.sahasrahbot_present = True
+
+        await handler.ex_leagueweek4([], {})
+
+        self.assertFalse(handler.seed_rolled)
+        self.assertEqual(handler.messages, [
+            'League Week 4 (TC #29) flags: oJ5LOsot2OL6WwQr15hZEaydnt0!RcZLT7Z7q'
+            ' -- roll with !flags oJ5LOsot2OL6WwQr15hZEaydnt0!RcZLT7Z7q'
+        ])
+
+    def test_every_league_week_has_a_command_and_a_decodable_flagset(self):
+        from ttpbot.config import LEAGUE_WEEKS
+        from ttpbot.flag_summary import format_summary
+
+        self.assertEqual(sorted(LEAGUE_WEEKS), list(range(1, 8)))
+        for week, (_name, flags) in LEAGUE_WEEKS.items():
+            self.assertTrue(hasattr(TTPRaceHandler, f'ex_leagueweek{week}'))
+            format_summary(flags)
+
     async def test_sahasrahbot_detected_from_chat_history(self):
         handler = command_handler()
         handler.sahasrahbot_present = False
