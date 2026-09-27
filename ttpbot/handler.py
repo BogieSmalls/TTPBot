@@ -11,6 +11,7 @@ from racetime_bot import RaceHandler
 
 from .flag_summary import FlagStringError, format_summary
 from .grace import GRACE_START, GraceRace, entrants_from
+from .matchup import matchup_reply
 
 from .config import (
     HASH_ALIASES,
@@ -1006,6 +1007,16 @@ class TTPRaceHandler(RaceHandler):
         """!leagueweek7 -- Roll the Z1RR League Week 7 flagset."""
         await self._league_week(7, message)
 
+    async def ex_matchup(self, args, message):
+        """!matchup <racer1> <racer2> -- Two racers' record against each other.
+
+        Informational, so it answers even with SahasrahBot present.
+        """
+        if len(args) != 2:
+            await self.send_message('Usage: !matchup <racer1> <racer2>')
+            return
+        await self.send_message(await matchup_reply(args[0], args[1]))
+
     async def ex_z1rr(self, args, message):
         """!z1rr -- Show the Z1RR Discord invite."""
         await self.send_message(f'Join the Z1RR Discord! {Z1RR_DISCORD_URL}')
@@ -1028,6 +1039,7 @@ class TTPRaceHandler(RaceHandler):
             '    !schedule                   Today\'s remaining race times',
             '    !info                       TTP Season 5 details',
             '    !ttpflags                   TTP flagset details',
+            '    !matchup <racer1> <racer2>  Head-to-head record from the Z1RR stats',
             '    !z1rr                       Z1RR Discord invite',
             '    !grace [name]               Grace minutes left before a forced start',
         ]
