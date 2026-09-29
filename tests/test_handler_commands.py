@@ -383,3 +383,55 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+    async def test_torneo_corto_rolls_the_editions_flagset(self):
+        handler = command_handler()
+
+        with patch('ttpbot.handler.asyncio.sleep', new=AsyncMock()):
+            await handler.ex_tc33([], {})
+
+        self.assertTrue(handler.seed_rolled)
+        self.assertRegex(
+            handler.messages[0],
+            r'^tc33 - Flags: oIbnPfPb0mR7ggXWkGxc3qVN!8mpdjauom05j Seed: \d+$',
+        )
+
+    async def test_torneo_corto_hands_sahasrahbot_the_flags(self):
+        # SahasrahBot has no Torneo Corto presets, so silence would leave no roll.
+        handler = command_handler()
+        handler.sahasrahbot_present = True
+
+        await handler.ex_tc33([], {})
+
+        self.assertFalse(handler.seed_rolled)
+        self.assertEqual(handler.messages, [
+            'Torneo Corto #33 flags: oIbnPfPb0mR7ggXWkGxc3qVN!8mpdjauom05j'
+            ' -- roll with !flags oIbnPfPb0mR7ggXWkGxc3qVN!8mpdjauom05j'
+        ])
+
+    async def test_torneo_corto_spelled_out_is_the_same_command(self):
+        handler = command_handler()
+        handler.sahasrahbot_present = True
+
+        await handler.ex_torneocorto31([], {})
+
+        self.assertIn('Torneo Corto #31 flags:', handler.messages[0])
+
+    def test_every_torneo_corto_preset_has_a_command_and_decodes(self):
+        from ttpbot.config import PRESET_ALIASES, PRESET_NAMES, SEED_PRESETS
+        from ttpbot.flag_summary import format_summary
+
+        editions = [31, 32, 33]
+        for edition in editions:
+            preset = 'tc%d' % edition
+            self.assertIn(preset, SEED_PRESETS)
+            self.assertEqual(PRESET_NAMES[preset], 'Torneo Corto #%d' % edition)
+            self.assertTrue(hasattr(TTPRaceHandler, 'ex_' + preset))
+            # Spelled out resolves both as a command and as a !race preset.
+            self.assertTrue(hasattr(TTPRaceHandler, 'ex_torneocorto%d' % edition))
+            self.assertEqual(PRESET_ALIASES['torneocorto%d' % edition], preset)
+            format_summary(SEED_PRESETS[preset])
+
+        # Each edition is its own flagset; a copy-paste slip would make two the same.
+        flags = [SEED_PRESETS['tc%d' % edition] for edition in editions]
+        self.assertEqual(len(set(flags)), len(editions))

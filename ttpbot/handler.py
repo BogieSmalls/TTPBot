@@ -991,6 +991,32 @@ class TTPRaceHandler(RaceHandler):
         """!ttp5pick5 -- Roll the TTP5 Pick 5 preset."""
         await self._roll_unknown_to_sahasrahbot('ttp5pick5', message)
 
+    async def ex_tc33(self, args, message):
+        """!tc33 -- Roll the Torneo Corto #33 flagset."""
+        await self._roll_unknown_to_sahasrahbot('tc33', message)
+
+    async def ex_tc32(self, args, message):
+        """!tc32 -- Roll the Torneo Corto #32 flagset."""
+        await self._roll_unknown_to_sahasrahbot('tc32', message)
+
+    async def ex_tc31(self, args, message):
+        """!tc31 -- Roll the Torneo Corto #31 flagset."""
+        await self._roll_unknown_to_sahasrahbot('tc31', message)
+
+    # Spelled out, for anybody who would rather type the whole thing. Both
+    # forms are also presets, so !race tc33 and !summary tc33 already work.
+    async def ex_torneocorto33(self, args, message):
+        """!torneocorto33 -- Same as !tc33."""
+        await self.ex_tc33(args, message)
+
+    async def ex_torneocorto32(self, args, message):
+        """!torneocorto32 -- Same as !tc32."""
+        await self.ex_tc32(args, message)
+
+    async def ex_torneocorto31(self, args, message):
+        """!torneocorto31 -- Same as !tc31."""
+        await self.ex_tc31(args, message)
+
     async def _roll_unknown_to_sahasrahbot(self, preset, message):
         """Roll a preset SahasrahBot has no command for.
 

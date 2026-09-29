@@ -248,6 +248,10 @@ SEED_PRESETS = {
     'ttp5uphill':        '143oNtDD4Pw3Yw6SRryTCXlqTsRz2fxg4s4pJW',
     'ttp5muffle':        '2487lt0moGMFLRug1ofQdxPuUBWnJVSsi7d202I',
     'ttp5pick5':         'p8GIOeYEAonHy5131VdG6b94Ts3EMMvBaQoWR',
+    # Torneo Corto, newest first. #33 is Chessjerk's pick as #32 champion.
+    'tc33':              'oIbnPfPb0mR7ggXWkGxc3qVN!8mpdjauom05j',
+    'tc32':              'CL3Eo9X9qqqZ4qTXumvwynEkysDc0y3TNu8a2ce',
+    'tc31':              '248ktImaOpBMdBuEa3O1bTV!bsd!zkRgztHzXub',
 }
 
 # Presets used by !ttp2 / !ttp3 / !ttp4 random pickers
@@ -261,6 +265,9 @@ TTP5_PRESETS = ['ttp5uphill', 'ttp5muffle', 'ttp5pick5']
 
 # Full names, for the hand-off message posted when SahasrahBot is present.
 PRESET_NAMES = {
+    'tc33': 'Torneo Corto #33',
+    'tc32': 'Torneo Corto #32',
+    'tc31': 'Torneo Corto #31',
     'ttp4rp': 'TTP4 Random% Remastered',
     'ttp4hopla': 'TTP4 Hopla Remastered',
     'ttp4consternation': 'TTP4 Consternation Remastered',
@@ -273,6 +280,10 @@ PRESET_NAMES = {
 # accept them. SahasrahBot knows none of them, so with SahasrahBot present
 # these hand over the flags rather than stay silent.
 PRESET_ALIASES = {
+    # For anybody who would rather type it out than remember the short form.
+    'torneocorto33': 'tc33',
+    'torneocorto32': 'tc32',
+    'torneocorto31': 'tc31',
     'ttp4random': 'ttp4rp',
     'ttp4randomrm': 'ttp4rp',
     'ttp4rr': 'ttp4rp',

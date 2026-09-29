@@ -134,7 +134,7 @@ All tunable values live in [`ttpbot/config.py`](ttpbot/config.py):
 - `WEBHOOK_MINUTES_BEFORE` — how far ahead to post the Discord announcement (default 20)
 - `REMINDER_SCHEDULE` — which reminders to send and when
 - `HASH_ALIASES` / `HASH_ALIASES_MULTI` — the canonical alias map for hash recognition
-- `SEED_PRESETS` — 27 named Z1R presets
+- `SEED_PRESETS` — the named Z1R presets, each usable with `!race` and `!summary`
 - `TTP2_PRESETS` / `TTP3_PRESETS` / `TTP4_PRESETS` — pools for the `!ttpN` random pickers
 
 ### League restream environment
