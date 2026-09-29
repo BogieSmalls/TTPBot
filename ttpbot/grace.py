@@ -54,6 +54,10 @@ READY = 'ready'
 #: Statuses that mean "in the room and expected to race". `requested` and
 #: `invited` are people who have not joined, and cannot hold a race up.
 PRESENT = {'ready', 'not_ready'}
+#: Statuses of someone in a race that has started. Racetime only starts a
+#: race with everyone ready (or a monitor removes whoever is not), so each
+#: of these was ready when it began.
+STARTED = {'ready', 'in_progress', 'done', 'dnf'}
 
 
 @dataclass(frozen=True)
@@ -78,7 +82,7 @@ class Decision:
     blocked: Optional[str] = None
 
 
-def entrants_from(race_data, monitors=(), opened_by=None):
+def entrants_from(race_data, monitors=(), opened_by=None, statuses=PRESENT):
     """Read the racetime payload into the handful of fields this needs."""
     monitor_ids = {str(m.get('id')) for m in (monitors or []) if m.get('id')}
     if opened_by and opened_by.get('id'):
@@ -88,7 +92,7 @@ def entrants_from(race_data, monitors=(), opened_by=None):
         user = raw.get('user') or {}
         user_id = str(user.get('id') or '')
         status = (raw.get('status') or {}).get('value', '')
-        if not user_id or status not in PRESENT:
+        if not user_id or status not in statuses:
             continue
         entrants.append(Entrant(
             user_id=user_id,
@@ -216,6 +220,9 @@ class GraceRace:
         self.earned = False
         self.announced = False
         self.finished = False
+        #: Whether this countdown saw the room open. A bot restarted mid-race
+        #: never did, and must not credit an early start a second time.
+        self.watched = False
 
     def _charge_from(self, entrant):
         """When this entrant's minutes start being spent."""
@@ -227,6 +234,7 @@ class GraceRace:
     def tick(self, now, entrants):
         # Bring balances up to date before anything reads or reports them, so
         # the room is told what people actually hold right now.
+        self.watched = True
         if not self.accrued_this_race:
             self.accrued_this_race = True
             self.ledger.accrue(now)
@@ -302,6 +310,22 @@ class GraceRace:
             decision.messages.append(
                 'Trial run: from the week of September 28 this race would have force '
                 'started now, removing {}. Nobody is removed today.'.format(names))
+        return decision
+
+    def started(self, started_at, entrants):
+        """The race has left the open state. Credit an early start.
+
+        When everyone readies before the scheduled time, racetime starts the
+        race then and there, and the scheduled-time tick that normally earns
+        the minute never comes. Those racers were the most punctual of all,
+        so they earn it here instead.
+        """
+        decision = Decision()
+        if self.earned or not self.watched or started_at >= self.scheduled:
+            return decision
+        self.earned = True
+        self.finished = True
+        decision.earn = [e.user_id for e in entrants if not e.moderator]
         return decision
 
     def _opening_message(self, unready, deadline_reached):

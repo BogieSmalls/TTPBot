@@ -11,6 +11,7 @@ from ttpbot.grace import (
     GRACE_START,
     Entrant,
     GraceLedger,
+    STARTED,
     GraceRace,
     entrants_from,
 )
@@ -297,3 +298,77 @@ class IdleAccrualTests(unittest.TestCase):
         race.tick(START - timedelta(minutes=5), [_entrant('Late', ready=False)])
 
         self.assertEqual(ledger.balance('late'), 2)
+
+
+class EarlyStartTests(unittest.TestCase):
+    """Everyone readied before the scheduled time and racetime started early.
+
+    From 2026-09-28's 8 PM race, which began at 7:59:16: the scheduled-time
+    tick that earns the minute never came, so seven punctual racers got nothing.
+    """
+
+    def _watched(self, ledger):
+        race = GraceRace(START, ledger, enforce=True)
+        entrants = [_entrant('A'), _entrant('B')]
+        ledger.apply(race.tick(START - timedelta(minutes=2), entrants), entrants)
+        return race
+
+    def test_an_early_start_earns_the_on_time_minute(self):
+        ledger = _ledger()
+        race = self._watched(ledger)
+        starters = [_entrant('A'), _entrant('B'), _entrant('Mod', moderator=True)]
+
+        decision = race.started(START - timedelta(seconds=44), starters)
+        ledger.apply(decision, starters)
+
+        self.assertEqual(sorted(decision.earn), ['a', 'b'])
+        self.assertEqual(ledger.balance('a'), GRACE_START + 1)
+        self.assertNotIn('mod', ledger.balances)
+
+    def test_a_start_after_the_scheduled_time_earns_nothing_extra(self):
+        # The scheduled-time tick already paid whoever was ready then.
+        race = self._watched(_ledger())
+        decision = race.started(START + timedelta(minutes=3), [_entrant('A')])
+        self.assertEqual(decision.earn, [])
+
+    def test_earns_only_once(self):
+        race = self._watched(_ledger())
+        race.started(START - timedelta(seconds=10), [_entrant('A')])
+        self.assertEqual(race.started(START - timedelta(seconds=10), [_entrant('A')]).earn, [])
+
+    def test_a_bot_that_never_saw_the_room_open_credits_nothing(self):
+        # Restarted mid-race: it may already have paid out before the restart.
+        race = GraceRace(START, _ledger(), enforce=True)
+        self.assertEqual(race.started(START - timedelta(seconds=10), [_entrant('A')]).earn, [])
+
+    def test_starters_are_read_from_racing_statuses(self):
+        payload = {'entrants': [
+            {'user': {'id': '1', 'name': 'Racing'}, 'status': {'value': 'in_progress'}},
+            {'user': {'id': '2', 'name': 'Gone'}, 'status': {'value': 'dnf'}},
+            {'user': {'id': '3', 'name': 'Asked'}, 'status': {'value': 'requested'}},
+        ]}
+        self.assertEqual(
+            [e.name for e in entrants_from(payload, statuses=STARTED)], ['Racing', 'Gone'])
+
+
+class HandlerEarlyStartTests(unittest.IsolatedAsyncioTestCase):
+    async def test_the_grace_loop_credits_a_race_it_watched_start_early(self):
+        from tests.test_handler_commands import command_handler
+
+        handler = command_handler()
+        handler.grace_ledger = _ledger()
+        handler.grace = GraceRace(START, handler.grace_ledger, enforce=True)
+        entrant = {'user': {'id': 'a', 'name': 'A', 'can_moderate': False},
+                   'status': {'value': 'ready'}}
+        handler.grace.tick(START - timedelta(minutes=1), entrants_from({'entrants': [entrant]}))
+
+        handler.data = {
+            'name': 'z1r/test-room',
+            'status': {'value': 'in_progress'},
+            # 7:59:16 PM ET, as the real race began.
+            'started_at': '2026-09-28T23:59:16.717Z',
+            'entrants': [dict(entrant, status={'value': 'in_progress'})],
+        }
+        await handler._grace_loop()
+
+        self.assertEqual(handler.grace_ledger.balance('a'), GRACE_START + 1)
