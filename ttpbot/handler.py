@@ -10,7 +10,7 @@ import aiohttp
 from racetime_bot import RaceHandler
 
 from .flag_summary import FlagStringError, format_summary
-from .grace import GRACE_START, GraceRace, entrants_from
+from .grace import GRACE_START, STARTED, GraceRace, entrants_from
 from .matchup import matchup_reply
 
 from .config import (
@@ -526,6 +526,8 @@ class TTPRaceHandler(RaceHandler):
             while True:
                 status = (self.data.get('status') or {}).get('value')
                 if status not in ('open', 'invitational'):
+                    if status in ('pending', 'in_progress'):
+                        self._credit_early_start()
                     return
                 decision = self.grace.tick(datetime.now(TIMEZONE), entrants_from(
                     self.data,
@@ -549,6 +551,29 @@ class TTPRaceHandler(RaceHandler):
         except Exception:
             # A race that starts late is better than a bot that dies mid-room.
             self.logger.error('Error in grace loop', exc_info=True)
+
+    def _credit_early_start(self):
+        """Earn the on-time minute for a race that started before its time.
+
+        Judged by racetime's own start time: the loop only looks every 15
+        seconds, so a race that began at 7:59:55 may be noticed after 8:00.
+        """
+        try:
+            started_at = datetime.fromisoformat(
+                (self.data.get('started_at') or '').replace('Z', '+00:00'))
+        except ValueError:
+            started_at = datetime.now(TIMEZONE)
+        starters = entrants_from(
+            self.data,
+            monitors=self.data.get('monitors'),
+            opened_by=self.data.get('opened_by'),
+            statuses=STARTED,
+        )
+        decision = self.grace.started(started_at, starters)
+        if decision.earn:
+            self.grace_ledger.apply(decision, starters)
+            self.logger.info('Grace: %s started early; %d racer(s) earn a minute',
+                             self.data.get('name'), len(decision.earn))
 
     async def ex_grace(self, args, message):
         """`!grace` - your own balance, or a named racer's for anyone."""
