@@ -31,7 +31,7 @@ from .config import (
     Z1RR_DISCORD_URL,
 )
 from .paths import ensure_parent_dir, runtime_path
-from .room_policy import is_league_room, is_ttp_scheduled_room
+from .room_policy import is_autumn_room, is_league_room, is_ttp_scheduled_room
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 
 CHAT_LOG_DIR = runtime_path('chat_logs')
@@ -160,6 +160,7 @@ class TTPRaceHandler(RaceHandler):
         self.bot_created = False
         self.ttp_scheduled_room = False
         self.league_room = False
+        self.autumn_room = False
         self.reminder_task = None
         self.pending_hash = None
         self.pending_hash_user = None
@@ -194,6 +195,7 @@ class TTPRaceHandler(RaceHandler):
     async def begin(self):
         self.ttp_scheduled_room = is_ttp_scheduled_room(self.data)
         self.league_room = is_league_room(self.data)
+        self.autumn_room = is_autumn_room(self.data)
         self.history_command_cutoff_utc = self._recent_room_history_cutoff()
 
         if self.ttp_scheduled_room:
@@ -228,6 +230,8 @@ class TTPRaceHandler(RaceHandler):
             self.bot_created = False
             if self.league_room:
                 await self._send_league_invites()
+            elif self.autumn_room:
+                await self._send_autumn_invites()
 
         # Request chat history to detect prior seed rolls and, for TTP rooms,
         # avoid duplicate welcomes/reminders.
@@ -299,21 +303,62 @@ class TTPRaceHandler(RaceHandler):
                 present.add(user_id)
         return present
 
+    def _autumn_invite_ids(self):
+        """The racetime ids to invite to an Autumn room.
+
+        Seeded state only, and no title fallback -- unlike the League's, which
+        reads names out of the room title and resolves them against a committed
+        roster. There is no committed roster for the tournament: the racetime ids
+        live in the bracket engine, and reaching for them from here would put an
+        HTTP call inside a websocket handler.
+
+        It does not need one. The Autumn scheduler re-seeds this on every tick a
+        race is inside its window, so a restart is covered by the next tick rather
+        than by parsing a title -- which is a better recovery anyway, because the
+        scheduler's list is the authoritative one.
+        """
+        seeded = (self.state or {}).get('autumn_race') or {}
+        invite = seeded.get('invite')
+        if (
+            isinstance(invite, list)
+            and len(invite) == 2
+            and all(isinstance(i, str) and i for i in invite)
+            and len(set(invite)) == len(invite)
+        ):
+            return list(invite)
+        if invite:
+            # Something was seeded and it is not two distinct ids. Said rather
+            # than silently skipped: it means a racer has no racetime id on file.
+            self.logger.warning(
+                '[%s] Autumn invites are incomplete: %r',
+                self.data.get('name'), invite)
+        return []
+
+    async def _send_autumn_invites(self):
+        """Invite an Autumn room's two racers, exactly once."""
+        await self._send_invites(
+            'Autumn', 'autumn_invited', self._autumn_invite_ids())
+
     async def _send_league_invites(self):
-        """Invite the scheduled racers exactly once.
+        """Invite the scheduled racers exactly once."""
+        await self._send_invites(
+            'League', 'league_invited', self._league_invite_ids())
+
+    async def _send_invites(self, label, guard_key, invite_ids):
+        """Invite a list of racetime ids once, and never twice.
 
         The once-only guard lives in self.state, not an instance attribute:
         racetime_bot discards this handler when its websocket task ends and
         builds a new one (with the same self.state dict) for refresh_races
         reconnects, so an instance attribute would forget the invite and
         re-invite racers who are already entrants. self.state is lost on a
-        process restart, which is intentional -- the title-based fallback in
-        _league_invite_ids() is what recovers invites after a restart.
+        process restart, which is intentional -- for the League the title-based
+        fallback in _league_invite_ids() recovers invites, and for the tournament
+        the scheduler re-seeds them on the next tick.
         """
         state = self.state if isinstance(self.state, dict) else None
-        if state is not None and state.get('league_invited'):
+        if state is not None and state.get(guard_key):
             return
-        invite_ids = self._league_invite_ids()
         if not invite_ids:
             return
         # Only those not already in the room. invite_user() just writes to the
@@ -325,11 +370,11 @@ class TTPRaceHandler(RaceHandler):
         invite_ids = [i for i in invite_ids if i not in present]
         if not invite_ids:
             if state is not None:
-                state['league_invited'] = True
+                state[guard_key] = True
             return
         # Set before awaiting so a concurrent begin() cannot double-invite.
         if state is not None:
-            state['league_invited'] = True
+            state[guard_key] = True
         try:
             for racetime_id in invite_ids:
                 await self.invite_user(racetime_id)
@@ -340,14 +385,14 @@ class TTPRaceHandler(RaceHandler):
             # handler try; re-inviting an existing entrant is harmless, being
             # stranded is not.
             if state is not None:
-                state['league_invited'] = False
+                state[guard_key] = False
             self.logger.warning(
-                '[%s] League invites failed; released for retry',
-                self.data.get('name'), exc_info=True,
+                '[%s] %s invites failed; released for retry',
+                self.data.get('name'), label, exc_info=True,
             )
             raise
-        self.logger.info('[%s] invited %d League racers',
-                         self.data.get('name'), len(invite_ids))
+        self.logger.info('[%s] invited %d %s racers',
+                         self.data.get('name'), len(invite_ids), label)
 
     async def chat_history(self, data):
         """Check chat history for existing bot messages to avoid duplicates."""

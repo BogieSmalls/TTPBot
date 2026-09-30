@@ -103,11 +103,9 @@ class AutumnScheduler:
         #: Matches whose room is uncertain and has been complained about, so the
         #: complaint is once rather than once a minute.
         self._flagged = set()
-        #: Matches where both racers are in the room. In memory on purpose:
-        #: inviting somebody who is already an entrant is not an error, so a
-        #: restart re-inviting costs one harmless call, while a durable guard
-        #: would skip the invite after the restart that most needs it.
-        self._invited = set()
+        #: No record of who has been invited is kept here at all. The handler
+        #: holds that, in the room's own state, because it is the thing that
+        #: knows who is already an entrant.
 
         #: Set once state could not be read or written. Nothing is attempted
         #: while it holds: acting on state we know is missing is how a second
@@ -417,27 +415,25 @@ class AutumnScheduler:
         return existing
 
     async def _let_in(self, race, url):
-        """Invite both racers, until there is nobody left to invite.
+        """Tell the racetime handler who belongs in this room.
 
-        Retried every tick while anybody is missing, because racetime treats an
-        invite for an existing entrant as a no-op -- so the cost of asking again
-        is one call and the cost of not asking is a racer locked out.
+        Not "invite them": the invite itself is sent over the room's websocket by
+        the handler, which is the only thing holding that socket. This writes the
+        list where the handler reads it, and the handler owns the once-only guard.
+
+        Done on *every* tick a race is in its window rather than once at creation.
+        Handler state does not survive a process restart, and the handler has no
+        title fallback for a tournament -- so re-seeding is the recovery, and it
+        keeps the scheduler's list authoritative.
         """
-        if self._invite is None or race.match_id in self._invited:
+        if self._invite is None:
             return
         try:
-            missed = await self._invite(race, url)
+            await self._invite(race, url)
         except Exception:
             self.logger.error(
-                'Autumn: inviting racers to %s failed; will try again',
+                'Autumn: could not tell the handler who to invite to %s',
                 race.match_id, exc_info=True)
-            return
-        if missed:
-            self.logger.warning(
-                'Autumn: still to invite to %s: %s',
-                race.match_id, ', '.join(missed))
-            return
-        self._invited.add(race.match_id)
 
     async def _tell(self, race, row, url):
         """Announce the room, once it has actually been announced."""

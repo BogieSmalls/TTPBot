@@ -6,6 +6,7 @@ why the builder has its own try and its own log line, and why every collaborator
 is optional rather than required.
 """
 
+import asyncio
 import logging
 import unittest
 
@@ -38,6 +39,15 @@ class Bot:
     provider = None
     access_token = 'token'
     autumn_webhook_url = 'https://discord/webhook'
+
+
+def quiet_engine(runner, racetime_ids=None):
+    """Stop the id cache reaching for a socket when it misses."""
+    async def state():
+        return {'document': {'racetimeIds': dict(racetime_ids or {})}}
+
+    runner.engine.state = state
+    return runner
 
 
 class Building(unittest.TestCase):
@@ -85,14 +95,70 @@ class Building(unittest.TestCase):
             Bot(), self.log)
         self.assertIsNotNone(runner.scheduler._wake_booth)
 
-    def test_nothing_is_wired_into_the_invite_seam(self):
-        # Deliberate. The League invites over the racetime websocket through
-        # `handler.invite_user`, and the handler's whole invite path is
-        # League-shaped. An earlier draft POSTed to an HTTP endpoint that does not
-        # appear anywhere in this codebase, which was a guess, so it was removed
-        # rather than shipped.
-        runner = build_autumn_runner({'Z1RR_ENGINE_TOKEN': 'x'}, Bot(), self.log)
-        self.assertIsNone(runner.scheduler._invite)
+    def test_the_invite_list_is_seeded_where_the_handler_reads_it(self):
+        # The handler that holds the room's websocket sends the invites; this
+        # writes the list into `bot.state[race_name]`, which `create_handler`
+        # passes to it by reference. The same mechanism the League uses.
+        from ttpbot.autumn.matching import RaceIdentity, Resolved
+        from datetime import datetime
+
+        bot = Bot()
+        bot.state = {}
+        bot.autumn_racetime_ids = {'ISUMatt': 'aaa', 'chessjerk': 'bbb'}
+        runner = build_autumn_runner({'Z1RR_ENGINE_TOKEN': 'x'}, bot, self.log)
+
+        race = Resolved(
+            identity=RaceIdentity(event='autumn', match_id='W1-1'),
+            match_id='W1-1', at=datetime(2026, 10, 2, 22, 0),
+            runner_one='ISUMatt', runner_two='chessjerk')
+        asyncio.run(runner.scheduler._invite(
+            race, 'https://racetime.gg/z1r/fancy-mario-1234'))
+
+        seeded = bot.state['fancy-mario-1234']['autumn_race']
+        self.assertEqual(seeded['invite'], ['aaa', 'bbb'])
+        self.assertIn('[W1-1]', seeded['title'])
+
+    def test_a_racer_with_no_racetime_id_means_nobody_is_invited(self):
+        # Both or neither. Inviting one leaves the other looking at a room they
+        # are not in, which is worse than inviting nobody and saying so -- the
+        # room is public, so they can join it themselves.
+        from ttpbot.autumn.matching import RaceIdentity, Resolved
+        from datetime import datetime
+
+        bot = Bot()
+        bot.state = {}
+        bot.autumn_racetime_ids = {'ISUMatt': 'aaa'}
+        runner = build_autumn_runner({'Z1RR_ENGINE_TOKEN': 'x'}, bot, self.log)
+        # A miss re-reads the engine before giving up, so the engine answers here
+        # rather than the test waiting on a socket that is not listening.
+        quiet_engine(runner, {'ISUMatt': 'aaa'})
+
+        race = Resolved(
+            identity=RaceIdentity(event='autumn', match_id='W1-1'),
+            match_id='W1-1', at=datetime(2026, 10, 2, 22, 0),
+            runner_one='ISUMatt', runner_two='chessjerk')
+        asyncio.run(runner.scheduler._invite(
+            race, 'https://racetime.gg/z1r/fancy-mario-1234'))
+
+        self.assertEqual(bot.state['fancy-mario-1234']['autumn_race']['invite'], [])
+        self.assertTrue(
+            any('chessjerk' in w for w in self.log.warnings), self.log.warnings)
+
+    def test_seeding_does_not_clobber_what_else_is_in_the_room_state(self):
+        from ttpbot.autumn.matching import RaceIdentity, Resolved
+        from datetime import datetime
+
+        bot = Bot()
+        bot.state = {'fancy-mario-1234': {'something_else': True}}
+        bot.autumn_racetime_ids = {'ISUMatt': 'aaa', 'chessjerk': 'bbb'}
+        runner = build_autumn_runner({'Z1RR_ENGINE_TOKEN': 'x'}, bot, self.log)
+        race = Resolved(
+            identity=RaceIdentity(event='autumn', match_id='W1-1'),
+            match_id='W1-1', at=datetime(2026, 10, 2, 22, 0),
+            runner_one='ISUMatt', runner_two='chessjerk')
+        asyncio.run(runner.scheduler._invite(
+            race, 'https://racetime.gg/z1r/fancy-mario-1234'))
+        self.assertTrue(bot.state['fancy-mario-1234']['something_else'])
 
 
 class RoundLabels(unittest.TestCase):

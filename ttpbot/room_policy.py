@@ -1,6 +1,6 @@
 from .config import (
     GOAL_NAME,
-    LEAGUE_ROOM_INFO_PREFIX,
+    AUTUMN_ROOM_INFO_PREFIX, LEAGUE_ROOM_INFO_PREFIX,
     POST_SEASON_GOAL_NAME,
     TTP_ROOM_INFO_PREFIXES,
 )
@@ -18,6 +18,25 @@ def is_ttp_scheduled_room(race_data):
     return any(
         info_bot.startswith(f'{prefix} | Scheduled:')
         for prefix in TTP_ROOM_INFO_PREFIXES
+    )
+
+
+def is_autumn_room(race_data):
+    """Return True for Autumn Tournament rooms this bot scheduled.
+
+    The same shape of test as `is_league_room`, against a different prefix. Both
+    share the 'Beat the game' goal with TTP post-season rooms, so the prefix is
+    what separates all three -- and because this automation writes it, a
+    community room cannot match.
+    """
+    goal_name = race_data.get('goal', {}).get('name', '')
+    if goal_name != POST_SEASON_GOAL_NAME:
+        return False
+    info_bot = race_data.get('info_bot', '') or ''
+    info_user = race_data.get('info_user', '') or ''
+    return (
+        info_user.startswith(AUTUMN_ROOM_INFO_PREFIX)
+        or info_bot.startswith(AUTUMN_ROOM_INFO_PREFIX)
     )
 
 
