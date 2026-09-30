@@ -177,11 +177,14 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             race, url, (env.get('TTPBOT_AUTUMN_DISCORD_WEBHOOK_URL') or '').strip()
             or getattr(bot, 'autumn_webhook_url', None), logger,
             ids=ids, label=_round_label(race.match_id),
-            crew=tuple(getattr(row, 'crew', ()) or ()))
+            crew=tuple(getattr(row, 'crew', ()) or ()),
+            channel_id=(env.get('TTPBOT_AUTUMN_DISCORD_CHANNEL_ID') or '').strip(),
+            bot_token=(env.get('TTPBOT_AUTUMN_DISCORD_BOT_TOKEN')
+                       or env.get('TTPBOT_LEAGUE_DISCORD_BOT_TOKEN') or '').strip())
         if not posted:
             # Raised rather than returned, because the scheduler's guard is set
             # from "did this not raise" and a False here must be a retry.
-            raise RuntimeError('the Discord webhook did not accept it')
+            raise RuntimeError('Discord did not accept the announcement')
 
     wake = _wake_adapter(env, logger)
 

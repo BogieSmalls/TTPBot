@@ -66,3 +66,28 @@ class LiveWiring(unittest.TestCase):
         result = asyncio.run(create_autumn_room(race(), provider(), 'token', Log(), requester=endpoint))
         self.assertEqual(result, UNCERTAIN_RACE)
         self.assertEqual([call['method'] for call in endpoint.calls], ['post', 'get'])
+
+    def test_announces_to_configured_channel_with_existing_bot_credentials(self):
+        async def check():
+            runner = build_autumn_runner({'Z1RR_ENGINE_TOKEN': 'x',
+                'TTPBOT_AUTUMN_DISCORD_CHANNEL_ID': '1554172126880207009',
+                'TTPBOT_LEAGUE_DISCORD_BOT_TOKEN': 'bot-secret'},
+                SimpleNamespace(state={}), logging.getLogger('autumn-test'))
+            runner.engine.state = AsyncMock(return_value={'document': {'racers': {}}})
+            endpoint = Endpoint(Response(200, json={'id': '123'}))
+            with patch('ttpbot.autumn.announce.aiohttp.request', endpoint):
+                await runner.scheduler._announce(race(), None, 'https://racetime.gg/' + NAME)
+            call, = endpoint.calls
+            self.assertEqual(call['url'], 'https://discord.com/api/v10/channels/1554172126880207009/messages')
+            self.assertEqual(call['headers']['Authorization'], 'Bot bot-secret')
+            self.assertEqual(call['json']['allowed_mentions']['parse'], [])
+        asyncio.run(check())
+
+    def test_bot_credentials_are_not_attached_to_a_webhook(self):
+        from ttpbot.autumn.announce import send_autumn_announcement
+        endpoint = Endpoint(Response(204))
+        sent = asyncio.run(send_autumn_announcement(race(), 'https://racetime.gg/' + NAME,
+            'https://discord.example/webhook', Log(), requester=endpoint,
+            bot_token='bot-secret', channel_id='1554172126880207009'))
+        self.assertTrue(sent)
+        self.assertNotIn('Authorization', endpoint.calls[0]['headers'])
