@@ -66,13 +66,19 @@ def build_announcement(race, race_url, ids=None, label=None, crew=()):
 
 
 async def send_autumn_announcement(race, race_url, webhook_url, logger, ids=None,
-                                   label=None, crew=(), requester=None):
+                                   label=None, crew=(), requester=None,
+                                   bot_token=None, channel_id=None):
     """Post it. Returns True only when Discord accepted it.
 
     The return value is what the scheduler's guard is set from, so a False here
     means it is tried again next tick rather than silently dropped.
     """
-    if not webhook_url:
+    headers = {}
+    target = webhook_url
+    if not target and bot_token and channel_id and str(channel_id).isdigit():
+        target = 'https://discord.com/api/v10/channels/{}/messages'.format(channel_id)
+        headers['Authorization'] = 'Bot ' + bot_token
+    if not target:
         logger.warning('Autumn: Discord announcements are not configured')
         return False
 
@@ -80,17 +86,17 @@ async def send_autumn_announcement(race, race_url, webhook_url, logger, ids=None
     body = build_announcement(race, race_url, ids=ids, label=label, crew=crew)
     try:
         async with request(
-            method='post', url=webhook_url, json=body,
+            method='post', url=target, headers=headers, json=body,
             timeout=aiohttp.ClientTimeout(total=WEBHOOK_TIMEOUT_SECONDS),
         ) as response:
             if response.status in (200, 204):
                 logger.info('Autumn: announced %s', race.match_id)
                 return True
             logger.error(
-                'Autumn: the Discord webhook refused %s (HTTP %d)',
+                'Autumn: Discord refused %s (HTTP %d)',
                 race.match_id, response.status)
     except (aiohttp.ClientError, asyncio.TimeoutError, TypeError) as exc:
         logger.error(
-            'Autumn: the Discord webhook failed for %s (%s)',
+            'Autumn: Discord announcement failed for %s (%s)',
             race.match_id, type(exc).__name__)
     return False

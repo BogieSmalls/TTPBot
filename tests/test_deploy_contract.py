@@ -32,6 +32,12 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_GRACE_ENABLED",
             "TTPBOT_GRACE_ENFORCED",
             "TTPBOT_GRACE_SEASON",
+            "Z1RR_AUTUMN_ENABLED",
+            "Z1RR_ENGINE_URL",
+            "Z1RR_ENGINE_TOKEN",
+            "TTPBOT_AUTUMN_DISCORD_CHANNEL_ID",
+            "TTPBOT_AUTUMN_DISCORD_BOT_TOKEN",
+            "TTPBOT_AUTUMN_DISCORD_WEBHOOK_URL",
         }
         variables = {
             line.split("=", 1)[0]
