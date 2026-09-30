@@ -102,7 +102,12 @@ async def create_autumn_room(race, provider, access_token, logger, label=None,
             timeout=aiohttp.ClientTimeout(total=ROOM_TIMEOUT_SECONDS),
         ) as response:
             if response.status == 201:
-                room_url = provider.resolve_location(response.headers.get('Location'))
+                try:
+                    room_url = provider.resolve_location(response.headers.get('Location'))
+                except (ProviderConfigurationError, TypeError):
+                    return await _uncertain(
+                        race, provider, access_token, logger, title, requester,
+                        'created response has no valid room location')
                 logger.info('Autumn room created for %s: %s', race.match_id, room_url)
                 return room_url
 

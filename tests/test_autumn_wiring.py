@@ -114,7 +114,7 @@ class Building(unittest.TestCase):
         asyncio.run(runner.scheduler._invite(
             race, 'https://racetime.gg/z1r/fancy-mario-1234'))
 
-        seeded = bot.state['fancy-mario-1234']['autumn_race']
+        seeded = bot.state['z1r/fancy-mario-1234']['autumn_race']
         self.assertEqual(seeded['invite'], ['aaa', 'bbb'])
         self.assertIn('[W1-1]', seeded['title'])
 
@@ -140,7 +140,7 @@ class Building(unittest.TestCase):
         asyncio.run(runner.scheduler._invite(
             race, 'https://racetime.gg/z1r/fancy-mario-1234'))
 
-        self.assertEqual(bot.state['fancy-mario-1234']['autumn_race']['invite'], [])
+        self.assertEqual(bot.state['z1r/fancy-mario-1234']['autumn_race']['invite'], [])
         self.assertTrue(
             any('chessjerk' in w for w in self.log.warnings), self.log.warnings)
 
@@ -149,7 +149,7 @@ class Building(unittest.TestCase):
         from datetime import datetime
 
         bot = Bot()
-        bot.state = {'fancy-mario-1234': {'something_else': True}}
+        bot.state = {'z1r/fancy-mario-1234': {'something_else': True}}
         bot.autumn_racetime_ids = {'ISUMatt': 'aaa', 'chessjerk': 'bbb'}
         runner = build_autumn_runner({'Z1RR_ENGINE_TOKEN': 'x'}, bot, self.log)
         race = Resolved(
@@ -158,7 +158,7 @@ class Building(unittest.TestCase):
             runner_one='ISUMatt', runner_two='chessjerk')
         asyncio.run(runner.scheduler._invite(
             race, 'https://racetime.gg/z1r/fancy-mario-1234'))
-        self.assertTrue(bot.state['fancy-mario-1234']['something_else'])
+        self.assertTrue(bot.state['z1r/fancy-mario-1234']['something_else'])
 
 
 class RoundLabels(unittest.TestCase):

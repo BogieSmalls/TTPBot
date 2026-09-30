@@ -16,7 +16,7 @@ from .config import (
 from .handler import TTPRaceHandler
 from .paths import data_dir as configured_data_dir, runtime_path
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
-from .room_policy import is_league_room, is_ttp_scheduled_room
+from .room_policy import is_autumn_room, is_league_room, is_ttp_scheduled_room
 from .state import DestinationStateStore, UNCERTAIN_RACE
 
 from .provider import ProviderConfigurationError
@@ -136,7 +136,8 @@ class TTPBot(Bot):
         """
         if not super().should_handle(race_data):
             return False
-        return is_ttp_scheduled_room(race_data) or is_league_room(race_data)
+        return (is_ttp_scheduled_room(race_data) or is_league_room(race_data)
+                or is_autumn_room(race_data))
 
     def _build_results_recorder(self):
         """Construct the results recorder, or None if it is switched off.

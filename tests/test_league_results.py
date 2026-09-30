@@ -302,6 +302,7 @@ class HandlerHookTest(unittest.IsolatedAsyncioTestCase):
         from ttpbot.handler import TTPRaceHandler
 
         handler = object.__new__(TTPRaceHandler)
+        handler.state = {}
         handler.logger = MagicMock()
         handler.reminder_task = None
         handler.grace_task = None

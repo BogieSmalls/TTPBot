@@ -231,6 +231,8 @@ class TTPRaceHandler(RaceHandler):
             if self.league_room:
                 await self._send_league_invites()
             elif self.autumn_room:
+                # Shared state is reseeded after reconnects and process restarts.
+                self.state['_autumn_send_invites'] = self._send_autumn_invites
                 await self._send_autumn_invites()
 
         # Request chat history to detect prior seed rolls and, for TTP rooms,
@@ -843,6 +845,8 @@ class TTPRaceHandler(RaceHandler):
                 )
 
     async def end(self):
+        if self.state.get('_autumn_send_invites') == self._send_autumn_invites:
+            self.state.pop('_autumn_send_invites', None)
         if self.reminder_task and not self.reminder_task.done():
             self.reminder_task.cancel()
         if self.grace_task and not self.grace_task.done():

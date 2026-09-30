@@ -38,6 +38,8 @@ the relay's own endpoint and competition-agnostic -- and how a tournament match
 reaches a booth is left to whoever owns the broadcast side.
 """
 
+from urllib.parse import urlsplit
+
 from ..config import TIMEZONE
 from .announce import send_autumn_announcement
 from .engine import engine_from_env
@@ -160,13 +162,20 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
                 'room is open and they can join it themselves',
                 ', '.join(missing), race.match_id)
 
+        # begin() may already have run after a restart or before this tick.
+        # The handler owns the websocket and its invite guard in either order.
+        send_invites = entry.get('_autumn_send_invites')
+        if send_invites is not None:
+            await send_invites()
+
     async def announce(race, row, url):
         # The ids come from the engine, which resolves a name through `seatFor` --
         # exact, then flattened, then the aliases -- so a racer is pinged whichever
         # way the form spelled them.
         ids = await _racer_ids(engine, race, logger)
         posted = await send_autumn_announcement(
-            race, url, getattr(bot, 'autumn_webhook_url', None), logger,
+            race, url, (env.get('TTPBOT_AUTUMN_DISCORD_WEBHOOK_URL') or '').strip()
+            or getattr(bot, 'autumn_webhook_url', None), logger,
             ids=ids, label=_round_label(race.match_id),
             crew=tuple(getattr(row, 'crew', ()) or ()))
         if not posted:
@@ -253,5 +262,5 @@ def _wake_adapter(env, logger):
 
 
 def _race_name(room_url):
-    """`fancy-mario-1234` from a room URL, which is how `bot.state` is keyed."""
-    return (room_url or '').rstrip('/').rsplit('/', 1)[-1].strip()
+    """The category and slug, matching racetime data and Bot.create_handler."""
+    return urlsplit(room_url or '').path.strip('/')
