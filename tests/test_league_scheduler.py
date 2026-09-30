@@ -89,6 +89,62 @@ class LeagueSchedulerTests(unittest.IsolatedAsyncioTestCase):
         create.assert_awaited_once()
         self.assertEqual(self.created.load()[RACE.key], ROOM)
 
+    async def test_a_race_postponed_overnight_keeps_its_room_across_a_restart(self):
+        """The duplicate-room case that testing _room_for directly cannot see.
+
+        Open the room, postpone the race until tomorrow, let a tick run while the
+        *old* start is more than STATE_RETENTION in the past, restart, and arrive
+        at tomorrow's T-30. Before the fix, cleanup dropped the association hours
+        before anything asked about it -- because the key carries the old start --
+        and this made a second room for a race that already had one.
+
+        Re-keying only when the room is looked up was not enough: that lookup
+        happens inside the T-30 window, which is after cleanup has had its say.
+        """
+        opened_at = START - timedelta(minutes=LEAGUE_ROOM_OPEN_MINUTES_BEFORE)
+        scheduler = self.scheduler()
+        with patch('ttpbot.league.scheduler.create_league_room',
+                   AsyncMock(return_value=ROOM)) as create, \
+             patch('ttpbot.league.scheduler.send_league_announcement',
+                   AsyncMock(return_value=True)):
+            await scheduler.tick(opened_at)
+        create.assert_awaited_once()
+        self.assertEqual(self.created.load()[RACE.key], ROOM)
+
+        # Postponed until tomorrow. The sheet now says a different start, so the
+        # race carries a different key.
+        tomorrow = START + timedelta(days=1)
+        moved = LeagueRace(start=tomorrow,
+                           runner_one=RACE.runner_one,
+                           runner_two=RACE.runner_two,
+                           channel=RACE.channel)
+
+        # A tick well after the original start: this is where cleanup used to
+        # delete the association, since the key still named yesterday.
+        after_the_old_start = START + timedelta(hours=3)
+        moved_scheduler = self.scheduler(races=(moved,))
+        with patch('ttpbot.league.scheduler.create_league_room',
+                   AsyncMock(return_value='https://racetime.gg/z1r/second')) as create_again:
+            await moved_scheduler.tick(after_the_old_start)
+        create_again.assert_not_awaited()
+
+        # The association survived, under the new start.
+        on_disk = self.created.load()
+        self.assertEqual(on_disk.get(moved.key), ROOM, on_disk)
+        self.assertNotIn(RACE.key, on_disk)
+
+        # Restart -- the store is the only memory -- and arrive at tomorrow's
+        # T-30. No second room.
+        restarted = self.scheduler(races=(moved,))
+        with patch('ttpbot.league.scheduler.create_league_room',
+                   AsyncMock(return_value='https://racetime.gg/z1r/second')) as create_third, \
+             patch('ttpbot.league.scheduler.send_league_announcement',
+                   AsyncMock(return_value=True)):
+            await restarted.tick(tomorrow - timedelta(minutes=LEAGUE_ROOM_OPEN_MINUTES_BEFORE))
+
+        create_third.assert_not_awaited()
+        self.assertEqual(self.created.load().get(moved.key), ROOM)
+
     async def test_does_not_open_a_room_too_early(self):
         scheduler = self.scheduler()
         with patch('ttpbot.league.scheduler.create_league_room',

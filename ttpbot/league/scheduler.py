@@ -262,9 +262,18 @@ class LeagueScheduler:
 
     async def tick(self, now):
         await self._refresh_crew(now)
-        self._prune(now)
         await self._open_scheduling_threads(now)
         races = group_coop_matches(await self.source.races(now), self.logger, now=now)
+
+        # Carry rooms forward before pruning, and before the timing filters in
+        # _handle. Both of those would otherwise lose a postponed race's room:
+        # the association is keyed by its *old* start, cleanup drops it two hours
+        # after that, and _handle only looks it up inside the T-30 window. So a
+        # race put back until tomorrow had its room forgotten hours before
+        # anything asked about it, and tomorrow's T-30 made a second one.
+        self._carry_rooms_forward(races)
+        self._prune(now)
+
         for race in races:
             try:
                 await self._handle(race, now)
@@ -302,6 +311,16 @@ class LeagueScheduler:
         self.thread_store.save(entries)
         self.opened_threads = set(
             self.thread_store.cleanup_before(now - THREAD_STATE_RETENTION))
+
+    def _carry_rooms_forward(self, races):
+        """Re-key every room association onto its race's current start.
+
+        _room_for does the re-keying, so asking it about each race is enough. It
+        has to happen here rather than where the answer is used, because by then
+        cleanup has already had its say.
+        """
+        for race in races:
+            self._room_for(race)
 
     def _room_for(self, race):
         """The room already made for this match, whatever time it was made for.
