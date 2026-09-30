@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from ttpbot.autumn.matching import (
+    canonical,
     RaceIdentity,
     match_rows,
     strip_prefix,
@@ -272,3 +273,74 @@ class BindingTests(unittest.TestCase):
         # treats this as a different race.
         self.assertEqual(moved.resolved[0].match_id, 'W1-1')
         self.assertEqual(moved.resolved[0].identity.key, 'autumn|W1-1|1')
+
+
+# --- the spellings no comparison recovers ------------------------------------
+#
+# `flatten` gets from `Droois` to `droois` and stops there. It does not get from
+# `RhjnoHero` to `RhinoHero` -- a typo -- or from `Pool Float` to `poolfloatg`,
+# which is a different name. Those are recorded in the engine's `aliases`, and a
+# row naming them used to resolve to nobody: two racers who think they are
+# scheduled, and a runner that opens no room.
+
+ALIASES = {
+    'RhjnoHero': 'RhinoHero',
+    'Pool Float': 'poolfloatg',
+    'freedomfighter2020': 'freedomfighter',
+}
+
+
+def test_canonical_applies_an_alias():
+    assert canonical('RhjnoHero', ALIASES) == 'RhinoHero'
+    assert canonical('freedomfighter2020', ALIASES) == 'freedomfighter'
+
+
+def test_canonical_strips_the_rank_prefix_first():
+    # The form's dropdowns carry the ranking, so that is what lands on the sheet.
+    assert canonical('(3) Pool Float', ALIASES) == 'poolfloatg'
+
+
+def test_canonical_accepts_whatever_case_the_form_used():
+    assert canonical('pool float', ALIASES) == 'poolfloatg'
+    assert canonical('RHJNOHERO', ALIASES) == 'RhinoHero'
+
+
+def test_canonical_leaves_a_name_it_does_not_know():
+    assert canonical('Bogie', ALIASES) == 'Bogie'
+    assert canonical('(5) Bogie', ALIASES) == 'Bogie'
+    # And no aliases at all is the ordinary case, not an error.
+    assert canonical('(5) Bogie', None) == 'Bogie'
+
+
+def test_a_row_spelled_the_sheets_way_reaches_its_match():
+    matches = {
+        'W1-1': {'a': 'RhinoHero', 'b': 'poolfloatg', 'state': 'ready'},
+    }
+    rows = [{'at': 1, 'runner_one': '(12) RhjnoHero', 'runner_two': '(14) Pool Float'}]
+
+    # Without the aliases it is exactly the failure this is about.
+    blind = match_rows(rows, matches)
+    assert blind.resolved == []
+    assert len(blind.unresolved) == 1
+    assert 'no match in the bracket' in blind.unresolved[0].reason
+
+    found = match_rows(rows, matches, aliases=ALIASES)
+    assert found.unresolved == []
+    assert [race.match_id for race in found.resolved] == ['W1-1']
+    assert [race.match_id for race in found.raceable()] == ['W1-1']
+    # And the names carried forward are the bracket's, so everything downstream
+    # is keyed the same way the engine keys it.
+    assert found.resolved[0].runner_one == 'RhinoHero'
+    assert found.resolved[0].runner_two == 'poolfloatg'
+
+
+def test_an_aliased_row_keeps_its_binding_across_a_tick():
+    matches = {
+        'W1-1': {'a': 'RhinoHero', 'b': 'poolfloatg', 'state': 'ready'},
+    }
+    rows = [{'at': 1, 'runner_one': 'RhjnoHero', 'runner_two': 'Pool Float'}]
+
+    first = match_rows(rows, matches, aliases=ALIASES)
+    again = match_rows(
+        rows, matches, aliases=ALIASES, bindings=first.bindings)
+    assert [race.match_id for race in again.resolved] == ['W1-1']

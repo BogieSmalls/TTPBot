@@ -35,6 +35,32 @@ def flatten(name):
     )
 
 
+def canonical(name, aliases=None):
+    """The name the bracket uses, given the name a racer typed into the form.
+
+    `flatten` handles case and punctuation, and that is as far as any comparison
+    goes. It does not get from `RhjnoHero` to `RhinoHero`, or from `Pool Float`
+    to `poolfloatg` -- one is a typo and the other is a different name. Those
+    have to be *recorded*, and the engine records them: `aliases` on the public
+    draw is the name as written -> the seat it means.
+
+    Without this a row naming `Pool Float` is unresolved, which is two racers who
+    think they are scheduled and a runner that opens no room for them. So the
+    mapping is applied before anything else looks at the name, and the flattened
+    spelling is accepted too, because a form fills in the case however it likes.
+    """
+    plain = strip_prefix(name)
+    if not aliases:
+        return plain
+    if plain in aliases:
+        return aliases[plain]
+    wanted = flatten(plain)
+    for written, seat in aliases.items():
+        if flatten(written) == wanted:
+            return seat
+    return plain
+
+
 def strip_prefix(name):
     """`(5) Bogie` -> `Bogie`.
 
@@ -163,7 +189,7 @@ def _reset_needed(matches):
     return reset.get('state') not in ('not-needed', None)
 
 
-def match_rows(rows, matches, *, event='autumn', bindings=None):
+def match_rows(rows, matches, *, event='autumn', bindings=None, aliases=None):
     """Resolve schedule rows against a bracket snapshot.
 
     `rows` are dicts of `at`, `runner_one`, `runner_two` -- names as the sheet
@@ -172,6 +198,11 @@ def match_rows(rows, matches, *, event='autumn', bindings=None):
 
     Rows are taken in time order, because that is what separates the two finals
     when both are scheduled: the earlier is the final, the later is the reset.
+
+    `aliases` is the engine's map of other spellings -- name as written -> seat
+    -- and it is applied to a row's names before anything compares them. It has
+    to come from the engine rather than be kept here: two copies of who somebody
+    is would eventually disagree, and this one would be the quieter.
 
     `bindings` is row key -> match id from previous ticks, and it is why a row
     keeps the match it was first given. Without it, GF-1's own row became GF-2's
@@ -193,8 +224,8 @@ def match_rows(rows, matches, *, event='autumn', bindings=None):
     out.bindings = bound
 
     for row in ordered:
-        one = strip_prefix(row.get('runner_one'))
-        two = strip_prefix(row.get('runner_two'))
+        one = canonical(row.get('runner_one'), aliases)
+        two = canonical(row.get('runner_two'), aliases)
         pair = frozenset((flatten(one), flatten(two)))
 
         if len(pair) < 2:
