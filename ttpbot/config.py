@@ -21,6 +21,11 @@ TTP_ROOM_INFO_PREFIXES = (
 # share the "Beat the game" goal, so this prefix is what distinguishes them.
 LEAGUE_ROOM_INFO_PREFIX = "League: "
 
+#: What an Autumn Tournament room calls itself. Written by this automation,
+#: so a community room cannot match it, and distinct from the League's prefix
+#: so neither can be mistaken for the other.
+AUTUMN_ROOM_INFO_PREFIX = "Z1R Autumn"
+
 # Default League schedule spreadsheet. Lives here (not in ttpbot.league)
 # so core code (runtime_config.py) does not need to import the League
 # feature package just to resolve startup configuration.

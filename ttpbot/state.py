@@ -19,14 +19,50 @@ LEAGUE_ENTRY_KINDS = {
     "league_created_races", "league_sent_webhooks",
     "league_scheduling_threads", "league_results",
 }
-CREATED_ENTRY_KINDS = {"created_races", "league_created_races"}
-ENTRY_KINDS = {"created_races", "sent_webhooks"} | LEAGUE_ENTRY_KINDS
+# The tournament's own kinds.
+#
+# Separate files rather than shared ones, and separate validation rather than
+# looser validation. A tournament key is not a League key and not a timestamp:
+# it names a *match*, because a match is the one thing about a race that does
+# not move. Keying by the start time is what gave a postponed League race a
+# second room, and the tournament does not get to repeat that.
+AUTUMN_ENTRY_KINDS = {
+    "autumn_bindings", "autumn_created_races",
+    "autumn_sent_webhooks", "autumn_mirrored_times",
+}
+CREATED_ENTRY_KINDS = {
+    "created_races", "league_created_races", "autumn_created_races",
+}
+ENTRY_KINDS = (
+    {"created_races", "sent_webhooks"} | LEAGUE_ENTRY_KINDS | AUTUMN_ENTRY_KINDS
+)
+
+#: Kinds whose keys carry no timestamp, so `cleanup_before` must not touch them.
+#: A binding outlives every reschedule and every restart: forgetting one is how
+#: a grand-final row gets reassigned to the reset after the final is played.
+TIMELESS_ENTRY_KINDS = {"autumn_bindings", "autumn_created_races",
+                        "autumn_sent_webhooks", "autumn_mirrored_times"}
+
 LEAGUE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+#: A competition edition, so one relay can hold two tournaments at once and
+#: neither can read the other's bindings.
+AUTUMN_EVENT = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+#: A match in a double-elimination bracket, as the engine names them: W1-1 and
+#: L3-2 for the two sides, GF-1 for the grand final and GF-2 for its reset.
+AUTUMN_MATCH = re.compile(r"^(?:[WL][0-9]{1,3}-[0-9]{1,4}|GF-[12])$")
+
+#: A row of the Schedule tab: the two racers flattened, and the time they
+#: agreed. Not an identity -- it is how a *row* is recognised again next tick.
+AUTUMN_ROW = re.compile(r"^[a-z0-9]+-vs-[a-z0-9]+$")
+
 UNCERTAIN_RACE = "__uncertain_room_creation__"
 STATE_FIELDS = {"schema_version", "destination_key", "entries"}
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_LEAGUE_KEY_LENGTH = 200
 MAX_KEY_LENGTH = 100
+MAX_AUTUMN_KEY_LENGTH = 300
 
 
 def _timestamp_suffix():
@@ -69,6 +105,12 @@ class DestinationStateStore:
         self.destination_key = destination_key
         self.entry_kind = entry_kind
         self.provider = provider
+        # Where it is recorded that this store's state was lost. Beside the state
+        # file rather than inside it, because the state file is the thing that
+        # could not be read.
+        self._unrecovered_marker = self.path.with_name(
+            "{}.unrecovered".format(self.path.name)
+        )
 
     def _guard_path(self, path, *, may_be_missing=False):
         target = Path(path)
@@ -90,7 +132,66 @@ class DestinationStateStore:
             return value.partition("|")[0]
         return value
 
+    @property
+    def prunes_by_time(self):
+        """Whether `cleanup_before` means anything for this kind.
+
+        It does not for the tournament. Those keys name a match rather than a
+        moment, and there is no cutoff after which a binding stops being true --
+        a match scheduled for tonight, postponed twice and raced next week is one
+        binding the whole way through.
+        """
+        return self.entry_kind not in TIMELESS_ENTRY_KINDS
+
+    def _validate_autumn_key(self, value):
+        """`<event>|<match>`, or for a binding `<event>|<pair>|<time>`.
+
+        Explicit rather than permissive. The store's other kinds are validated
+        down to the shape of a slug, and a tournament key that is merely "a
+        string with a pipe in it" would be the one place a typo reaches disk --
+        where it becomes a room nobody can account for.
+        """
+        if not isinstance(value, str) or len(value) > MAX_AUTUMN_KEY_LENGTH:
+            raise StateStoreError("state entry key is invalid")
+
+        # Split on the exact number of parts the kind has, so a key with a
+        # section missing is reported as that rather than as whatever the
+        # remaining sections then fail to be. `bogie-vs-merks|<time>` is a
+        # binding key that forgot its competition, and saying "must name two
+        # racers" about it sends whoever reads the log the wrong way.
+        parts = value.split("|")
+        wanted = 3 if self.entry_kind == "autumn_bindings" else 2
+        if len(parts) != wanted:
+            raise StateStoreError(
+                "autumn state entry key must be {}, not {!r}".format(
+                    "<competition>|<racers>|<time>" if wanted == 3
+                    else "<competition>|<match>",
+                    value,
+                )
+            )
+
+        if not AUTUMN_EVENT.fullmatch(parts[0]):
+            raise StateStoreError("autumn state entry key must name a competition")
+
+        if self.entry_kind == "autumn_bindings":
+            if not AUTUMN_ROW.fullmatch(parts[1]):
+                raise StateStoreError("autumn binding key must name two racers")
+            try:
+                parsed = datetime.fromisoformat(parts[2])
+            except ValueError as exc:
+                raise StateStoreError(
+                    "autumn binding key must end in an ISO timestamp") from exc
+            if parsed.tzinfo is None:
+                raise StateStoreError("autumn binding key must include a timezone")
+            return
+
+        if not AUTUMN_MATCH.fullmatch(parts[1]):
+            raise StateStoreError("autumn state entry key must name a match")
+
     def _validate_key(self, value):
+        if self.entry_kind in AUTUMN_ENTRY_KINDS:
+            self._validate_autumn_key(value)
+            return
         league = self.entry_kind in LEAGUE_ENTRY_KINDS
         limit = MAX_LEAGUE_KEY_LENGTH if league else MAX_KEY_LENGTH
         if not isinstance(value, str) or len(value) > limit:
@@ -116,6 +217,29 @@ class DestinationStateStore:
         cleaned = {}
         for key, value in entries.items():
             self._validate_key(key)
+            if self.entry_kind == "autumn_bindings":
+                # The match a row was given. Validated to the same shape the key
+                # of a created room is, so a binding cannot quietly point at
+                # something the bracket has never heard of.
+                if not isinstance(value, str) or not AUTUMN_MATCH.fullmatch(value):
+                    raise StateStoreError("autumn binding value must name a match")
+                cleaned[key] = value
+                continue
+            if self.entry_kind == "autumn_mirrored_times":
+                # What we last told the engine, so a tick knows whether the
+                # sheet has moved since.
+                if not isinstance(value, str):
+                    raise StateStoreError("autumn mirrored-time value is invalid")
+                try:
+                    parsed = datetime.fromisoformat(value)
+                except ValueError as exc:
+                    raise StateStoreError(
+                        "autumn mirrored-time value must be an ISO timestamp") from exc
+                if parsed.tzinfo is None:
+                    raise StateStoreError(
+                        "autumn mirrored-time value must include a timezone")
+                cleaned[key] = value
+                continue
             if self.entry_kind in CREATED_ENTRY_KINDS:
                 if not isinstance(value, str) or not value:
                     raise StateStoreError("created-race state value is invalid")
@@ -135,6 +259,43 @@ class DestinationStateStore:
         quarantine = self.path.with_name(
             "{}.corrupt-{}.bak".format(self.path.name, _timestamp_suffix())
         )
+        # The mark goes down *before* the file moves, and that order is the whole
+        # guarantee.
+        #
+        # Quarantining moves the file away, and `load` returns {} for a file that
+        # is not there -- so the read that found the corruption raised, and every
+        # read after a restart said "no state yet, carry on". For the tournament
+        # that is the worst available answer: forgotten bindings let a grand-final
+        # row be reassigned to the reset, and a forgotten room is a second room.
+        #
+        # Marking afterwards was not enough either. A failed marker write left the
+        # corrupt file already moved and nothing recording that, so a restart was
+        # back to returning {}. So: mark first, and if the mark cannot be written,
+        # leave the corrupt file exactly where it is. A file that still fails to
+        # parse is a worse diagnostic than a marker and a far better one than
+        # silence, because every later load raises on it too.
+        #
+        # Only the tournament blocks on this. The League has behaved the
+        # forgiving way in production for months and changing that is its own
+        # decision, made deliberately rather than as a side effect of this.
+        marked = False
+        if self.entry_kind in AUTUMN_ENTRY_KINDS:
+            try:
+                self._unrecovered_marker.write_text(
+                    "{} was quarantined as {} at {}\n"
+                    "Autumn stays stopped until this file is removed. Restore the "
+                    "state from a backup first if there is one: an empty file is a "
+                    "valid recovery only if losing every binding is acceptable.\n"
+                    .format(self.path.name, quarantine.name, _timestamp_suffix()),
+                    encoding="utf-8",
+                )
+                marked = True
+            except OSError as exc:
+                raise StateStoreError(
+                    "corrupt state could not be marked unrecovered, so it has been "
+                    "left in place"
+                ) from exc
+
         try:
             os.replace(self.path, quarantine)
             try:
@@ -142,9 +303,22 @@ class DestinationStateStore:
             except OSError:
                 pass
         except OSError as exc:
+            if marked:
+                # The mark now describes a move that never happened. Withdraw it
+                # rather than point somebody at a filename that does not exist:
+                # the corrupt file is still there, and still raises on every read.
+                try:
+                    self._unrecovered_marker.unlink()
+                except OSError:
+                    pass
             raise StateStoreError("corrupt state could not be quarantined") from exc
 
     def load(self):
+        if self.entry_kind in AUTUMN_ENTRY_KINDS and self._unrecovered_marker.exists():
+            raise StateStoreError(
+                "autumn state was quarantined and not recovered; remove {} once it "
+                "is restored".format(self._unrecovered_marker.name)
+            )
         if not self.path.exists():
             return {}
         self._guard_path(self.path)
@@ -164,6 +338,11 @@ class DestinationStateStore:
         return self._validate_entries(document["entries"])
 
     def save(self, entries):
+        if self.entry_kind in AUTUMN_ENTRY_KINDS and self._unrecovered_marker.exists():
+            raise StateStoreError(
+                "autumn state was quarantined and not recovered; refusing to write "
+                "over it"
+            )
         cleaned = self._validate_entries(entries)
         if self.path.exists():
             self._guard_path(self.path)
@@ -224,6 +403,10 @@ class DestinationStateStore:
         if not isinstance(cutoff, datetime) or cutoff.tzinfo is None:
             raise StateStoreError("cleanup cutoff must be timezone-aware")
         entries = self.load()
+        if not self.prunes_by_time:
+            # Nothing here has a timestamp to compare, and dropping a binding
+            # because it is old is exactly the bug this kind exists to avoid.
+            return entries
         retained = {
             key: value
             for key, value in entries.items()
