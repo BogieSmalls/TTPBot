@@ -12,61 +12,31 @@ import io
 import re
 from typing import Optional
 
-from ..config import LEAGUE_ROOM_INFO_PREFIX, TIMEZONE
+from ..config import LEAGUE_ROOM_INFO_PREFIX
+from ..schedule_sheet import (
+    COLUMN_ALIASES,
+    DATE_FORMAT,
+    REQUIRED_COLUMNS,
+    TIME_FORMATS,
+    cell as _cell,
+    header_is_readable,
+    parse_start as _parse_start,
+    resolve_columns as _resolve_columns,
+)
 from .roster import Racer, UnknownRacerError
 
-DATE_FORMAT = '%m/%d/%Y'
-TIME_FORMATS = ('%I:%M:%S %p', '%I:%M %p', '%H:%M:%S', '%H:%M')
 NON_SLUG = re.compile(r'[^a-z0-9]+')
 NON_ALNUM = re.compile(r'[^a-z0-9]+')
 
 MINIMUM_COLUMNS = 5
 
-# Logical column -> the header texts that name it, lowercased.
-#
-# Located by header rather than by position because position has already
-# moved once: splitting "Comms" into "Comms 1" and "Comms 2" pushed Channel
-# from index 9 to 10, and nothing failed - the parser simply read a blank
-# spacer as the channel from then on. Accepting the old spellings too means
-# the sheet can be reshaped without a synchronised deploy.
-COLUMN_ALIASES = {
-    'date': ('date',),
-    'time': ('time',),
-    'runner_one': ('runner 1', 'runner one'),
-    'runner_two': ('runner 2', 'runner two'),
-    'comms_one': ('comms 1', 'comms one', 'comms'),
-    'comms_two': ('comms 2', 'comms two'),
-    'tracker': ('tracker',),
-    'channel': ('channel',),
-    'game': ('game',),
-}
-
-# Without these there is no race to build, so a sheet missing any of them is
-# refused outright rather than parsed against guessed positions.
-REQUIRED_COLUMNS = ('date', 'time', 'runner_one', 'runner_two')
-
-
-def _resolve_columns(header_row):
-    """Map logical column names to indices using the sheet's own header."""
-    seen = {}
-    for index, cell in enumerate(header_row):
-        text = cell.strip().lower()
-        if not text:
-            continue
-        for logical, aliases in COLUMN_ALIASES.items():
-            # First match wins: a legacy "Comms" must not later be overwritten
-            # by something that merely looks similar further right.
-            if text in aliases and logical not in seen:
-                seen[logical] = index
-    return seen
-
-
-def _cell(row, columns, logical):
-    """Trimmed value of a logical column, or '' when absent for this row."""
-    index = columns.get(logical)
-    if index is None or index >= len(row):
-        return ''
-    return row[index].strip()
+# Re-exported so the names this module has always exposed keep working. What
+# they mean now lives in `ttpbot.schedule_sheet`, because the Autumn tab needs
+# the same answers and a second copy of them would drift.
+__all__ = [
+    'COLUMN_ALIASES', 'DATE_FORMAT', 'LeagueRace', 'MINIMUM_COLUMNS',
+    'REQUIRED_COLUMNS', 'TIME_FORMATS', 'parse_schedule', 'schedule_is_readable',
+]
 
 
 def _slugify(value):
@@ -183,36 +153,9 @@ def _same_team(racer, team_name):
     }
 
 
-def _parse_start(date_text, time_text):
-    day = datetime.strptime(date_text.strip(), DATE_FORMAT).date()
-    for fmt in TIME_FORMATS:
-        try:
-            clock = datetime.strptime(time_text.strip().upper(), fmt).time()
-        except ValueError:
-            continue
-        return datetime.combine(day, clock, tzinfo=TIMEZONE)
-    raise ValueError('unrecognised time: {!r}'.format(time_text))
-
-
-def schedule_is_readable(csv_text):
-    """Whether a response is the schedule sheet at all.
-
-    `parse_schedule` returns nothing for three different situations -- no rows, a
-    header it cannot use, and a usable header with no races under it -- and a
-    caller cannot tell them apart from an empty list. The difference matters: a
-    council member clearing the remaining races is a legitimate empty schedule,
-    and Google serving an HTML sign-in page with HTTP 200 is not. Treating the
-    second as the first opens no rooms; treating the first as the second keeps
-    opening rooms for races that were cancelled.
-
-    Readable means there are rows and the header names the columns a race needs,
-    which is exactly what a sign-in page fails.
-    """
-    rows = list(csv.reader(io.StringIO(csv_text)))
-    if not rows:
-        return False
-    columns = _resolve_columns(rows[0])
-    return all(name in columns for name in REQUIRED_COLUMNS)
+#: Whether a response is the schedule sheet at all, rather than a sign-in page.
+#: The League's name for it; the answer is shared with the Autumn tab.
+schedule_is_readable = header_is_readable
 
 
 def parse_schedule(csv_text, roster, logger, matchups=None):
