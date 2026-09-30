@@ -194,6 +194,27 @@ def _parse_start(date_text, time_text):
     raise ValueError('unrecognised time: {!r}'.format(time_text))
 
 
+def schedule_is_readable(csv_text):
+    """Whether a response is the schedule sheet at all.
+
+    `parse_schedule` returns nothing for three different situations -- no rows, a
+    header it cannot use, and a usable header with no races under it -- and a
+    caller cannot tell them apart from an empty list. The difference matters: a
+    council member clearing the remaining races is a legitimate empty schedule,
+    and Google serving an HTML sign-in page with HTTP 200 is not. Treating the
+    second as the first opens no rooms; treating the first as the second keeps
+    opening rooms for races that were cancelled.
+
+    Readable means there are rows and the header names the columns a race needs,
+    which is exactly what a sign-in page fails.
+    """
+    rows = list(csv.reader(io.StringIO(csv_text)))
+    if not rows:
+        return False
+    columns = _resolve_columns(rows[0])
+    return all(name in columns for name in REQUIRED_COLUMNS)
+
+
 def parse_schedule(csv_text, roster, logger, matchups=None):
     """Return every well-formed, fully resolvable race in the sheet."""
     races = []

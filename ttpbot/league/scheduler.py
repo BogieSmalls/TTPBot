@@ -19,7 +19,7 @@ from .wake import wake_control_plane
 from .rooms import create_league_room
 from .coop import group_coop_matches
 from .matchups import parse_matchups
-from .schedule import parse_schedule
+from .schedule import parse_schedule, schedule_is_readable
 from .scheduling_threads import open_week_threads, week_due
 
 LEAGUE_ROOM_OPEN_MINUTES_BEFORE = 30
@@ -31,6 +31,15 @@ STATE_RETENTION = timedelta(hours=2)
 #: scheduling long after its rooms are gone, and forgetting a key would reopen
 #: seven threads. Kept for a season rather than the two hours races need.
 THREAD_STATE_RETENTION = timedelta(days=120)
+class UnreadableSchedule(Exception):
+    """A 200 that is not the schedule sheet.
+
+    Its own type so the staleness path can say which failure it is bounding: a
+    network error and a sign-in page want the same bounded fallback but read very
+    differently in a log at 8pm.
+    """
+
+
 TICK_SECONDS = 60
 
 #: Crew changes rarely and the control plane sleeps, so this is deliberately
@@ -84,17 +93,26 @@ class ScheduleSource:
                 'League matchups unavailable; opening no League rooms until it loads')
             return []
         parsed = parse_schedule(body, self.roster, self.logger, matchups=matchups)
+        if not parsed and not schedule_is_readable(body):
+            # A 200 that is not the sheet: Google serves an HTML sign-in page
+            # with HTTP 200 once a sheet stops being world-readable, and a
+            # changed column shape looks the same from here.
+            #
+            # This used to return the cached races directly, and its comment
+            # claimed that leaving _fetched_at untouched kept the staleness
+            # guard -- but nothing on that path read _fetched_at, so the guard
+            # never applied and a permanently unreadable sheet served the same
+            # snapshot for ever. Going through _stale() is what bounds it.
+            return self._stale(now, UnreadableSchedule(
+                'the response is not the schedule sheet'))
+
+        # A readable sheet with no races is a real answer: council cleared what
+        # was left. Accepting it is the difference between "nothing to do" and
+        # "keep opening rooms for races that were cancelled".
         if not parsed and self._races:
-            # A 200 with zero usable races, after previously having some,
-            # means the sheet likely stopped being world-readable (Google
-            # serves an HTML sign-in page with HTTP 200) or its column
-            # shape changed. Keep serving the cached races and leave
-            # _fetched_at untouched so the staleness guard still applies,
-            # rather than silently opening zero rooms forever.
-            self.logger.error(
-                'League schedule fetch returned no usable races; '
-                'keeping previous snapshot of %d race(s)', len(self._races))
-            return list(self._races)
+            self.logger.info(
+                'League schedule is readable and now empty; '
+                'dropping previous snapshot of %d race(s)', len(self._races))
 
         self._races = parsed
         self._fetched_at = now
@@ -244,9 +262,18 @@ class LeagueScheduler:
 
     async def tick(self, now):
         await self._refresh_crew(now)
-        self._prune(now)
         await self._open_scheduling_threads(now)
         races = group_coop_matches(await self.source.races(now), self.logger, now=now)
+
+        # Carry rooms forward before pruning, and before the timing filters in
+        # _handle. Both of those would otherwise lose a postponed race's room:
+        # the association is keyed by its *old* start, cleanup drops it two hours
+        # after that, and _handle only looks it up inside the T-30 window. So a
+        # race put back until tomorrow had its room forgotten hours before
+        # anything asked about it, and tomorrow's T-30 made a second one.
+        self._carry_rooms_forward(races)
+        self._prune(now)
+
         for race in races:
             try:
                 await self._handle(race, now)
@@ -284,6 +311,45 @@ class LeagueScheduler:
         self.thread_store.save(entries)
         self.opened_threads = set(
             self.thread_store.cleanup_before(now - THREAD_STATE_RETENTION))
+
+    def _carry_rooms_forward(self, races):
+        """Re-key every room association onto its race's current start.
+
+        _room_for does the re-keying, so asking it about each race is enough. It
+        has to happen here rather than where the answer is used, because by then
+        cleanup has already had its say.
+        """
+        for race in races:
+            self._room_for(race)
+
+    def _room_for(self, race):
+        """The room already made for this match, whatever time it was made for.
+
+        The state key is '<iso start>|<slug>', and the timestamp is load-bearing:
+        the store validates that shape and prunes by parsing the start out of it.
+        So the key cannot simply become the slug. But an exact-key lookup means a
+        rescheduled race is a cache miss and gets a *second* room, which is the
+        one mistake a race night cannot absorb.
+
+        So: match on the slug, which is the pair of racers and does not move. When
+        the time has changed, re-key the entry to the new start so the store keeps
+        pruning it against when the race actually is.
+        """
+        exact = self.created.get(race.key)
+        if exact is not None:
+            return exact
+
+        slug = race.slug
+        for key, url in list(self.created.items()):
+            if key.partition('|')[2] != slug:
+                continue
+            self.logger.info(
+                'League race %s moved; keeping the room already made for it', slug)
+            del self.created[key]
+            self.created[race.key] = url
+            self.created_store.save(self.created)
+            return url
+        return None
 
     async def _prepare_control_plane(self, race):
         """Wake the control plane, then force a fresh crew lookup.
@@ -391,7 +457,7 @@ class LeagueScheduler:
         if minutes_until > LEAGUE_ROOM_OPEN_MINUTES_BEFORE:
             return
 
-        room_url = self.created.get(race.key)
+        room_url = self._room_for(race)
         if room_url is None:
             room_url = await create_league_room(
                 race, self.bot.provider, self.bot.access_token, self.logger)

@@ -89,6 +89,62 @@ class LeagueSchedulerTests(unittest.IsolatedAsyncioTestCase):
         create.assert_awaited_once()
         self.assertEqual(self.created.load()[RACE.key], ROOM)
 
+    async def test_a_race_postponed_overnight_keeps_its_room_across_a_restart(self):
+        """The duplicate-room case that testing _room_for directly cannot see.
+
+        Open the room, postpone the race until tomorrow, let a tick run while the
+        *old* start is more than STATE_RETENTION in the past, restart, and arrive
+        at tomorrow's T-30. Before the fix, cleanup dropped the association hours
+        before anything asked about it -- because the key carries the old start --
+        and this made a second room for a race that already had one.
+
+        Re-keying only when the room is looked up was not enough: that lookup
+        happens inside the T-30 window, which is after cleanup has had its say.
+        """
+        opened_at = START - timedelta(minutes=LEAGUE_ROOM_OPEN_MINUTES_BEFORE)
+        scheduler = self.scheduler()
+        with patch('ttpbot.league.scheduler.create_league_room',
+                   AsyncMock(return_value=ROOM)) as create, \
+             patch('ttpbot.league.scheduler.send_league_announcement',
+                   AsyncMock(return_value=True)):
+            await scheduler.tick(opened_at)
+        create.assert_awaited_once()
+        self.assertEqual(self.created.load()[RACE.key], ROOM)
+
+        # Postponed until tomorrow. The sheet now says a different start, so the
+        # race carries a different key.
+        tomorrow = START + timedelta(days=1)
+        moved = LeagueRace(start=tomorrow,
+                           runner_one=RACE.runner_one,
+                           runner_two=RACE.runner_two,
+                           channel=RACE.channel)
+
+        # A tick well after the original start: this is where cleanup used to
+        # delete the association, since the key still named yesterday.
+        after_the_old_start = START + timedelta(hours=3)
+        moved_scheduler = self.scheduler(races=(moved,))
+        with patch('ttpbot.league.scheduler.create_league_room',
+                   AsyncMock(return_value='https://racetime.gg/z1r/second')) as create_again:
+            await moved_scheduler.tick(after_the_old_start)
+        create_again.assert_not_awaited()
+
+        # The association survived, under the new start.
+        on_disk = self.created.load()
+        self.assertEqual(on_disk.get(moved.key), ROOM, on_disk)
+        self.assertNotIn(RACE.key, on_disk)
+
+        # Restart -- the store is the only memory -- and arrive at tomorrow's
+        # T-30. No second room.
+        restarted = self.scheduler(races=(moved,))
+        with patch('ttpbot.league.scheduler.create_league_room',
+                   AsyncMock(return_value='https://racetime.gg/z1r/second')) as create_third, \
+             patch('ttpbot.league.scheduler.send_league_announcement',
+                   AsyncMock(return_value=True)):
+            await restarted.tick(tomorrow - timedelta(minutes=LEAGUE_ROOM_OPEN_MINUTES_BEFORE))
+
+        create_third.assert_not_awaited()
+        self.assertEqual(self.created.load().get(moved.key), ROOM)
+
     async def test_does_not_open_a_room_too_early(self):
         scheduler = self.scheduler()
         with patch('ttpbot.league.scheduler.create_league_room',
@@ -198,6 +254,10 @@ VALID_CSV = (
 # sheet: every line has no commas, so it parses to zero races without
 # raising an error.
 HTML_SIGNIN_PAGE = '<!doctype html>\n<html>\n<body>Sign in required</body>\n</html>\n'
+# A sheet that is readable and has nothing in it: council cleared the races
+# that were left. The suite had no fixture for this, which is how a sign-in
+# page came to stand in for it.
+EMPTY_CSV = 'Date,Time,Game,Runner 1,Runner 2,,Comms,Tracker,,Channel,Booth\n'
 
 
 def _schedule_roster():
@@ -225,13 +285,66 @@ class ScheduleSourceStaleParseTests(unittest.IsolatedAsyncioTestCase):
 
         # The good snapshot is still served, unchanged.
         self.assertEqual(second, first)
-        # The staleness clock did not advance, so SCHEDULE_CACHE_MAX_AGE
-        # still counts from the last genuinely successful parse.
+        # The staleness clock did not advance, so SCHEDULE_CACHE_MAX_AGE still
+        # counts from the last genuinely successful parse -- and it *applies*
+        # now. This used to return the cached races directly, past the guard,
+        # so an unreadable sheet served the same snapshot for ever.
         self.assertEqual(source._fetched_at, good_at)
-        logger.error.assert_called_once()
-        self.assertIn(1, logger.error.call_args.args)
+        # The bounded-fallback warning specifically, not a count: parse_schedule
+        # logs its own warnings about the unusable header on the way here.
+        self.assertTrue(
+            any('using cached copy' in str(call.args[0])
+                for call in logger.warning.call_args_list),
+            logger.warning.call_args_list,
+        )
 
-    async def test_a_genuinely_empty_sheet_with_no_prior_races_stays_empty(self):
+    async def test_a_genuinely_empty_sheet_is_a_real_answer(self):
+        """A readable sheet with nothing in it means council cleared the races.
+
+        This test used to feed a *sign-in page* and assert it was accepted as an
+        empty schedule, which is the bug: one of those is an answer and the other
+        is a failure that happens to be shaped like one.
+        """
+        logger = Mock()
+        source = ScheduleSource('https://example.com/s.csv', _schedule_roster(), logger)
+        now = datetime(2026, 9, 1, 12, 0, tzinfo=TIMEZONE)
+
+        with patch('ttpbot.league.scheduler.aiohttp.request',
+                   return_value=FakeHttpResponse(200, EMPTY_CSV)):
+            result = await source.races(now)
+
+        self.assertEqual(result, [])
+        self.assertEqual(source._fetched_at, now)
+        logger.error.assert_not_called()
+
+    async def test_clearing_the_sheet_drops_the_races_that_were_there(self):
+        """Cancelled races stop being opened.
+
+        Routing every empty result through the staleness path would keep serving
+        them, which is the opposite failure to the one being fixed.
+        """
+        logger = Mock()
+        source = ScheduleSource('https://example.com/s.csv', _schedule_roster(), logger)
+        good_at = datetime(2026, 9, 1, 12, 0, tzinfo=TIMEZONE)
+
+        with patch('ttpbot.league.scheduler.aiohttp.request',
+                   return_value=FakeHttpResponse(200, VALID_CSV)):
+            self.assertEqual(len(await source.races(good_at)), 1)
+
+        cleared_at = good_at + timedelta(minutes=10)
+        with patch('ttpbot.league.scheduler.aiohttp.request',
+                   return_value=FakeHttpResponse(200, EMPTY_CSV)):
+            after = await source.races(cleared_at)
+
+        self.assertEqual(after, [])
+        self.assertEqual(source._fetched_at, cleared_at)
+
+    async def test_a_sign_in_page_with_no_cached_races_opens_nothing(self):
+        """And does not record itself as a successful read.
+
+        Advancing the clock here would make the next six hours of failures look
+        like a sheet that is legitimately empty.
+        """
         logger = Mock()
         source = ScheduleSource('https://example.com/s.csv', _schedule_roster(), logger)
         now = datetime(2026, 9, 1, 12, 0, tzinfo=TIMEZONE)
@@ -241,8 +354,31 @@ class ScheduleSourceStaleParseTests(unittest.IsolatedAsyncioTestCase):
             result = await source.races(now)
 
         self.assertEqual(result, [])
-        self.assertEqual(source._fetched_at, now)
-        logger.error.assert_not_called()
+        self.assertIsNone(source._fetched_at)
+        logger.error.assert_called_once()
+
+    async def test_an_unreadable_sheet_stops_being_believed_after_six_hours(self):
+        """The guard the old comment promised and the code never applied."""
+        logger = Mock()
+        source = ScheduleSource('https://example.com/s.csv', _schedule_roster(), logger)
+        good_at = datetime(2026, 9, 1, 12, 0, tzinfo=TIMEZONE)
+
+        with patch('ttpbot.league.scheduler.aiohttp.request',
+                   return_value=FakeHttpResponse(200, VALID_CSV)):
+            self.assertEqual(len(await source.races(good_at)), 1)
+
+        # Inside the window the cached copy is still served.
+        with patch('ttpbot.league.scheduler.aiohttp.request',
+                   return_value=FakeHttpResponse(200, HTML_SIGNIN_PAGE)):
+            inside = await source.races(good_at + timedelta(hours=5))
+        self.assertEqual(len(inside), 1)
+
+        # Past it, nothing. Better no rooms than rooms from a sheet nobody can
+        # read any more.
+        with patch('ttpbot.league.scheduler.aiohttp.request',
+                   return_value=FakeHttpResponse(200, HTML_SIGNIN_PAGE)):
+            outside = await source.races(good_at + timedelta(hours=7))
+        self.assertEqual(outside, [])
 
 
 if __name__ == '__main__':
@@ -1118,3 +1254,85 @@ class CoopSchedulerTests(unittest.IsolatedAsyncioTestCase):
 
         create.assert_not_awaited()
         self.assertEqual(len(self.bot.state['z1r/clever-slug-1234']['league_race']['invite']), 4)
+
+class RescheduleKeepsOneRoomTests(unittest.IsolatedAsyncioTestCase):
+    """A race that moves keeps the room it already has.
+
+    The state key is '<iso start>|<slug>' and the timestamp is load-bearing: the
+    store validates that shape and prunes by parsing the start out of it. So an
+    exact-key lookup made a rescheduled race a cache miss, and a cache miss makes
+    a *second* room -- which is the one mistake a race night cannot absorb.
+    """
+
+    def _scheduler(self, created):
+        scheduler = LeagueScheduler.__new__(LeagueScheduler)
+        scheduler.created = dict(created)
+        scheduler.created_store = Mock()
+        scheduler.logger = Mock()
+        return scheduler
+
+    def _race(self, start):
+        race = Mock()
+        race.slug = 'droois-vs-rhinohero'
+        race.start = start
+        race.key = '{}|{}'.format(start.isoformat(), race.slug)
+        return race
+
+    def test_the_same_time_finds_the_room_exactly(self):
+        at = datetime(2026, 9, 2, 21, 0, tzinfo=TIMEZONE)
+        race = self._race(at)
+        scheduler = self._scheduler({race.key: 'https://racetime.gg/z1r/room'})
+
+        self.assertEqual(scheduler._room_for(race), 'https://racetime.gg/z1r/room')
+        scheduler.created_store.save.assert_not_called()
+
+    def test_a_moved_race_finds_the_room_made_for_the_old_time(self):
+        was = datetime(2026, 9, 2, 21, 0, tzinfo=TIMEZONE)
+        now = datetime(2026, 9, 3, 22, 30, tzinfo=TIMEZONE)
+        old_key = '{}|droois-vs-rhinohero'.format(was.isoformat())
+        scheduler = self._scheduler({old_key: 'https://racetime.gg/z1r/room'})
+
+        moved = self._race(now)
+        self.assertEqual(scheduler._room_for(moved), 'https://racetime.gg/z1r/room')
+
+        # Re-keyed to the new start, so the store keeps pruning it against when
+        # the race actually is rather than when it was first agreed.
+        self.assertNotIn(old_key, scheduler.created)
+        self.assertEqual(scheduler.created[moved.key], 'https://racetime.gg/z1r/room')
+        scheduler.created_store.save.assert_called_once()
+
+    def test_state_written_by_the_current_version_still_matches(self):
+        """The migration case: no rewrite, so nothing to migrate.
+
+        Deploying this must not make already-created rooms look untracked, which
+        would create duplicates immediately. Old entries are exactly the shape
+        this reads.
+        """
+        was = datetime(2026, 9, 2, 21, 0, tzinfo=TIMEZONE)
+        as_written_today = {
+            '{}|droois-vs-rhinohero'.format(was.isoformat()): 'https://racetime.gg/z1r/a',
+            '{}|someone-vs-else'.format(was.isoformat()): 'https://racetime.gg/z1r/b',
+        }
+        scheduler = self._scheduler(as_written_today)
+        self.assertEqual(scheduler._room_for(self._race(was)), 'https://racetime.gg/z1r/a')
+
+    def test_a_different_pair_at_the_same_time_is_not_confused_for_it(self):
+        at = datetime(2026, 9, 2, 21, 0, tzinfo=TIMEZONE)
+        scheduler = self._scheduler({
+            '{}|someone-vs-else'.format(at.isoformat()): 'https://racetime.gg/z1r/other',
+        })
+        self.assertIsNone(scheduler._room_for(self._race(at)))
+
+    def test_a_restart_reloads_the_association(self):
+        """The store is the only memory, so a restart is a reload.
+
+        A restart that forgot would open a second room for every race already
+        under way.
+        """
+        was = datetime(2026, 9, 2, 21, 0, tzinfo=TIMEZONE)
+        on_disk = {'{}|droois-vs-rhinohero'.format(was.isoformat()): 'https://racetime.gg/z1r/room'}
+
+        after_restart = self._scheduler(on_disk)
+        moved = self._race(was + timedelta(hours=2))
+        self.assertEqual(after_restart._room_for(moved), 'https://racetime.gg/z1r/room')
+
