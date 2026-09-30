@@ -24,7 +24,7 @@ from ttpbot.autumn.scheduler import (
 )
 from ttpbot.autumn.schedule import parse_schedule
 from ttpbot.config import TIMEZONE
-from ttpbot.state import DestinationStateStore
+from ttpbot.state import UNCERTAIN_RACE, DestinationStateStore
 
 DESTINATION = 'https://racetime.gg|z1r'
 HEADER = 'Date,Time,Runner 1,Runner 2,,Comms 1,Comms 2,Tracker,,Channel'
@@ -139,6 +139,7 @@ class SchedulerTests(unittest.TestCase):
             bindings_store=self.store('autumn_bindings'),
             created_store=self.store('autumn_created_races'),
             mirrored_store=self.store('autumn_mirrored_times'),
+            announced_store=self.store('autumn_sent_webhooks'),
             open_room=opener if open_room else None,
             wake_booth=waker if wake else None,
             announce=announcer,
@@ -332,15 +333,38 @@ class WhenThingsGoWrong(SchedulerTests):
         self.assertEqual(len(engine.mirrored), 2)
         self.assertTrue(any('not confirmed' in w for w in self.log.warnings))
 
-    def test_a_refused_mirror_does_not_stop_the_room(self):
-        # The sheet owns the time. A mirror the engine will not take is worth
-        # saying loudly and is not a reason to leave two racers without a room.
+    def test_a_refused_mirror_holds_the_match(self):
+        # The sheet owns *when* a match is. It does not get to say that a match
+        # which is over is happening tonight -- and a refusal is the engine saying
+        # exactly that. `time` refuses for three reasons and every one means no
+        # room: the match is not in the bracket, it is a bye, or it has already
+        # been raced and won.
         matches = {'W1-1': ready('ISUMatt', 'chessjerk')}
         it = self.scheduler(
             sheet(row(START, 'ISUMatt', 'chessjerk')), matches,
             engine=FakeEngine(matches, outcome=NOT_RECORDED))
         run(it.tick(at(START, ROOM_OPEN_MINUTES_BEFORE)))
-        self.assertEqual(self.opened, ['W1-1'])
+        self.assertEqual(self.opened, [], 'a refused mirror must not open a room')
+        self.assertTrue(
+            any('refused' in e for e in self.log.errors), self.log.errors)
+
+    def test_a_race_the_engine_says_is_already_won_gets_no_room(self):
+        # The concrete case behind the rule above. The engine answers
+        # "W1-1 has already been raced and won by ISUMatt" with a 409, and a room
+        # opened on that is a room for a tournament that has moved on.
+        matches = {'W1-1': ready('ISUMatt', 'chessjerk')}
+
+        def refuse(match_id, when):
+            return Written(
+                NOT_RECORDED,
+                detail='{} has already been raced and won by ISUMatt'.format(match_id))
+
+        it = self.scheduler(
+            sheet(row(START, 'ISUMatt', 'chessjerk')), matches,
+            engine=FakeEngine(matches, outcome=refuse))
+        run(it.tick(at(START, ROOM_OPEN_MINUTES_BEFORE)))
+        self.assertEqual(self.opened, [])
+        self.assertTrue(any('already been raced' in e for e in self.log.errors))
 
     def test_a_race_long_past_is_left_alone(self):
         it = self.scheduler(
@@ -377,6 +401,228 @@ class WhenThingsGoWrong(SchedulerTests):
         self.assertTrue(
             any('could not be read' in w for w in self.log.warnings),
             self.log.warnings)
+
+
+class OnlyOneRoomEver(SchedulerTests):
+    """The one mistake a race night cannot absorb.
+
+    Creating first and recording afterwards means a creation whose answer is lost
+    leaves no trace, and the next tick makes a second room. So the reservation
+    goes to disk *before* the opener is called.
+    """
+
+    def raising_scheduler(self, matches, boom):
+        async def opener(race, row):
+            self.opened.append(race.match_id)
+            raise boom
+
+        async def waker(race, channel):
+            self.woken.append((race.match_id, channel))
+
+        return AutumnScheduler(
+            source=FakeSource(sheet(row(START, 'ISUMatt', 'chessjerk', 'z1rracing'))),
+            engine=FakeEngine(matches),
+            logger=self.log,
+            bindings_store=self.store('autumn_bindings'),
+            created_store=self.store('autumn_created_races'),
+            mirrored_store=self.store('autumn_mirrored_times'),
+            announced_store=self.store('autumn_sent_webhooks'),
+            open_room=opener,
+            wake_booth=waker,
+        )
+
+    def test_a_creation_whose_answer_is_lost_is_never_attempted_twice(self):
+        matches = {'W1-1': ready('ISUMatt', 'chessjerk')}
+        it = self.raising_scheduler(matches, RuntimeError('socket went away'))
+        run(it.tick(at(START, ROOM_OPEN_MINUTES_BEFORE)))
+
+        # It tried once, and the attempt is on disk as uncertain.
+        self.assertEqual(self.opened, ['W1-1'])
+        self.assertEqual(it.created['autumn|W1-1'], UNCERTAIN_RACE)
+        self.assertEqual(
+            self.store('autumn_created_races').load()['autumn|W1-1'], UNCERTAIN_RACE)
+
+        # A later tick, and a whole new process, both leave it alone.
+        run(it.tick(at(START, 20)))
+        self.assertEqual(self.opened, ['W1-1'], 'no second attempt in this process')
+
+        restarted = self.raising_scheduler(matches, RuntimeError('again'))
+        run(restarted.tick(at(START, 15)))
+        self.assertEqual(self.opened, ['W1-1'], 'and none after a restart')
+        self.assertTrue(
+            any('never confirmed' in e for e in self.log.errors), self.log.errors)
+
+    def test_an_uncertain_room_is_not_announced(self):
+        # There is no URL to announce, and inventing one is worse than silence.
+        it = self.raising_scheduler(
+            {'W1-1': ready('ISUMatt', 'chessjerk')}, RuntimeError('lost'))
+        run(it.tick(at(START, ROOM_OPEN_MINUTES_BEFORE)))
+        self.assertEqual(self.announced, [])
+
+    def test_a_definite_failure_releases_the_reservation(self):
+        # The opener's contract: falsey means it definitely did not create
+        # anything. Holding the reservation then would block the match for good
+        # over a transient racetime error.
+        matches = {'W1-1': ready('ISUMatt', 'chessjerk')}
+        attempts = []
+
+        async def opener(race, row):
+            attempts.append(race.match_id)
+            return None if len(attempts) == 1 else ROOM
+
+        it = AutumnScheduler(
+            source=FakeSource(sheet(row(START, 'ISUMatt', 'chessjerk'))),
+            engine=FakeEngine(matches), logger=self.log,
+            bindings_store=self.store('autumn_bindings'),
+            created_store=self.store('autumn_created_races'),
+            mirrored_store=self.store('autumn_mirrored_times'),
+            announced_store=self.store('autumn_sent_webhooks'),
+            open_room=opener,
+        )
+        run(it.tick(at(START, ROOM_OPEN_MINUTES_BEFORE)))
+        self.assertNotIn('autumn|W1-1', it.created)
+        run(it.tick(at(START, 25)))
+        self.assertEqual(attempts, ['W1-1', 'W1-1'])
+        self.assertEqual(it.created['autumn|W1-1'], ROOM)
+
+
+class AFailedSaveStopsTheTick(SchedulerTests):
+    def unwritable(self, kind):
+        """A store that loads but will not save."""
+        store = self.store(kind)
+        original = store.save
+
+        def refuse(entries):
+            raise OSError('read-only file system')
+
+        store.save = refuse
+        store.load = original and store.load
+        return store
+
+    def scheduler_with(self, broken_kind, matches):
+        async def opener(race, row):
+            self.opened.append(race.match_id)
+            return ROOM
+
+        stores = {}
+        for kind in ('autumn_bindings', 'autumn_created_races',
+                     'autumn_mirrored_times', 'autumn_sent_webhooks'):
+            stores[kind] = (
+                self.unwritable(kind) if kind == broken_kind else self.store(kind))
+
+        return AutumnScheduler(
+            source=FakeSource(sheet(row(START, 'ISUMatt', 'chessjerk'))),
+            engine=FakeEngine(matches), logger=self.log,
+            bindings_store=stores['autumn_bindings'],
+            created_store=stores['autumn_created_races'],
+            mirrored_store=stores['autumn_mirrored_times'],
+            announced_store=stores['autumn_sent_webhooks'],
+            open_room=opener,
+        )
+
+    def test_a_binding_that_cannot_be_saved_opens_no_room(self):
+        # A room opened against a binding that exists only in memory is a room the
+        # next restart cannot account for.
+        it = self.scheduler_with(
+            'autumn_bindings', {'W1-1': ready('ISUMatt', 'chessjerk')})
+        run(it.tick(at(START, ROOM_OPEN_MINUTES_BEFORE)))
+        self.assertEqual(self.opened, [])
+        self.assertTrue(it.stopped)
+
+    def test_a_reservation_that_cannot_be_saved_opens_no_room(self):
+        # Persisting the intent is the precondition for attempting it, so without
+        # that there is no attempt at all.
+        it = self.scheduler_with(
+            'autumn_created_races', {'W1-1': ready('ISUMatt', 'chessjerk')})
+        run(it.tick(at(START, ROOM_OPEN_MINUTES_BEFORE)))
+        self.assertEqual(self.opened, [])
+        self.assertTrue(it.stopped)
+
+    def test_being_stopped_ends_the_tick_rather_than_the_race(self):
+        # Two races, and the first one breaks the save. The second must not be
+        # handled on state nobody can write.
+        matches = {
+            'W1-1': ready('ISUMatt', 'chessjerk'),
+            'W1-2': ready('Bogie', 'Merks'),
+        }
+        it = self.scheduler_with('autumn_bindings', matches)
+        it.source = FakeSource(sheet(
+            row(START, 'ISUMatt', 'chessjerk'),
+            row(START, 'Bogie', 'Merks'),
+        ))
+        run(it.tick(at(START, ROOM_OPEN_MINUTES_BEFORE)))
+        self.assertEqual(self.opened, [])
+
+
+class TransientFailuresAreRetried(SchedulerTests):
+    def flaky(self, matches, fail_wake=0, fail_announce=0):
+        wake_failures = [fail_wake]
+        announce_failures = [fail_announce]
+
+        async def opener(race, row):
+            self.opened.append(race.match_id)
+            return ROOM
+
+        async def waker(race, channel):
+            if wake_failures[0]:
+                wake_failures[0] -= 1
+                raise RuntimeError('control plane asleep')
+            self.woken.append((race.match_id, channel))
+
+        async def announcer(race, row, url):
+            if announce_failures[0]:
+                announce_failures[0] -= 1
+                raise RuntimeError('discord 503')
+            self.announced.append((race.match_id, url))
+
+        return AutumnScheduler(
+            source=FakeSource(sheet(row(START, 'ISUMatt', 'chessjerk', 'z1rracing'))),
+            engine=FakeEngine(matches), logger=self.log,
+            bindings_store=self.store('autumn_bindings'),
+            created_store=self.store('autumn_created_races'),
+            mirrored_store=self.store('autumn_mirrored_times'),
+            announced_store=self.store('autumn_sent_webhooks'),
+            open_room=opener, wake_booth=waker, announce=announcer,
+        )
+
+    def test_a_booth_that_would_not_wake_is_asked_again(self):
+        # Marking it done before the call meant one transient failure became a
+        # permanent omission: the flag said it had been asked, and no later tick
+        # asked again.
+        it = self.flaky({'W1-1': ready('ISUMatt', 'chessjerk')}, fail_wake=1)
+        run(it.tick(at(START, BOOTH_WAKE_MINUTES_BEFORE)))
+        self.assertEqual(self.woken, [])
+        run(it.tick(at(START, 34)))
+        self.assertEqual(self.woken, [('W1-1', 'z1rracing')])
+        # And then it stops, rather than waking it every minute.
+        run(it.tick(at(START, 33)))
+        self.assertEqual(len(self.woken), 1)
+
+    def test_an_announcement_that_failed_is_posted_on_a_later_tick(self):
+        # It was only ever attempted at the moment the room was created, so a
+        # Discord blip meant nobody was ever told about the race.
+        it = self.flaky({'W1-1': ready('ISUMatt', 'chessjerk')}, fail_announce=1)
+        run(it.tick(at(START, ROOM_OPEN_MINUTES_BEFORE)))
+        self.assertEqual(self.opened, ['W1-1'])
+        self.assertEqual(self.announced, [])
+
+        run(it.tick(at(START, 25)))
+        self.assertEqual(self.announced, [('W1-1', ROOM)])
+        self.assertEqual(self.opened, ['W1-1'], 'and no second room for the retry')
+
+        # Once told, once only.
+        run(it.tick(at(START, 20)))
+        self.assertEqual(len(self.announced), 1)
+
+    def test_the_announcement_guard_survives_a_restart(self):
+        it = self.flaky({'W1-1': ready('ISUMatt', 'chessjerk')})
+        run(it.tick(at(START, ROOM_OPEN_MINUTES_BEFORE)))
+        self.assertEqual(self.announced, [('W1-1', ROOM)])
+
+        restarted = self.flaky({'W1-1': ready('ISUMatt', 'chessjerk')})
+        run(restarted.tick(at(START, 20)))
+        self.assertEqual(len(self.announced), 1, 'not announced twice')
+        self.assertEqual(self.opened, ['W1-1'], 'and no second room')
 
 
 if __name__ == '__main__':

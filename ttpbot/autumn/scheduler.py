@@ -3,8 +3,8 @@
 The same shape as the League's -- read a schedule, wake a booth at T-35, open a
 room at T-30 -- over a different notion of what a race *is*.
 
-A League race is a fixture: it has a week, two teams, and a start time that the
-sheet owns outright. An Autumn race is a match in a bracket, and that difference
+A League race is a fixture: it has a week, two teams, and a start time the sheet
+owns outright. An Autumn race is a match in a bracket, and that difference
 removes the League's hardest bug rather than reproducing it. The League keys its
 room state by start time, so a postponed race is a cache miss and gets a second
 room; it works around that by matching on a slug and re-keying. Here the key is
@@ -16,18 +16,28 @@ What this does not decide:
 
   * *when* a race is. The Schedule tab owns that. The engine's `times` is a
     mirror, written after the sheet says so, and never read back as a source.
+  * *whether* a match can be raced at all. The engine owns that, and it says so
+    by refusing the mirror: `time` refuses a match that is not in the bracket,
+    one that is a bye, and one that has already been raced and won. So a refusal
+    holds the match rather than being logged past.
   * *which* match a row is about. `matching.py` answers that against the
     bracket, and this persists the answer so a row keeps the match it was first
     given -- otherwise a played final turns its own row into the reset's.
-  * who won, or who advances. The engine owns those, and nothing here writes
-    them. A runner that could award a match is a second set of hands on the
-    tournament during a race night.
+  * who won, or who advances. A runner that could award a match would be a
+    second set of hands on the tournament during a race night.
+
+Everything that can be done twice is guarded by something that survives a
+restart, and everything that might not have happened is retried. Those are
+different questions and they need different records, which is why creating a
+room, waking a booth and posting an announcement each have their own.
 """
 
 import asyncio
 from datetime import datetime, timedelta
 
 from ..config import TIMEZONE
+from ..state import UNCERTAIN_RACE
+from .engine import NOT_RECORDED
 from .matching import canonical, match_rows, row_key
 
 #: One minute, as the League ticks. Everything below is a window rather than an
@@ -50,14 +60,14 @@ ROOM_OPEN_GRACE = timedelta(hours=2)
 class AutumnScheduler:
     """Ticks the tournament.
 
-    Collaborators are injected rather than constructed, and every one of them is
+    Collaborators are injected rather than constructed, and every one is
     optional. A relay with no engine token, no schedule URL or no room opener
     runs the League and says nothing about Autumn -- which is what "not
     configured" should look like, rather than an exception a minute.
     """
 
     def __init__(self, source, engine, logger, bindings_store=None,
-                 created_store=None, mirrored_store=None,
+                 created_store=None, mirrored_store=None, announced_store=None,
                  open_room=None, wake_booth=None, announce=None,
                  event='autumn'):
         self.source = source
@@ -68,10 +78,13 @@ class AutumnScheduler:
         self.bindings_store = bindings_store
         self.created_store = created_store
         self.mirrored_store = mirrored_store
+        self.announced_store = announced_store
 
         # Each of these is "ask somebody else to do the side effect", so this
         # class can be ticked in a test without a racetime account or a Discord
-        # token.
+        # token. An opener returns a URL, `UNCERTAIN_RACE` when it created
+        # something whose answer was lost, or None when it definitely did not --
+        # the League's contract, and the distinction the whole room path turns on.
         self._open_room = open_room
         self._wake_booth = wake_booth
         self._announce = announce
@@ -79,19 +92,29 @@ class AutumnScheduler:
         self.bindings = self._load(bindings_store)
         self.created = self._load(created_store)
         self.mirrored = self._load(mirrored_store)
+        self.announced = self._load(announced_store)
 
-        #: Matches whose booth has been asked to wake, this process.
+        #: Matches whose booth is awake. In memory on purpose: waking a control
+        #: plane twice is harmless -- it is already awake -- and a note that
+        #: survived a restart would skip the wake after the restart that most
+        #: needs it.
         self._woken = set()
-        #: True once the state could not be loaded. Nothing is attempted while it
-        #: is set: acting on state we know is missing is how a second room gets
-        #: made for a race that already has one.
-        self.stopped = False
-        if any(store is not None and loaded is None for store, loaded in (
-            (bindings_store, self.bindings),
-            (created_store, self.created),
-            (mirrored_store, self.mirrored),
-        )):
-            self.stopped = True
+        #: Matches whose room is uncertain and has been complained about, so the
+        #: complaint is once rather than once a minute.
+        self._flagged = set()
+
+        #: Set once state could not be read or written. Nothing is attempted
+        #: while it holds: acting on state we know is missing is how a second
+        #: room gets made for a race that already has one.
+        self.stopped = any(
+            store is not None and loaded is None
+            for store, loaded in (
+                (bindings_store, self.bindings),
+                (created_store, self.created),
+                (mirrored_store, self.mirrored),
+                (announced_store, self.announced),
+            )
+        )
 
     @property
     def configured(self):
@@ -101,8 +124,8 @@ class AutumnScheduler:
         """A store's entries, or None when they could not be read.
 
         None rather than {}, because those mean opposite things. An unreadable
-        store is state we *had* and lost, and the whole point of the marker the
-        store leaves is that this cannot be mistaken for a fresh start.
+        store is state we *had* and lost, and the point of the marker the store
+        leaves behind is that this cannot be mistaken for a fresh start.
         """
         if store is None:
             return {}
@@ -114,14 +137,29 @@ class AutumnScheduler:
                 'until it is recovered', exc_info=True)
             return None
 
+    def _save(self, store, entries):
+        """Persist, and say whether it worked.
+
+        The return value is load-bearing and every caller checks it. Setting a
+        flag and carrying on was not enough: the tick that failed to save went on
+        to open a room anyway, and the next restart had no record of it.
+        """
+        if store is None:
+            return True
+        try:
+            store.save(entries)
+            return True
+        except Exception:
+            self.stopped = True
+            self.logger.error(
+                'Autumn state could not be saved; the tournament runner is '
+                'stopped', exc_info=True)
+            return False
+
     # -- keys --------------------------------------------------------------
 
     def _match_key(self, match_id):
         return '{}|{}'.format(self.event, match_id)
-
-    def _row_key(self, race):
-        return '{}|{}'.format(
-            self.event, row_key(race.at, race.runner_one, race.runner_two))
 
     # -- the tick ----------------------------------------------------------
 
@@ -170,7 +208,8 @@ class AutumnScheduler:
             bindings=self._unscoped_bindings(),
         )
 
-        self._remember(matching.bindings)
+        if not self._remember(matching.bindings):
+            return
         self._report(matching.unresolved, schedule)
 
         # The crew columns belong to the row, not to the match, so they are
@@ -191,6 +230,8 @@ class AutumnScheduler:
         }
 
         for race in matching.resolved:
+            if self.stopped:
+                return
             try:
                 await self._handle(race, crew_for.get(
                     row_key(race.at, race.runner_one, race.runner_two)), now)
@@ -200,10 +241,10 @@ class AutumnScheduler:
 
     async def _handle(self, race, row, now):
         """One resolved race, at whatever stage it is at."""
-        # The mirror first, because it is the cheapest thing to get wrong and the
-        # only one anybody else reads. It is sent whenever the sheet disagrees
-        # with what we last sent, which is what makes a reschedule propagate.
-        await self._mirror(race)
+        # The mirror first, because the engine's answer to it is also the
+        # engine's answer to "may this be raced at all".
+        if not await self._mirror(race):
+            return
 
         if race.conditional:
             # Scheduled but not raceable: the grand-final reset before the final
@@ -213,54 +254,76 @@ class AutumnScheduler:
 
         opens_at = race.at - timedelta(minutes=ROOM_OPEN_MINUTES_BEFORE)
         wakes_at = race.at - timedelta(minutes=BOOTH_WAKE_MINUTES_BEFORE)
+        too_late = race.at + ROOM_OPEN_GRACE
 
-        if now >= wakes_at and now < race.at + ROOM_OPEN_GRACE:
-            await self._wake(race, row)
-
-        if now < opens_at:
-            return
-        if now > race.at + ROOM_OPEN_GRACE:
+        if now > too_late:
             # The start has been and gone. An admin can still make a room; a
             # scheduler that does it hours late is just confusing.
             return
 
-        await self._room(race, row)
+        if now >= wakes_at:
+            await self._wake(race, row)
+
+        if now < opens_at:
+            return
+
+        url = await self._room(race, row)
+        if url:
+            # Every tick, not only at creation, and behind its own guard. An
+            # announcement that failed once is a match nobody was told about, and
+            # tying it to the creation meant it was never tried again.
+            await self._tell(race, row, url)
 
     # -- the mirror --------------------------------------------------------
 
     async def _mirror(self, race):
-        """Tell the engine when this match is, if we have not already.
+        """Tell the engine when this match is. Returns whether to carry on.
 
         Keyed by the match, so a reschedule is a *changed* value rather than a
         second entry -- which is the whole reason the key is not the time.
+
+        A refusal stops the race here. The engine refuses a `time` for exactly
+        three reasons and every one of them means no room should open: the match
+        is not in the bracket, it is a bye, or it has already been raced and won.
+        The sheet owns *when* a match is; it does not get to say that a match
+        which is over is happening tonight.
         """
         key = self._match_key(race.match_id)
         when = race.at.isoformat()
         if self.mirrored.get(key) == when:
-            return
+            return True
 
         written = await self.engine.mirror_time(race.match_id, race.at)
         if written.ok:
             self.mirrored[key] = when
-            self._save(self.mirrored_store, self.mirrored)
-            return
+            return self._save(self.mirrored_store, self.mirrored)
 
-        # Not recorded, or nobody knows. Either way the local note is *not*
-        # updated, so the next tick tries again -- which is safe because the
-        # write is idempotent, and necessary because an unconfirmed write may
-        # never have landed.
+        if written.outcome == NOT_RECORDED:
+            self.logger.error(
+                'Autumn: the engine refused the time for %s (%s), so no room is '
+                'opened for it; the bracket disagrees that this is raceable',
+                race.match_id, written.detail)
+            return False
+
+        # Nobody knows. The local note is deliberately *not* updated, so the next
+        # tick sends it again -- safe because the write is idempotent, and
+        # necessary because an unconfirmed write may never have landed. The room
+        # is not held up for it: the sheet owns the time, and a bookkeeping
+        # answer that went missing is not a reason to leave two racers without a
+        # room. Eligibility is re-checked from the draw every tick regardless.
         self.logger.warning(
             'Autumn: the engine has not confirmed %s at %s (%s: %s)',
             race.match_id, when, written.outcome, written.detail)
+        return True
 
     # -- the side effects --------------------------------------------------
 
     async def _wake(self, race, row):
-        """Ask the booth to wake, once per match per process.
+        """Ask the booth to wake, once it has actually woken.
 
-        Not persisted. Waking a control plane twice is harmless -- it is already
-        awake -- and a note that survives a restart would skip the wake after the
-        restart that most needs it.
+        Marked done *after* the call rather than before. Before meant a single
+        transient failure became a permanent omission: the flag said it had been
+        asked, and no later tick asked again.
         """
         if self._wake_booth is None or race.match_id in self._woken:
             return
@@ -268,38 +331,95 @@ class AutumnScheduler:
         if not channel:
             # No channel on the row means no restream, which is most matches.
             return
-        self._woken.add(race.match_id)
         try:
             await self._wake_booth(race, channel)
         except Exception:
-            # A booth that will not wake costs a restream, not a race.
+            # A booth that will not wake costs a restream, not a race, and the
+            # next tick tries again.
             self.logger.error(
-                'Autumn: could not wake the booth for %s', race.match_id,
-                exc_info=True)
+                'Autumn: could not wake the booth for %s; will try again',
+                race.match_id, exc_info=True)
+            return
+        self._woken.add(race.match_id)
 
     async def _room(self, race, row):
-        """Open the race room, exactly once for this match."""
-        if self._open_room is None:
+        """The room for this match, making it if there is not one yet.
+
+        Reserved before it is created, which is the whole point. Creating first
+        and recording afterwards means a creation whose answer is lost leaves no
+        trace, and the next tick makes a second room -- the one mistake a race
+        night cannot absorb. So the reservation goes to disk first, and a
+        creation that does not come back cleanly stays a reservation rather than
+        becoming nothing.
+        """
+        key = self._match_key(race.match_id)
+        existing = self.created.get(key)
+
+        if existing is None:
+            if self._open_room is None:
+                return None
+
+            self.created[key] = UNCERTAIN_RACE
+            if not self._save(self.created_store, self.created):
+                # Not created. Persisting the intent is the precondition for
+                # attempting it, so without that there is no attempt.
+                del self.created[key]
+                return None
+
+            try:
+                made = await self._open_room(race, row)
+            except Exception:
+                # A raise is exactly "we do not know". The reservation stays, and
+                # nothing tries again on its own.
+                self.logger.error(
+                    'Autumn: opening the room for %s did not come back; it is '
+                    'recorded as uncertain and will not be retried',
+                    race.match_id, exc_info=True)
+                return None
+
+            if not made:
+                # The opener's contract: falsey means it definitely did not
+                # create anything, so the reservation is released and a later
+                # tick may try again.
+                del self.created[key]
+                self._save(self.created_store, self.created)
+                return None
+
+            self.created[key] = made
+            if not self._save(self.created_store, self.created):
+                return None
+            existing = made
+
+        if existing == UNCERTAIN_RACE:
+            # A room may exist under a name we never learned. Never create
+            # another; somebody looks, and either fills it in or clears it.
+            if race.match_id not in self._flagged:
+                self._flagged.add(race.match_id)
+                self.logger.error(
+                    'Autumn: %s has a room that was created but never confirmed. '
+                    'No second room will be opened. Find it on racetime and '
+                    'record it, or clear the entry if there is none.',
+                    race.match_id)
+            return None
+
+        return existing
+
+    async def _tell(self, race, row, url):
+        """Announce the room, once it has actually been announced."""
+        if self._announce is None:
             return
         key = self._match_key(race.match_id)
-        if key in self.created:
+        if self.announced.get(key):
             return
-
-        # Claim before creating. A creation whose answer is lost is `uncertain`,
-        # never `failed`: the room may exist, and trying again is how a match
-        # ends up with two.
-        url = await self._open_room(race, row)
-        if not url:
+        try:
+            await self._announce(race, row, url)
+        except Exception:
+            self.logger.error(
+                'Autumn: could not announce %s; will try again', race.match_id,
+                exc_info=True)
             return
-        self.created[key] = url
-        self._save(self.created_store, self.created)
-
-        if self._announce is not None:
-            try:
-                await self._announce(race, row, url)
-            except Exception:
-                self.logger.error(
-                    'Autumn: could not announce %s', race.match_id, exc_info=True)
+        self.announced[key] = True
+        self._save(self.announced_store, self.announced)
 
     # -- bookkeeping -------------------------------------------------------
 
@@ -318,7 +438,12 @@ class AutumnScheduler:
         }
 
     def _remember(self, bindings):
-        """Persist any binding the matcher made that we did not already have."""
+        """Persist any new binding. Returns whether it is safe to carry on.
+
+        Nothing is done on a tick whose bindings could not be saved. A room
+        opened against a binding that only exists in memory is a room the next
+        restart cannot account for.
+        """
         added = False
         for key, match_id in bindings.items():
             scoped = '{}|{}'.format(self.event, key)
@@ -333,8 +458,9 @@ class AutumnScheduler:
                 continue
             self.bindings[scoped] = match_id
             added = True
-        if added:
-            self._save(self.bindings_store, self.bindings)
+        if not added:
+            return True
+        return self._save(self.bindings_store, self.bindings)
 
     def _report(self, unresolved, schedule):
         """Say what could not be placed. Never silently.
@@ -351,17 +477,3 @@ class AutumnScheduler:
                 miss.runner_one, miss.runner_two,
                 miss.at.isoformat() if hasattr(miss.at, 'isoformat') else miss.at,
                 miss.reason)
-
-    def _save(self, store, entries):
-        if store is None:
-            return
-        try:
-            store.save(entries)
-        except Exception:
-            # Stop rather than carry on with state that is only in memory: the
-            # next restart would forget it, and forgetting a room means making a
-            # second one.
-            self.stopped = True
-            self.logger.error(
-                'Autumn state could not be saved; the tournament runner is '
-                'stopped', exc_info=True)

@@ -210,6 +210,32 @@ class LosingIt(AutumnStateTests):
         self.assertEqual(len(kept), 1)
         self.assertEqual(kept[0].read_text(encoding='utf-8'), '{not json')
 
+    def test_a_marker_that_cannot_be_written_leaves_the_corrupt_file_alone(self):
+        # Marking *after* the move was not enough: a failed marker write left the
+        # corrupt file already quarantined and nothing recording that, so a
+        # restart was back to returning {}. Mark first, and if the mark cannot be
+        # written, do not move the file -- a file that still fails to parse is a
+        # worse diagnostic than a marker and a far better one than silence.
+        again = self.corrupt('autumn_bindings', 'autumn_bindings.json')
+        store = again()
+
+        # A marker path inside a directory that does not exist, so `write_text`
+        # fails the way a read-only or full disk would, with a real OSError.
+        nowhere = self.root / 'gone' / 'autumn_bindings.json.unrecovered'
+        store._unrecovered_marker = nowhere
+
+        with self.assertRaises(StateStoreError) as caught:
+            store.load()
+        self.assertIn('left in place', str(caught.exception))
+
+        # The corrupt file is still where it was, so the next read fails on it too
+        # rather than reporting an empty store.
+        self.assertTrue((self.root / 'autumn_bindings.json').exists())
+        self.assertEqual(
+            [p.name for p in self.root.iterdir() if '.corrupt-' in p.name], [])
+        with self.assertRaises(StateStoreError):
+            again().load()
+
     def test_the_league_keeps_its_current_forgiving_behavior(self):
         # Deliberately unchanged. The League has behaved this way in production
         # for months, and changing it is its own decision rather than a side

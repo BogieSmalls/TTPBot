@@ -105,6 +105,12 @@ class DestinationStateStore:
         self.destination_key = destination_key
         self.entry_kind = entry_kind
         self.provider = provider
+        # Where it is recorded that this store's state was lost. Beside the state
+        # file rather than inside it, because the state file is the thing that
+        # could not be read.
+        self._unrecovered_marker = self.path.with_name(
+            "{}.unrecovered".format(self.path.name)
+        )
 
     def _guard_path(self, path, *, may_be_missing=False):
         target = Path(path)
@@ -249,30 +255,12 @@ class DestinationStateStore:
             cleaned[key] = value
         return cleaned
 
-    @property
-    def _unrecovered_marker(self):
-        """Where it is recorded that this store's state was lost.
-
-        Beside the state file rather than inside it, because the state file is
-        the thing that could not be read.
-        """
-        return self.path.with_name("{}.unrecovered".format(self.path.name))
-
     def _quarantine_corrupt(self):
         quarantine = self.path.with_name(
             "{}.corrupt-{}.bak".format(self.path.name, _timestamp_suffix())
         )
-        try:
-            os.replace(self.path, quarantine)
-            try:
-                os.chmod(quarantine, 0o400)
-            except OSError:
-                pass
-        except OSError as exc:
-            raise StateStoreError("corrupt state could not be quarantined") from exc
-
-        # Leave a mark, or the next process cannot tell "we lost this" from "we
-        # never had it".
+        # The mark goes down *before* the file moves, and that order is the whole
+        # guarantee.
         #
         # Quarantining moves the file away, and `load` returns {} for a file that
         # is not there -- so the read that found the corruption raised, and every
@@ -280,25 +268,50 @@ class DestinationStateStore:
         # that is the worst available answer: forgotten bindings let a grand-final
         # row be reassigned to the reset, and a forgotten room is a second room.
         #
+        # Marking afterwards was not enough either. A failed marker write left the
+        # corrupt file already moved and nothing recording that, so a restart was
+        # back to returning {}. So: mark first, and if the mark cannot be written,
+        # leave the corrupt file exactly where it is. A file that still fails to
+        # parse is a worse diagnostic than a marker and a far better one than
+        # silence, because every later load raises on it too.
+        #
         # Only the tournament blocks on this. The League has behaved the
         # forgiving way in production for months and changing that is its own
         # decision, made deliberately rather than as a side effect of this.
-        if self.entry_kind not in AUTUMN_ENTRY_KINDS:
-            return
+        marked = False
+        if self.entry_kind in AUTUMN_ENTRY_KINDS:
+            try:
+                self._unrecovered_marker.write_text(
+                    "{} was quarantined as {} at {}\n"
+                    "Autumn stays stopped until this file is removed. Restore the "
+                    "state from a backup first if there is one: an empty file is a "
+                    "valid recovery only if losing every binding is acceptable.\n"
+                    .format(self.path.name, quarantine.name, _timestamp_suffix()),
+                    encoding="utf-8",
+                )
+                marked = True
+            except OSError as exc:
+                raise StateStoreError(
+                    "corrupt state could not be marked unrecovered, so it has been "
+                    "left in place"
+                ) from exc
+
         try:
-            self._unrecovered_marker.write_text(
-                "{} was quarantined as {} at {}\n"
-                "Autumn stays stopped until this file is removed. Restore the "
-                "state from a backup first if there is one: an empty file is a "
-                "valid recovery only if losing every binding is acceptable.\n"
-                .format(self.path.name, quarantine.name, _timestamp_suffix()),
-                encoding="utf-8",
-            )
-        except OSError:
-            # The raise below still happens, so this process stops either way.
-            # It is the *next* one that loses the distinction, and a state
-            # directory that cannot be written to has larger problems.
-            pass
+            os.replace(self.path, quarantine)
+            try:
+                os.chmod(quarantine, 0o400)
+            except OSError:
+                pass
+        except OSError as exc:
+            if marked:
+                # The mark now describes a move that never happened. Withdraw it
+                # rather than point somebody at a filename that does not exist:
+                # the corrupt file is still there, and still raises on every read.
+                try:
+                    self._unrecovered_marker.unlink()
+                except OSError:
+                    pass
+            raise StateStoreError("corrupt state could not be quarantined") from exc
 
     def load(self):
         if self.entry_kind in AUTUMN_ENTRY_KINDS and self._unrecovered_marker.exists():
