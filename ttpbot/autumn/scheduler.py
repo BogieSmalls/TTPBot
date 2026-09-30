@@ -68,7 +68,7 @@ class AutumnScheduler:
 
     def __init__(self, source, engine, logger, bindings_store=None,
                  created_store=None, mirrored_store=None, announced_store=None,
-                 open_room=None, wake_booth=None, announce=None,
+                 open_room=None, wake_booth=None, announce=None, invite=None,
                  event='autumn'):
         self.source = source
         self.engine = engine
@@ -88,6 +88,7 @@ class AutumnScheduler:
         self._open_room = open_room
         self._wake_booth = wake_booth
         self._announce = announce
+        self._invite = invite
 
         self.bindings = self._load(bindings_store)
         self.created = self._load(created_store)
@@ -102,6 +103,11 @@ class AutumnScheduler:
         #: Matches whose room is uncertain and has been complained about, so the
         #: complaint is once rather than once a minute.
         self._flagged = set()
+        #: Matches where both racers are in the room. In memory on purpose:
+        #: inviting somebody who is already an entrant is not an error, so a
+        #: restart re-inviting costs one harmless call, while a durable guard
+        #: would skip the invite after the restart that most needs it.
+        self._invited = set()
 
         #: Set once state could not be read or written. Nothing is attempted
         #: while it holds: acting on state we know is missing is how a second
@@ -268,11 +274,17 @@ class AutumnScheduler:
             return
 
         url = await self._room(race, row)
-        if url:
-            # Every tick, not only at creation, and behind its own guard. An
-            # announcement that failed once is a match nobody was told about, and
-            # tying it to the creation meant it was never tried again.
-            await self._tell(race, row, url)
+        if not url:
+            return
+
+        # Invites first. A racer who cannot get into a room they can see is the
+        # one failure here that stops a race rather than inconveniencing it.
+        await self._let_in(race, url)
+
+        # Then the announcement, every tick and behind its own guard. An
+        # announcement that failed once is a match nobody was told about, and
+        # tying it to the creation meant it was never tried again.
+        await self._tell(race, row, url)
 
     # -- the mirror --------------------------------------------------------
 
@@ -403,6 +415,29 @@ class AutumnScheduler:
             return None
 
         return existing
+
+    async def _let_in(self, race, url):
+        """Invite both racers, until there is nobody left to invite.
+
+        Retried every tick while anybody is missing, because racetime treats an
+        invite for an existing entrant as a no-op -- so the cost of asking again
+        is one call and the cost of not asking is a racer locked out.
+        """
+        if self._invite is None or race.match_id in self._invited:
+            return
+        try:
+            missed = await self._invite(race, url)
+        except Exception:
+            self.logger.error(
+                'Autumn: inviting racers to %s failed; will try again',
+                race.match_id, exc_info=True)
+            return
+        if missed:
+            self.logger.warning(
+                'Autumn: still to invite to %s: %s',
+                race.match_id, ', '.join(missed))
+            return
+        self._invited.add(race.match_id)
 
     async def _tell(self, race, row, url):
         """Announce the room, once it has actually been announced."""

@@ -225,6 +225,37 @@ class TTPBot(Bot):
                 'TTP scheduling is unaffected', exc_info=True)
             return None
 
+    def _build_autumn_runner(self):
+        """Construct the Autumn runner, or None if it cannot start.
+
+        Off unless `Z1RR_AUTUMN_ENABLED` says otherwise, and off anyway without
+        the engine token. Never fatal: a tournament that cannot start must leave
+        the League and TTP exactly as they were, which is why this is its own try
+        and its own log line.
+        """
+        if (os.environ.get('Z1RR_AUTUMN_ENABLED', '').strip().lower()
+                not in ('1', 'true', 'yes', 'on')):
+            return None
+        try:
+            from .autumn.wiring import build_autumn_runner
+
+            root = self.data_dir
+            stores = {
+                kind: DestinationStateStore(
+                    '{}.json'.format(kind), self.provider.destination_key, kind,
+                    data_dir=root)
+                for kind in ('autumn_bindings', 'autumn_created_races',
+                             'autumn_mirrored_times', 'autumn_sent_webhooks')
+            }
+            runner = build_autumn_runner(os.environ, self, self.logger,
+                                         stores=stores)
+            return runner if runner.configured else None
+        except Exception:
+            self.logger.error(
+                'Autumn scheduling is off (state or configuration is unusable); '
+                'League and TTP scheduling are unaffected', exc_info=True)
+            return None
+
     #: Network failures that must never stop the bot.
     #:
     #: racetime_bot's own handler stops the event loop for any exception whose
@@ -282,6 +313,10 @@ class TTPBot(Bot):
             if scheduler is not None:
                 self.logger.info('League scheduling is enabled')
                 self.loop.create_task(scheduler.run())
+        autumn = self._build_autumn_runner()
+        if autumn is not None:
+            self.logger.info('Autumn tournament scheduling is enabled')
+            self.loop.create_task(autumn.run())
         self.loop.set_exception_handler(self.handle_exception)
         self.loop.run_forever()
 
