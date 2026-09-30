@@ -216,14 +216,33 @@ class AutumnEngine:
             # guessed, because the guess is wrong exactly when it costs most.
             return Written(UNCONFIRMED, detail='read-back failed: {}'.format(exc))
 
-        recorded = ((state.get('document') or {}).get('times') or {}).get(match_id)
+        document = state.get('document') or {}
+        recorded = (document.get('times') or {}).get(match_id)
         if recorded and recorded.get('at') == when:
             return Written(
                 RECORDED,
-                revision=(state.get('document') or {}).get('revision'),
+                revision=document.get('revision'),
                 detail='confirmed by read-back',
             )
-        return Written(NOT_RECORDED, detail='the engine has no such time recorded')
+
+        # A read-back is only ever evidence *for*. Finding nothing does not mean
+        # the write was refused -- a request that timed out may still be queued
+        # behind another write and land a second from now, and calling that
+        # `not-recorded` is a claim the read cannot support. So this stays
+        # unconfirmed, which is the answer that makes a caller look again rather
+        # than conclude.
+        #
+        # Which is safe here precisely because a mirror write is idempotent:
+        # sending the sheet's time again next tick costs nothing if the first one
+        # lands, and fixes it if it did not.
+        return Written(
+            UNCONFIRMED,
+            detail=(
+                'the engine has no such time recorded yet; it holds {!r}'.format(
+                    recorded.get('at')) if recorded
+                else 'the engine has no time recorded for this match yet'
+            ),
+        )
 
     async def claim_thread(self, match_id, by):
         """Claim the right to create a match's thread. See the engine's writer."""

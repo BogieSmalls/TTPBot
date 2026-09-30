@@ -164,25 +164,42 @@ class MirroringATime(unittest.TestCase):
         # And exactly one retry-free read, not a second POST.
         self.assertEqual([a['method'] for a in asked.asked], ['POST', 'GET'])
 
-    def test_a_read_back_that_finds_nothing_says_it_was_not_recorded(self):
+    def test_a_read_back_that_finds_nothing_is_still_unconfirmed(self):
+        # A read-back is only ever evidence *for*. Finding nothing does not mean
+        # the write was refused: a request that timed out may be queued behind
+        # another write and land a second from now, so `not-recorded` is a claim
+        # the read cannot support. Unconfirmed makes the caller look again, which
+        # is the behavior that converges; "not recorded" invites a decision on
+        # information nobody has.
         it, _ = engine(
             asyncio.TimeoutError(),
             Answer(body=jsonlib.dumps({'document': {'revision': 9, 'times': {}}})),
         )
         written = run(it.mirror_time('W1-1', AT))
-        self.assertEqual(written.outcome, NOT_RECORDED)
+        self.assertEqual(written.outcome, UNCONFIRMED)
+        self.assertIn('no time recorded', written.detail)
 
     def test_a_read_back_that_finds_a_different_time_is_not_a_success(self):
-        # Somebody else's write, or an older one. Either way this request did not
-        # land, and saying it did would leave the sheet and the mirror disagreeing
-        # with nobody looking.
+        # Somebody else's write, or an older one. Not a success -- but not a
+        # refusal either, for the same reason: this write could still land on top
+        # of what is there. The detail names what the engine holds, because that
+        # is the part a human would want to see.
         it, _ = engine(
             asyncio.TimeoutError(),
             Answer(body=jsonlib.dumps({'document': {
                 'times': {'W1-1': {'at': '2026-10-09T22:00:00+00:00'}},
             }})),
         )
-        self.assertEqual(run(it.mirror_time('W1-1', AT)).outcome, NOT_RECORDED)
+        written = run(it.mirror_time('W1-1', AT))
+        self.assertEqual(written.outcome, UNCONFIRMED)
+        self.assertFalse(written.ok)
+        self.assertIn('2026-10-09T22:00:00+00:00', written.detail)
+
+    def test_only_a_refusal_is_ever_not_recorded(self):
+        # Which leaves `not-recorded` meaning exactly one thing: the engine looked
+        # at the request and said no. Everything else is either yes or unknown.
+        it, _ = engine(Answer(status=409, body='{"error":"no such match"}'))
+        self.assertEqual(run(it.mirror_time('W9-9', AT)).outcome, NOT_RECORDED)
 
     def test_a_failed_read_back_leaves_it_unconfirmed(self):
         # Nobody knows, and that is said plainly. The guess is wrong exactly when
