@@ -186,3 +186,89 @@ class FinalsTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BindingTests(unittest.TestCase):
+    """A row keeps the match it was first given.
+
+    The bracket moves under these rows: matches get played and racers advance.
+    A row whose answer changes because of that is a room opened at a time nobody
+    agreed to.
+    """
+
+    def test_a_finished_reset_is_not_raceable(self):
+        # "Not ruled out" is not the same claim as "ready". A finished reset is
+        # not `not-needed`, so a check for that alone called it raceable -- and
+        # would have opened a room for a tournament that was already over.
+        over = bracket(**{
+            'GF-1': {'a': 'Bogie', 'b': 'shatty', 'state': 'played'},
+            'GF-2': {'a': 'shatty', 'b': 'Bogie', 'state': 'played'},
+        })
+        found = match_rows([row('Bogie', 'shatty')], over)
+        self.assertEqual(found.raceable(), [])
+
+    def test_a_finished_ordinary_match_is_not_raceable_either(self):
+        played = bracket(**{'W1-1': {'a': 'ISUMatt', 'b': 'chessjerk', 'state': 'played'}})
+        found = match_rows([row('ISUMatt', 'chessjerk')], played)
+        self.assertEqual(found.raceable(), [])
+
+    def test_the_finals_row_stays_the_finals_row_after_the_final(self):
+        """The gap that needed the binding.
+
+        One row plus a finished final is, on its own, indistinguishable from a
+        reset that somebody scheduled -- so the resolver drew the only conclusion
+        available to it and handed GF-1's own time to GF-2.
+        """
+        before = match_rows([row('Bogie', 'shatty')], bracket())
+        self.assertEqual(before.resolved[0].match_id, 'GF-1')
+
+        after = match_rows(
+            [row('Bogie', 'shatty')],
+            bracket(**{
+                'GF-1': {'a': 'Bogie', 'b': 'shatty', 'state': 'played'},
+                'GF-2': {'a': 'shatty', 'b': 'Bogie', 'state': 'ready'},
+            }),
+            bindings=before.bindings,
+        )
+        # Nothing: that row's race has been run.
+        self.assertEqual(after.resolved, [])
+
+    def test_a_new_row_is_what_supplies_the_reset_its_time(self):
+        first = match_rows([row('Bogie', 'shatty')], bracket())
+
+        rows = [row('Bogie', 'shatty'), row('Bogie', 'shatty', at=TONIGHT + timedelta(hours=1))]
+        after = match_rows(
+            rows,
+            bracket(**{
+                'GF-1': {'a': 'Bogie', 'b': 'shatty', 'state': 'played'},
+                'GF-2': {'a': 'shatty', 'b': 'Bogie', 'state': 'ready'},
+            }),
+            bindings=first.bindings,
+        )
+        self.assertEqual([race.match_id for race in after.resolved], ['GF-1', 'GF-2'])
+        raceable = after.raceable()
+        self.assertEqual([race.match_id for race in raceable], ['GF-2'])
+        self.assertEqual(raceable[0].at, TONIGHT + timedelta(hours=1))
+
+    def test_a_binding_survives_a_restart(self):
+        # The store is the only memory, so a restart is a reload -- and a
+        # forgotten binding is the bug above, arriving later.
+        before = match_rows([row('ISUMatt', 'chessjerk')], bracket())
+        as_persisted = dict(before.bindings)
+
+        after = match_rows(
+            [row('ISUMatt', 'chessjerk')], bracket(), bindings=as_persisted)
+        self.assertEqual(after.resolved[0].match_id, 'W1-1')
+        self.assertEqual(after.bindings, as_persisted)
+
+    def test_a_rescheduled_row_is_a_new_row_and_finds_its_match_again(self):
+        before = match_rows([row('ISUMatt', 'chessjerk')], bracket())
+        moved = match_rows(
+            [row('ISUMatt', 'chessjerk', at=TONIGHT + timedelta(days=1))],
+            bracket(),
+            bindings=before.bindings,
+        )
+        # Same match, new time. The identity is the match, so nothing downstream
+        # treats this as a different race.
+        self.assertEqual(moved.resolved[0].match_id, 'W1-1')
+        self.assertEqual(moved.resolved[0].identity.key, 'autumn|W1-1|1')

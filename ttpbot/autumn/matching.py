@@ -50,6 +50,19 @@ def strip_prefix(name):
     return text
 
 
+def row_key(at, runner_one, runner_two):
+    """What names one row of the Schedule tab.
+
+    The sheet has no id column, so a row is identified by the two racers and the
+    time they agreed -- which is exactly what a racer typed into the form. Two
+    rows for the same pair are two different keys, which is what a reschedule and
+    a scheduled reset both look like.
+    """
+    pair = '-vs-'.join(sorted((flatten(runner_one), flatten(runner_two))))
+    when = getattr(at, 'isoformat', lambda: str(at))()
+    return '{}|{}'.format(pair, when)
+
+
 @dataclass(frozen=True)
 class RaceIdentity:
     """What the engine calls a race: an edition, a match, and a game in it.
@@ -102,6 +115,9 @@ class Resolved:
 class Matching:
     resolved: list = field(default_factory=list)
     unresolved: list = field(default_factory=list)
+    #: Row key -> match id, for the caller to persist. A row keeps the match it
+    #: was first given, across restarts.
+    bindings: dict = field(default_factory=dict)
 
     def raceable(self):
         """The ones a room may be opened for now."""
@@ -147,7 +163,7 @@ def _reset_needed(matches):
     return reset.get('state') not in ('not-needed', None)
 
 
-def match_rows(rows, matches, *, event='autumn'):
+def match_rows(rows, matches, *, event='autumn', bindings=None):
     """Resolve schedule rows against a bracket snapshot.
 
     `rows` are dicts of `at`, `runner_one`, `runner_two` -- names as the sheet
@@ -156,6 +172,13 @@ def match_rows(rows, matches, *, event='autumn'):
 
     Rows are taken in time order, because that is what separates the two finals
     when both are scheduled: the earlier is the final, the later is the reset.
+
+    `bindings` is row key -> match id from previous ticks, and it is why a row
+    keeps the match it was first given. Without it, GF-1's own row became GF-2's
+    time the moment the final was played: the four-case rule looked at a single
+    row and a finished final and drew the only conclusion available to it. The
+    binding is internal, so racers answer no extra question. Returned on the
+    `Matching` for the caller to persist.
     """
     by_id = dict(matches)
     ordered = sorted(
@@ -165,7 +188,9 @@ def match_rows(rows, matches, *, event='autumn'):
 
     finalists = _finalists(by_id)
     finals_rows = []
+    bound = dict(bindings or {})
     out = Matching()
+    out.bindings = bound
 
     for row in ordered:
         one = strip_prefix(row.get('runner_one'))
@@ -181,6 +206,26 @@ def match_rows(rows, matches, *, event='autumn'):
         # answer for one depends on whether the other was scheduled too.
         if finalists is not None and pair == finalists:
             finals_rows.append((row, one, two))
+            continue
+
+        # A row that has been placed before keeps its match. The bracket moves
+        # under these rows -- matches get played, racers advance -- and a row
+        # whose answer changes because of that is a room opened at a time nobody
+        # agreed to.
+        remembered = bound.get(row_key(row.get('at'), one, two))
+        if remembered and remembered in by_id:
+            state = by_id[remembered].get('state')
+            out.resolved.append(Resolved(
+                identity=RaceIdentity(event=event, match_id=remembered),
+                match_id=remembered,
+                at=row.get('at'),
+                runner_one=one,
+                runner_two=two,
+                conditional=state != 'ready',
+                why_conditional=(
+                    None if state == 'ready' else 'the match is not raceable now'
+                ),
+            ))
             continue
 
         candidates = [
@@ -211,6 +256,7 @@ def match_rows(rows, matches, *, event='autumn'):
             continue
 
         match_id = playable[0]
+        bound[row_key(row.get('at'), one, two)] = match_id
         out.resolved.append(Resolved(
             identity=RaceIdentity(event=event, match_id=match_id),
             match_id=match_id,
@@ -224,11 +270,14 @@ def match_rows(rows, matches, *, event='autumn'):
             ),
         ))
 
-    out.resolved.extend(_match_finals(finals_rows, by_id, event))
+    out.resolved.extend(_match_finals(finals_rows, by_id, event, bound))
+    for race in out.resolved:
+        bound.setdefault(
+            row_key(race.at, race.runner_one, race.runner_two), race.match_id)
     return out
 
 
-def _match_finals(finals_rows, by_id, event):
+def _match_finals(finals_rows, by_id, event, bound):
     """Assign rows for the finalists to GF-1 and GF-2.
 
     Four cases, and the only one that needs care is the last:
@@ -262,20 +311,45 @@ def _match_finals(finals_rows, by_id, event):
             why_conditional=why,
         )
 
+    # Raceable means the engine says `ready` -- both racers known, not yet
+    # played. "Not ruled out" is not the same claim: a *finished* reset is not
+    # `not-needed`, so a check for that alone called a played match raceable and
+    # would have opened a room for a tournament that was already over.
+    reset_ready = (by_id.get('GF-2') or {}).get('state') == 'ready'
+    final_ready = final.get('state') == 'ready'
+
     if len(finals_rows) >= 2:
         first, second = finals_rows[0], finals_rows[1]
-        out = [resolved(first[0], first[1], first[2], 'GF-1', conditional=played)]
-        out[0].why_conditional = 'the final has already been played' if played else None
-        out.append(resolved(
-            second[0], second[1], second[2], 'GF-2',
-            conditional=not reset_needed,
-            why=None if reset_needed else 'the reset happens only if the final calls for it',
-        ))
-        return out
+        return [
+            resolved(
+                first[0], first[1], first[2], 'GF-1',
+                conditional=not final_ready,
+                why=None if final_ready else 'the final is not raceable now',
+            ),
+            resolved(
+                second[0], second[1], second[2], 'GF-2',
+                conditional=not reset_ready,
+                why=None if reset_ready else 'the reset happens only if the final calls for it',
+            ),
+        ]
 
     row, one, two = finals_rows[0]
     if not played:
-        return [resolved(row, one, two, 'GF-1', conditional=False)]
+        return [resolved(
+            row, one, two, 'GF-1',
+            conditional=not final_ready,
+            why=None if final_ready else 'the final is not raceable yet',
+        )]
     if reset_needed:
-        return [resolved(row, one, two, 'GF-2', conditional=False)]
+        # The final is over and the reset is on -- but this row is only the
+        # reset's if nobody has used it for the final already. An unchanged row
+        # is the time two people agreed for a race that has now been run, and
+        # rebinding it would open the reset at a time nobody proposed for it.
+        if bound.get(row_key(row.get('at'), one, two)) == 'GF-1':
+            return []
+        return [resolved(
+            row, one, two, 'GF-2',
+            conditional=not reset_ready,
+            why=None if reset_ready else 'the reset is not raceable yet',
+        )]
     return []
