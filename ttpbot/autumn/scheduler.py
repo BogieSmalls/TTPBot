@@ -268,6 +268,7 @@ class AutumnScheduler:
         }
 
         for race in matching.resolved:
+            race.best_of = (matches[race.match_id].get('series') or {}).get('bestOf', 1)
             if self.stopped:
                 return
             try:

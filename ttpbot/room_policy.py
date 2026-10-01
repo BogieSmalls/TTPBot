@@ -1,3 +1,5 @@
+import re
+
 from .config import (
     GOAL_NAME,
     AUTUMN_ROOM_INFO_PREFIX, LEAGUE_ROOM_INFO_PREFIX,
@@ -34,10 +36,9 @@ def is_autumn_room(race_data):
         return False
     info_bot = race_data.get('info_bot', '') or ''
     info_user = race_data.get('info_user', '') or ''
-    return (
-        info_user.startswith(AUTUMN_ROOM_INFO_PREFIX)
-        or info_bot.startswith(AUTUMN_ROOM_INFO_PREFIX)
-    )
+    return any(info.startswith(AUTUMN_ROOM_INFO_PREFIX)
+               or re.match(r'^\d{4} Autumn Tournament \u2014 ', info)
+               for info in (info_user, info_bot))
 
 
 def is_league_room(race_data):
