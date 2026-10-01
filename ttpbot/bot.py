@@ -102,6 +102,7 @@ class TTPBot(Bot):
         TTPRaceHandler.grace_ledger = self.grace_ledger
         TTPRaceHandler.grace_enforced = grace_enforced
         TTPRaceHandler.results_recorder = self._build_results_recorder()
+        TTPRaceHandler.autumn_results = None
         self.created_races = self._load_created_races()
         self.sent_webhooks = self._load_sent_webhooks()
 
@@ -246,10 +247,11 @@ class TTPBot(Bot):
                     '{}.json'.format(kind), self.provider.destination_key, kind,
                     data_dir=root)
                 for kind in ('autumn_bindings', 'autumn_created_races',
-                             'autumn_mirrored_times', 'autumn_sent_webhooks', 'autumn_booth_notices')
+                             'autumn_mirrored_times', 'autumn_sent_webhooks', 'autumn_booth_notices', 'autumn_results')
             }
             runner = build_autumn_runner(os.environ, self, self.logger,
                                          stores=stores)
+            TTPRaceHandler.autumn_results = runner.results
             return runner if runner.configured else None
         except Exception:
             self.logger.error(

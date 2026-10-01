@@ -152,6 +152,7 @@ class TTPRaceHandler(RaceHandler):
     #: Set by TTPBot at start-up, as the grace ledger is. None when League
     #: result recording is switched off.
     results_recorder = None
+    autumn_results = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -859,6 +860,12 @@ class TTPRaceHandler(RaceHandler):
                 await self.results_recorder.record(self.data)
             except Exception:
                 self.logger.exception('League result could not be recorded')
+
+        if getattr(self, 'autumn_room', False) and self.autumn_results is not None:
+            try:
+                await self.autumn_results.record(self.data)
+            except Exception:
+                self.logger.exception('Autumn result suggestion pending recovery')
 
     async def ex_schedule(self, args, message):
         """!schedule - Show today's remaining race times."""

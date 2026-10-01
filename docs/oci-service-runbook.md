@@ -284,3 +284,30 @@ The Autumn booth release can be staged and tested in a separate directory.
 Replacing `/opt/ttpbot` files, hot-reloading, stopping or restarting its service
 requires the agreed TTPBot activation window; testing an isolated candidate is
 not activation. Preserve `/var/lib/ttpbot` and `/etc/ttpbot.env` on deployment.
+
+
+### Autumn result suggestions
+
+TTPBot saves a room receipt naming the competition edition, match, game and the
+two verified racetime IDs. The existing finished-room handler and minute poll
+both recover from those receipts. They never write tournament results. Normal
+finishes produce a proposed operator command; a tie, missing/wrong entrant,
+DNF/DQ, cancellation or changed pairing requires human review. Receipts survive
+restarts and stay bound to the original final, even when its reset is ready.
+
+On coop-relay, list the suggestions without changing anything:
+
+```bash
+cd /opt/ttpbot
+sudo -u ttpbot TTPBOT_DATA_DIR=/var/lib/ttpbot .venv/bin/python -m ttpbot.autumn.results
+```
+
+The command shown is a preview. Verify its racetime room, then run it from the
+Discord checkout with the existing engine environment; append `--commit` only
+after checking the winner. Keep the same explicit `--game` on any retry. A later
+poll marks a suggestion recorded when the engine has that exact game/winner.
+The Discord ready-thread worker opens only newly ready matchups; an undecided
+series does not advance. Challonge entry remains manual.
+
+Do not remove `autumn_results.json` or its quarantine marker to suppress a
+warning. A cancelled/uncertain room is not permission to invent a result.
