@@ -45,14 +45,13 @@ def room_title(race, label=None):
     is *this* match's rather than the same pair's other one.
     """
     matchup = '{} vs {}'.format(race.runner_one, race.runner_two)
-    parts = ['Z1R Autumn']
+    parts = ['{} Autumn Tournament'.format(race.identity.edition or '2026')]
     if label:
         parts.append(label)
     parts.append(matchup)
     title = '{} {}'.format(' — '.join(parts), TITLE_MARKER.format(race.match_id))
-    marker = getattr(race, 'room_marker', None)
-    if marker:
-        title += ' Game {} [{}]'.format(race.identity.game, marker)
+    if getattr(race, 'best_of', 1) > 1 or race.identity.game > 1:
+        title += ' Game {}'.format(race.identity.game)
     return title
 
 
@@ -167,6 +166,7 @@ async def _uncertain(race, provider, access_token, logger, title, requester, why
 
 async def _recover(provider, access_token, logger, title, requester=None):
     """The open room whose info is this match's, if there is exactly one."""
+    titles = {title} if isinstance(title, str) else set(title)
     request = requester if requester is not None else aiohttp.request
     try:
         async with request(
@@ -184,7 +184,7 @@ async def _recover(provider, access_token, logger, title, requester=None):
         for candidate in races:
             if not isinstance(candidate, dict):
                 continue
-            if title not in (candidate.get('info_user'), candidate.get('info_bot')):
+            if not titles.intersection((candidate.get('info_user'), candidate.get('info_bot'))):
                 continue
             raw = candidate.get('url')
             if not raw and isinstance(candidate.get('name'), str):
@@ -208,4 +208,10 @@ async def _recover(provider, access_token, logger, title, requester=None):
 async def recover_autumn_room(race, provider, access_token, logger, label=None):
     if not getattr(race, 'room_marker', None):
         return None
-    return await _recover(provider, access_token, logger, room_title(race, label))
+    # Keep recovering rooms opened before the display-name change. Two matches
+    # across either naming format still refuse rather than selecting a room.
+    parts = ['Z1R Autumn'] + ([label] if label else [])
+    parts.append('{} vs {}'.format(race.runner_one, race.runner_two))
+    legacy = '{} [{}] Game {} [{}]'.format(' \u2014 '.join(parts), race.match_id,
+                                          race.identity.game, race.room_marker)
+    return await _recover(provider, access_token, logger, {room_title(race, label), legacy})

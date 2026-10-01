@@ -44,6 +44,7 @@ class AutumnBroadcastRequestTests(unittest.TestCase):
         for game in (1,2,3):
             race=replace(self.race,identity=RaceIdentity('autumn','W1-1',game,'2026'))
             race.room_marker='Z1RR:test'
+            race.best_of=3
             payload=self.build_request(race=race)
             self.assertTrue(payload['requestKey'].endswith('game:{}'.format(game)))
             self.assertIn('Game {}'.format(game),payload['title'])
