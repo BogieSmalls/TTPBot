@@ -40,6 +40,8 @@ def build_announcement(race, race_url, ids=None, label=None, crew=(),
     headline = 'Z1R Autumn'
     if label:
         headline = '{} — {}'.format(headline, label)
+    if race.identity.edition or race.identity.game > 1:
+        headline += ' - Game {}'.format(race.identity.game)
     content = '{}: {} vs {} — {}'.format(headline, one, two, race_url)
 
     if crew:

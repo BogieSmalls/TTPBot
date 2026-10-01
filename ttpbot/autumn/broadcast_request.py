@@ -40,6 +40,8 @@ def build_broadcast_request(race, row, room_url, document, crew, logger, *, edit
     event = race.identity.event
     game = race.identity.game
     label = '#{}'.format(number) if number is not None else race.match_id
+    if race.identity.edition or game > 1:
+        label += ' - Game {}'.format(game)
     return {
         'requestKey': 'tournament:{}:{}:{}:game:{}'.format(event, edition, race.match_id, game),
         'competition': event, 'edition': edition, 'matchId': race.match_id, 'game': game,

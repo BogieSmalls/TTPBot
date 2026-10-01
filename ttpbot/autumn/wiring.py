@@ -36,7 +36,7 @@ from urllib.parse import urlsplit
 from ..config import TIMEZONE
 from .announce import send_autumn_announcement
 from .engine import engine_from_env
-from .rooms import create_autumn_room, room_title
+from .rooms import create_autumn_room, room_title, recover_autumn_room
 from .scheduler import AutumnScheduler
 from .source import AutumnSource
 from .booths import AutumnBooths
@@ -128,6 +128,10 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             race, bot.provider, getattr(bot, 'access_token', None), logger,
             label=_round_label(race.match_id))
 
+    async def recover_room(race, action):
+        return await recover_autumn_room(race, bot.provider, getattr(bot, 'access_token', None), logger,
+            label=_round_label(race.match_id))
+
     async def seed_invites(race, url):
         """Write the invite list where the room's handler will read it.
 
@@ -149,7 +153,8 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         ids = [racetime_ids.get(who) for who in wanted]
         if results is not None:
             try:
-                results.bind(race, url, racetime_ids)
+                key = results.bind(race, url, racetime_ids)
+                await results.publish_binding(key, results.store.load()[key])
             except Exception:
                 logger.error('Autumn result receipt could not be saved for %s; invitations still proceed', race.match_id, exc_info=True)
         entry = bot.state.setdefault(name, {})
@@ -220,6 +225,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         booth_notice_store=stores.get('autumn_booth_notices'),
         announce_continuation=announce_continuation,
         open_room=open_room,
+        recover_room=recover_room,
         wake_booth=booths.prepare if booths else wake,
         request_booth=booths.request if booths else None,
         announce=announce,

@@ -263,3 +263,27 @@ class Configuration(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class ObservationClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_lost_observation_response_reads_back_without_reposting(self):
+        facts = dict(event='autumn', edition='2026', matchId='W1-1', game=1,
+                     room='https://racetime.gg/z1r/one', status='finished', entrants=[])
+        payload = dict(facts, observationId='saved-one')
+        receipt = dict(id='saved-one', facts=facts, proposalId='proposal-one')
+        wire = Engine(Answer(status=500), Answer(body=jsonlib.dumps({'document': {'edition': '2026', 'observations': {'saved-one': receipt}}})))
+        client = AutumnEngine(token='scratch', session_factory=wire)
+        self.assertTrue(callable(getattr(client, 'observe_result', None)))
+        result = await client.observe_result(payload)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.answer['observation']['proposalId'], 'proposal-one')
+        self.assertEqual([r['method'] for r in wire.asked], ['POST', 'GET'])
+
+    async def test_one_read_missing_or_disagreeing_is_not_proof_of_rejection(self):
+        for observations in ({}, {'saved-one': {'id': 'saved-one', 'facts': {'room': 'wrong'}, 'proposalId': 'one'}}):
+            wire = Engine(Answer(body='{}'), Answer(body=jsonlib.dumps({'document': {'edition': '2026', 'observations': observations}})))
+            client = AutumnEngine(token='scratch', session_factory=wire)
+            self.assertTrue(callable(getattr(client, 'observe_result', None)))
+            result = await client.observe_result(dict(event='autumn', edition='2026', matchId='W1-1', game=1,
+                room='https://racetime.gg/z1r/one', status='finished', entrants=[], observationId='saved-one'))
+            self.assertEqual(result.outcome, UNCONFIRMED)
+            self.assertEqual([r['method'] for r in wire.asked], ['POST', 'GET'])

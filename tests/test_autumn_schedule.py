@@ -164,3 +164,13 @@ class Ordering(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class ExplicitGameSheetTests(unittest.TestCase):
+    def test_headers_identify_game_match_and_status_without_changing_the_legacy_shape(self):
+        from ttpbot.autumn.schedule import parse_schedule
+        parsed=parse_schedule('Date,Time,Runner 1,Runner 2,Match,Game,Status\n10/02/2026,9:00 PM,Alice,Bob,W1-1,2,scheduled\n10/03/2026,9:00 PM,Alice,Bob,W1-1,3,cancelled')
+        self.assertEqual(parsed.bad,[])
+        self.assertEqual([(r.match_id,r.game,r.status) for r in parsed.rows],[('W1-1',2,'scheduled'),('W1-1',3,'cancelled')])
+        self.assertEqual(parsed.rows[0].as_row()['game'],2)
+        invalid=parse_schedule('Date,Time,Runner 1,Runner 2,Match,Game\n10/02/2026,9:00 PM,Alice,Bob,W1-1,two')
+        self.assertEqual(len(invalid.bad),1)

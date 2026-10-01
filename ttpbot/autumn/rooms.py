@@ -49,7 +49,11 @@ def room_title(race, label=None):
     if label:
         parts.append(label)
     parts.append(matchup)
-    return '{} {}'.format(' — '.join(parts), TITLE_MARKER.format(race.match_id))
+    title = '{} {}'.format(' — '.join(parts), TITLE_MARKER.format(race.match_id))
+    marker = getattr(race, 'room_marker', None)
+    if marker:
+        title += ' Game {} [{}]'.format(race.identity.game, marker)
+    return title
 
 
 def autumn_room_form_data(race, label=None):
@@ -199,3 +203,9 @@ async def _recover(provider, access_token, logger, title, requester=None):
     except (ProviderConfigurationError, aiohttp.ClientError,
             asyncio.TimeoutError, TypeError, ValueError):
         return None
+
+
+async def recover_autumn_room(race, provider, access_token, logger, label=None):
+    if not getattr(race, 'room_marker', None):
+        return None
+    return await _recover(provider, access_token, logger, room_title(race, label))

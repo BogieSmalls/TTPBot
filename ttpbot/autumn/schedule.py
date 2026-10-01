@@ -28,6 +28,7 @@ Three things it does not do, each on purpose:
 """
 
 from dataclasses import dataclass, field
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -64,6 +65,9 @@ class ScheduleRow:
     channel: str = ''
     #: 1-based line in the tab, for saying *which* row when something is wrong.
     line: int = 0
+    match_id: Optional[str] = None
+    game: Optional[int] = None
+    status: str = 'scheduled'
 
     @property
     def crew(self):
@@ -76,6 +80,7 @@ class ScheduleRow:
             'at': self.at,
             'runner_one': self.runner_one,
             'runner_two': self.runner_two,
+            **({'match_id': self.match_id, 'game': self.game, 'status': self.status} if self.match_id or self.game or self.status != 'scheduled' else {}),
         }
 
 
@@ -101,6 +106,7 @@ class Schedule:
     #: document, anything without the header. Distinct from "no rows", which is
     #: a legitimately empty schedule and means every race is done or cancelled.
     readable: bool = True
+    observed_at: Optional[datetime] = None
 
     def in_time_order(self):
         """The rows earliest first, which is what separates the two finals.
@@ -160,6 +166,18 @@ def parse_schedule(csv_text, logger=None):
                 BadRow(line, 'unreadable date or time: {}'.format(exc), tuple(row)))
             continue
 
+        match_id = cell(row, columns, 'match_id') or None
+        game_text = cell(row, columns, 'game')
+        status = (cell(row, columns, 'status') or 'scheduled').lower()
+        if status == 'canceled':
+            status = 'cancelled'
+        if (match_id and not re.fullmatch(r'(?:W\d+-\d+|L\d+-\d+|GF-[12])', match_id)
+                or game_text and not re.fullmatch(r'[1-7]', game_text)
+                or status not in ('scheduled', 'cancelled', 'superseded')):
+            found.bad.append(BadRow(line, 'Match must name an engine match, Game is 1-7, Status is scheduled/cancelled/superseded', tuple(row)))
+            continue
+        if status == 'superseded':
+            continue
         found.rows.append(ScheduleRow(
             at=at,
             runner_one=one,
@@ -168,7 +186,7 @@ def parse_schedule(csv_text, logger=None):
             comms_two=cell(row, columns, 'comms_two'),
             tracker=cell(row, columns, 'tracker'),
             channel=cell(row, columns, 'channel'),
-            line=line,
+            line=line, match_id=match_id, game=int(game_text) if game_text else None, status=status,
         ))
 
     if found.bad and logger:

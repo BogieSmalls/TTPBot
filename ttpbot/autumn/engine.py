@@ -77,10 +77,11 @@ class AutumnEngine:
     """
 
     def __init__(self, url=None, token=None, event='autumn', logger=None,
-                 session_factory=None):
+                 session_factory=None, edition='2026'):
         self._url = (url or DEFAULT_ENGINE_URL).rstrip('/')
         self._token = token
         self._event = event
+        self.edition = edition
         self._log = logger
         # Injected in tests. Nothing here builds a session per call in
         # production either -- aiohttp.request does that -- but a test needs to
@@ -173,6 +174,8 @@ class AutumnEngine:
                 text = await response.text()
                 if response.status == 200:
                     answer = jsonlib.loads(text)
+                    if not isinstance(answer, dict):
+                        return Written(UNCONFIRMED, detail='answer was not an object')
                     return Written(
                         RECORDED, revision=answer.get('revision'), answer=answer)
                 detail = text.strip()[:200]
@@ -188,7 +191,7 @@ class AutumnEngine:
         except ValueError as exc:
             return Written(UNCONFIRMED, detail='answer was not JSON: {}'.format(exc))
 
-    async def mirror_time(self, match_id, at):
+    async def mirror_time(self, match_id, at, game=None, edition=None, observed_at=None):
         """Tell the engine when a match is, as the sheet has it.
 
         The sheet is authoritative, so this is a mirror and never a source: it is
@@ -201,7 +204,10 @@ class AutumnEngine:
         arrived without an answer.
         """
         when = at.isoformat() if hasattr(at, 'isoformat') else str(at)
-        written = await self._post('time', {'matchId': match_id, 'at': when})
+        payload = {'matchId': match_id, 'at': when}
+        if edition is not None:
+            payload.update(edition=edition, game=game, source='sheet', observedAt=observed_at)
+        written = await self._post('time', payload)
         if written.outcome != UNCONFIRMED:
             return written
 
@@ -217,7 +223,10 @@ class AutumnEngine:
             return Written(UNCONFIRMED, detail='read-back failed: {}'.format(exc))
 
         document = state.get('document') or {}
-        recorded = (document.get('times') or {}).get(match_id)
+        if edition is not None:
+            recorded = (document.get('gameTimes') or {}).get(match_id, {}).get(str(game)) if document.get('edition') == edition else None
+        else:
+            recorded = (document.get('times') or {}).get(match_id)
         if recorded and recorded.get('at') == when:
             return Written(
                 RECORDED,
@@ -243,6 +252,105 @@ class AutumnEngine:
                 else 'the engine has no time recorded for this match yet'
             ),
         )
+
+    async def bind_result_room(self, payload):
+        result = await self._post('bindResultRoom', payload)
+        if result.outcome == NOT_RECORDED:
+            return result
+        def matches(room):
+            return (isinstance(room, dict) and room.get('room') == payload['room']
+                    and room.get('racers') == payload['racers']
+                    and room.get('matchId') == payload['matchId'] and room.get('game') == payload['game'])
+        if result.ok and matches((result.answer or {}).get('room')):
+            return result
+        try:
+            document = (await self.state()).get('document') or {}
+            room = (document.get('rooms') or {}).get('{}|{}'.format(payload['matchId'], payload['game']))
+            if document.get('edition') == payload['edition'] and matches(room):
+                return Written(RECORDED, revision=document.get('revision'), answer={'room': room})
+        except EngineUnreachable:
+            pass
+        return Written(UNCONFIRMED, detail='room binding could not be confirmed')
+
+    async def observe_result(self, payload):
+        # Stable observations are idempotent at the engine. Still read back a
+        # lost response now; the durable outbox may redeliver that same ID later.
+        result = await self._post('observeResult', payload)
+        if result.outcome == NOT_RECORDED:
+            return result
+        facts = {key: payload[key] for key in ('edition', 'matchId', 'game', 'room', 'status', 'entrants')}
+        facts['event'] = self._event
+        facts['entrants'] = sorted(facts['entrants'], key=lambda entrant: entrant['id'])
+        def matches(receipt):
+            return (isinstance(receipt, dict) and receipt.get('id') == payload['observationId']
+                    and receipt.get('facts') == facts and bool(receipt.get('proposalId')))
+        if result.ok and matches((result.answer or {}).get('observation')):
+            return result
+        try:
+            document = (await self.state()).get('document') or {}
+            receipt = (document.get('observations') or {}).get(payload['observationId'])
+            if document.get('edition') == payload['edition'] and matches(receipt):
+                return Written(RECORDED, revision=document.get('revision'), answer={'observation': receipt})
+        except EngineUnreachable:
+            pass
+        return Written(UNCONFIRMED, detail='observation receipt could not be confirmed')
+
+    async def cancel_time(self, match_id, game, edition, observed_at):
+        return await self._post('time', dict(matchId=match_id, game=game, edition=edition,
+            status='cancelled', source='sheet', observedAt=observed_at))
+
+    async def queue_announcement(self, payload):
+        result = await self._post('queueAnnouncement', payload)
+        if result.ok or result.outcome == NOT_RECORDED:
+            return result
+        try:
+            document = (await self.state()).get('document') or {}
+            for action in document.get('actions', {}).values():
+                if (document.get('edition') == payload['edition']
+                        and action.get('kind') == 'room-announcement'
+                        and all(action.get(key) == payload[key] for key in ('matchId', 'game', 'room', 'phase'))):
+                    return Written(RECORDED, answer={'action': action})
+        except EngineUnreachable:
+            pass
+        return result
+
+    async def room_work(self, payload):
+        return await self._post('roomWork', payload)
+
+    async def import_room(self, payload):
+        if payload.get('room'):
+            return await self.bind_result_room(payload)
+        return await self._post('importRoom', payload)
+
+    async def claim_room(self, payload):
+        result = await self._post('claimRoom', payload)
+        if result.ok or result.outcome == NOT_RECORDED:
+            return result
+        try:
+            document = (await self.state()).get('document') or {}
+            action = document.get('actions', {}).get(payload['actionId'], {})
+            if (document.get('edition') == payload['edition'] and action.get('status') == 'claimed'
+                    and action.get('claimRequestId') == payload['requestId'] and action.get('claim')):
+                return Written(RECORDED, answer={'action': action})
+        except EngineUnreachable:
+            pass
+        return result
+
+    async def complete_room(self, payload):
+        result = await self._post('completeRoom', payload)
+        if result.ok or result.outcome == NOT_RECORDED:
+            return result
+        try:
+            document = (await self.state()).get('document') or {}
+            action = document.get('actions', {}).get(payload['actionId'], {})
+            if (document.get('edition') == payload['edition'] and action.get('claim') == payload['claim']
+                    and payload['status'] == 'created' and action.get('room') == payload.get('room')
+                    and action.get('status') in ('completed', 'completed-obsolete')):
+                room = document.get('rooms', {}).get('{}|{}'.format(action['matchId'], action['game']))
+                return Written(RECORDED, answer={'action': action, 'room': room, 'usable': action['status'] == 'completed'})
+        except EngineUnreachable:
+            pass
+        return result
 
     async def claim_thread(self, match_id, by):
         """Claim the right to create a match's thread. See the engine's writer."""
@@ -270,5 +378,6 @@ def engine_from_env(env, event='autumn', logger=None):
         url=(env.get('Z1RR_ENGINE_URL') or '').strip() or DEFAULT_ENGINE_URL,
         token=token,
         event=event,
+        edition=(env.get('Z1RR_AUTUMN_EDITION') or '2026').strip(),
         logger=logger,
     )

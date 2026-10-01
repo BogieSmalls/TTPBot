@@ -15,7 +15,7 @@ Nothing here talks to anything. It takes a bracket snapshot and some rows and
 says which match each row means, or why it cannot tell.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 
 
@@ -102,9 +102,12 @@ class RaceIdentity:
     event: str
     match_id: str
     game: int = 1
+    edition: Optional[str] = None
 
     @property
     def key(self):
+        if self.edition is not None:
+            return '{}|{}|{}|{}'.format(self.event, self.edition, self.match_id, self.game)
         return '{}|{}|{}'.format(self.event, self.match_id, self.game)
 
 
@@ -135,6 +138,7 @@ class Resolved:
     #: finalists are known, and raceable only if the final goes a certain way.
     conditional: bool = False
     why_conditional: Optional[str] = None
+    status: str = 'scheduled'
 
 
 @dataclass
@@ -189,7 +193,7 @@ def _reset_needed(matches):
     return reset.get('state') not in ('not-needed', None)
 
 
-def match_rows(rows, matches, *, event='autumn', bindings=None, aliases=None):
+def match_rows(rows, matches, *, event='autumn', bindings=None, aliases=None, edition=None):
     """Resolve schedule rows against a bracket snapshot.
 
     `rows` are dicts of `at`, `runner_one`, `runner_two` -- names as the sheet
@@ -231,6 +235,25 @@ def match_rows(rows, matches, *, event='autumn', bindings=None, aliases=None):
         if len(pair) < 2:
             out.unresolved.append(Unresolved(
                 'the two racers are the same person', one, two, row.get('at')))
+            continue
+
+        explicit = row.get('match_id')
+        if explicit:
+            match = by_id.get(explicit)
+            best_of = ((match or {}).get('series') or {}).get('bestOf', 1)
+            game = row.get('game') or (1 if best_of == 1 else None)
+            compared = by_id.get('GF-1') if explicit == 'GF-2' and not (match or {}).get('a') else match
+            if (not match or not isinstance(game, int) or not 1 <= game <= best_of
+                    or _pair(compared or {}) != pair):
+                out.unresolved.append(Unresolved('Match/Game or racers disagree with the bracket', one, two, row.get('at')))
+                continue
+            conditional = match.get('state') != 'ready'
+            out.resolved.append(Resolved(RaceIdentity(event, explicit, game, edition), explicit, row.get('at'),
+                compared['a'], compared['b'], conditional, 'match is not ready' if conditional else None,
+                row.get('status', 'scheduled')))
+            continue
+        if row.get('game', 1) not in (None, 1) or any(_pair(m) == pair and (m.get('series') or {}).get('bestOf', 1) > 1 for m in by_id.values()):
+            out.unresolved.append(Unresolved('Best-of rows need explicit Match and Game columns', one, two, row.get('at')))
             continue
 
         # The finals are handled together, after every row is seen, because the
@@ -302,6 +325,24 @@ def match_rows(rows, matches, *, event='autumn', bindings=None, aliases=None):
         ))
 
     out.resolved.extend(_match_finals(finals_rows, by_id, event, bound))
+    grouped = {}
+    for race in out.resolved:
+        if edition is not None:
+            race.identity = replace(race.identity, edition=edition)
+        grouped.setdefault(race.identity.key, []).append(race)
+    out.resolved = []
+    for group in grouped.values():
+        first = group[0]
+        explicit_group = any(row.get('match_id') == first.match_id and (row.get('game') or 1) == first.identity.game for row in ordered)
+        if not explicit_group:
+            # Legacy BO1 forms append a later time when a race moves. Keep
+            # that existing convention; explicit Match/Game rows require status.
+            out.resolved.append(group[-1])
+            continue
+        if len({(race.at, race.status) for race in group}) > 1:
+            out.unresolved.append(Unresolved('Conflicting active rows for one Match/Game; mark the old row superseded', first.runner_one, first.runner_two, first.at))
+            continue
+        out.resolved.append(first)
     for race in out.resolved:
         bound.setdefault(
             row_key(race.at, race.runner_one, race.runner_two), race.match_id)

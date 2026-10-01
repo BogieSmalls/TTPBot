@@ -33,6 +33,7 @@ room, waking a booth and posting an announcement each have their own.
 """
 
 import asyncio
+from uuid import uuid4
 from datetime import datetime, timedelta
 
 from ..config import TIMEZONE
@@ -70,7 +71,7 @@ class AutumnScheduler:
                  created_store=None, mirrored_store=None, announced_store=None,
                  open_room=None, wake_booth=None, announce=None, invite=None,
                  event='autumn', request_booth=None, booth_notice_store=None,
-                 announce_continuation=None, recover_results=None):
+                 announce_continuation=None, recover_results=None, recover_room=None):
         self.source = source
         self.engine = engine
         self.logger = logger
@@ -94,6 +95,9 @@ class AutumnScheduler:
         self._announce_continuation = announce_continuation
         self._invite = invite
         self._recover_results = recover_results
+        self._recover_room = recover_room
+        self._workflow = False
+        self._workflow_document = None
 
         self.bindings = self._load(bindings_store)
         self.created = self._load(created_store)
@@ -169,7 +173,9 @@ class AutumnScheduler:
 
     # -- keys --------------------------------------------------------------
 
-    def _match_key(self, match_id):
+    def _match_key(self, match_id, game=1):
+        if self._workflow:
+            return '{}-{}|{}|{}'.format(self.event, self.engine.edition, match_id, game)
         return '{}|{}'.format(self.event, match_id)
 
     # -- the tick ----------------------------------------------------------
@@ -206,6 +212,17 @@ class AutumnScheduler:
         if not drawn.get('drawn'):
             return
 
+        self._workflow = drawn.get('workflowVersion') == 2
+        if self._workflow:
+            try:
+                self._workflow_document = (await self.engine.state()).get('document') or {}
+                if (drawn.get('edition') != self.engine.edition
+                        or self._workflow_document.get('edition') != self.engine.edition):
+                    self.logger.error('Autumn: configured edition does not own this draw; runner held')
+                    return
+            except Exception:
+                self.logger.error('Autumn: cannot verify workflow state; runner held', exc_info=True)
+                return
         matches = {match['id']: match for match in drawn.get('matches', [])}
         aliases = drawn.get('aliases') or {}
 
@@ -222,11 +239,16 @@ class AutumnScheduler:
             event=self.event,
             aliases=aliases,
             bindings=self._unscoped_bindings(),
+            edition=self.engine.edition if self._workflow else None,
         )
 
         if not self._remember(matching.bindings):
             return
         self._report(matching.unresolved, schedule)
+        self._schedule_observed_at = schedule.observed_at or now
+        if self._workflow and not schedule.bad and not matching.unresolved:
+            if not await self._cancel_missing(matching.resolved):
+                return
 
         # The crew columns belong to the row, not to the match, so they are
         # carried across by time and pair rather than looked up again.
@@ -241,7 +263,7 @@ class AutumnScheduler:
                 row.at,
                 canonical(row.runner_one, aliases),
                 canonical(row.runner_two, aliases),
-            ): row
+            ) + '|{}'.format(row.game or 1): row
             for row in schedule.rows
         }
 
@@ -250,16 +272,22 @@ class AutumnScheduler:
                 return
             try:
                 await self._handle(race, crew_for.get(
-                    row_key(race.at, race.runner_one, race.runner_two)), now)
+                    row_key(race.at, race.runner_one, race.runner_two) + '|{}'.format(race.identity.game)), now)
             except Exception:
                 self.logger.error(
                     'Error handling Autumn %s', race.match_id, exc_info=True)
 
     async def _handle(self, race, row, now):
         """One resolved race, at whatever stage it is at."""
+        if self._workflow and race.status == 'cancelled':
+            await self.engine.cancel_time(race.match_id, race.identity.game, self.engine.edition, self._schedule_observed_at.isoformat())
+            return
+        if not self._workflow and race.identity.game != 1:
+            self.logger.error('Autumn: per-game rooms require the migrated engine')
+            return
         # The mirror first, because the engine's answer to it is also the
         # engine's answer to "may this be raced at all".
-        if not await self._mirror(race):
+        if not await self._mirror(race, now):
             return
 
         if race.conditional:
@@ -268,8 +296,9 @@ class AutumnScheduler:
             # is still mirrored -- the finalists agreed it -- but no room opens.
             return
 
-        opens_at = race.at - timedelta(minutes=ROOM_OPEN_MINUTES_BEFORE)
-        wakes_at = race.at - timedelta(minutes=BOOTH_WAKE_MINUTES_BEFORE)
+        settings = self._workflow_document.get('settings', {}) if self._workflow else {}
+        opens_at = race.at - timedelta(minutes=settings.get('roomLeadMinutes', ROOM_OPEN_MINUTES_BEFORE))
+        wakes_at = race.at - timedelta(minutes=settings.get('wakeLeadMinutes', BOOTH_WAKE_MINUTES_BEFORE))
         too_late = race.at + ROOM_OPEN_GRACE
 
         if now > too_late:
@@ -277,13 +306,21 @@ class AutumnScheduler:
             # scheduler that does it hours late is just confusing.
             return
 
-        if now >= wakes_at:
-            await self._wake(race, row)
-
-        if now < opens_at:
-            return
-
-        url = await self._room(race, row)
+        if self._workflow:
+            if now < wakes_at:
+                return
+            work = await self._room_work(race)
+            if work is None:
+                return
+            if work.get('mayWake'):
+                await self._wake(race, row)
+            url = await self._room_v2(race, row, work)
+        else:
+            if now >= wakes_at:
+                await self._wake(race, row)
+            if now < opens_at:
+                return
+            url = await self._room(race, row)
         if not url:
             return
 
@@ -305,7 +342,7 @@ class AutumnScheduler:
 
     # -- the mirror --------------------------------------------------------
 
-    async def _mirror(self, race):
+    async def _mirror(self, race, now=None):
         """Tell the engine when this match is. Returns whether to carry on.
 
         Keyed by the match, so a reschedule is a *changed* value rather than a
@@ -317,12 +354,16 @@ class AutumnScheduler:
         The sheet owns *when* a match is; it does not get to say that a match
         which is over is happening tonight.
         """
-        key = self._match_key(race.match_id)
+        key = self._match_key(race.match_id, race.identity.game)
         when = race.at.isoformat()
-        if self.mirrored.get(key) == when:
+        if not self._workflow and self.mirrored.get(key) == when:
             return True
 
-        written = await self.engine.mirror_time(race.match_id, race.at)
+        if self._workflow:
+            written = await self.engine.mirror_time(race.match_id, race.at, game=race.identity.game,
+                edition=self.engine.edition, observed_at=self._schedule_observed_at.isoformat())
+        else:
+            written = await self.engine.mirror_time(race.match_id, race.at)
         if written.ok:
             self.mirrored[key] = when
             return self._save(self.mirrored_store, self.mirrored)
@@ -343,7 +384,7 @@ class AutumnScheduler:
         self.logger.warning(
             'Autumn: the engine has not confirmed %s at %s (%s: %s)',
             race.match_id, when, written.outcome, written.detail)
-        return True
+        return not self._workflow
 
     # -- the side effects --------------------------------------------------
 
@@ -354,7 +395,7 @@ class AutumnScheduler:
         transient failure became a permanent omission: the flag said it had been
         asked, and no later tick asked again.
         """
-        if self._wake_booth is None or race.match_id in self._woken:
+        if self._wake_booth is None or self._match_key(race.match_id, race.identity.game) in self._woken:
             return
         channel = getattr(row, 'channel', '') if row else ''
         if not channel:
@@ -369,7 +410,128 @@ class AutumnScheduler:
                 'Autumn: could not wake the booth for %s; will try again',
                 race.match_id, exc_info=True)
             return
-        self._woken.add(race.match_id)
+        self._woken.add(self._match_key(race.match_id, race.identity.game))
+
+    async def _cancel_missing(self, races):
+        active = {(race.match_id, race.identity.game) for race in races if race.status == 'scheduled'}
+        document = self._workflow_document
+        for match_id, games in document.get('gameTimes', {}).items():
+            played = {game['game'] for game in document.get('games', {}).get(match_id, [])}
+            for number, scheduled in games.items():
+                game = int(number)
+                if (scheduled.get('source') != 'sheet' or scheduled.get('status') != 'scheduled'
+                        or game in played or (match_id, game) in active):
+                    continue
+                result = await self.engine.cancel_time(match_id, game, self.engine.edition, self._schedule_observed_at.isoformat())
+                if not result.ok:
+                    self.logger.error('Autumn: cannot confirm removed schedule row; room work held')
+                    return False
+        return True
+
+    def _adopt_legacy(self, race):
+        # Only the known migration edition may inherit edition-less receipts.
+        if self.engine.edition != '2026' or race.identity.game != 1:
+            return True
+        old = '{}|{}'.format(self.event, race.match_id)
+        new = self._match_key(race.match_id, 1)
+        for entries, store in [(self.created,self.created_store),(self.mirrored,self.mirrored_store),
+                               (self.announced,self.announced_store),(self.booth_notices,self.booth_notice_store)]:
+            if old not in entries:
+                continue
+            if new in entries:
+                # A newer engine-owned uncertain marker is not overwritten by
+                # an old URL; engine receipts decide whether it can be used.
+                continue
+            entries[new] = entries[old]
+            if not self._save(store, entries):
+                return False
+        return True
+
+    def _room_identity(self, race):
+        return dict(edition=self.engine.edition, matchId=race.match_id, game=race.identity.game)
+
+    async def _room_work(self, race):
+        actions = [a for a in self._workflow_document.get('actions', {}).values()
+                   if a.get('kind') == 'race-room' and a.get('matchId') == race.match_id
+                   and a.get('game') == race.identity.game]
+        if not actions and not self._adopt_legacy(race):
+            return None
+        identity = self._room_identity(race)
+        key = self._match_key(race.match_id, race.identity.game)
+        existing = self.created.get(key)
+        if existing and any(a.get('room') == existing and a.get('replacementDecisionId') for a in actions):
+            for entries, store in [(self.created,self.created_store),(self.announced,self.announced_store),(self.booth_notices,self.booth_notice_store)]:
+                entries.pop(key,None)
+                if not self._save(store,entries):
+                    return None
+            existing = None
+        if existing and not actions:
+            if existing == UNCERTAIN_RACE:
+                # An engine-owned claim is already authoritative. Do not add a
+                # second legacy marker while importing our own last attempt.
+                actions = self._workflow_document.get('actions', {}).values()
+                if not any(a.get('kind') == 'race-room' and a.get('matchId') == race.match_id
+                           and a.get('game') == race.identity.game for a in actions):
+                    imported = await self.engine.import_room(dict(identity, uncertain=True))
+                    if not imported.ok:
+                        return None
+            else:
+                ids = self._workflow_document.get('racetimeIds', {})
+                imported = await self.engine.import_room(dict(identity, room=existing,
+                    racers={race.runner_one: ids.get(race.runner_one), race.runner_two: ids.get(race.runner_two)}))
+                if not imported.ok:
+                    return None
+        result = await self.engine.room_work(dict(identity, at=race.at.isoformat()))
+        if not result.ok:
+            self.logger.error('Autumn: room authority could not be confirmed for %s: %s', race.match_id, result.detail)
+            return None
+        return result.answer
+
+    async def _room_v2(self, race, row, work):
+        room = work.get('room')
+        if room:
+            return None if room.get('obsolete') else room['room']
+        action = work.get('action') or {}
+        race.room_marker = action.get('marker')
+        identity = self._room_identity(race)
+        if action.get('status') in ('claimed', 'uncertain', 'withdrawn') and action.get('claim'):
+            # Expiry is permission to recover, never to make another room.
+            if self._recover_room is None:
+                return None
+            recovered = await self._recover_room(race, action)
+            if not recovered:
+                return None
+            receipt = await self.engine.complete_room(dict(identity, actionId=action['id'],
+                claim=action['claim'], status='created', room=recovered))
+            return recovered if receipt.ok and receipt.answer.get('usable') else None
+        if not work.get('mayOpen') or self._open_room is None:
+            return None
+        claim = await self.engine.claim_room(dict(identity, actionId=action['id'],requestId=uuid4().hex,by='ttpbot'))
+        if not claim.ok:
+            return None
+        action = claim.answer['action']
+        race.room_marker = action['marker']
+        key = self._match_key(race.match_id, race.identity.game)
+        self.created[key] = UNCERTAIN_RACE
+        if not self._save(self.created_store,self.created):
+            return None
+        try:
+            made = await self._open_room(race,row)
+        except Exception:
+            made = UNCERTAIN_RACE
+            self.logger.error('Autumn: room request uncertain; claim retained',exc_info=True)
+        status = 'uncertain' if made == UNCERTAIN_RACE else 'created' if made else 'not-created'
+        receipt = await self.engine.complete_room(dict(identity,actionId=action['id'],claim=action['claim'],
+            status=status,room=made if status=='created' else None,
+            reason='opener verified rejection before creation' if status=='not-created' else None))
+        if not receipt.ok:
+            return None
+        if status=='not-created':
+            self.created.pop(key,None);self._save(self.created_store,self.created)
+        if not receipt.answer.get('usable'):
+            return None
+        self.created[key]=made
+        return made if self._save(self.created_store,self.created) else None
 
     async def _room(self, race, row):
         """The room for this match, making it if there is not one yet.
@@ -381,7 +543,7 @@ class AutumnScheduler:
         creation that does not come back cleanly stays a reservation rather than
         becoming nothing.
         """
-        key = self._match_key(race.match_id)
+        key = self._match_key(race.match_id, race.identity.game)
         existing = self.created.get(key)
 
         if existing is None:
@@ -456,9 +618,12 @@ class AutumnScheduler:
 
     async def _tell(self, race, row, url, booth=None):
         """Announce once; recover a late already-on-air warning separately."""
+        if self._workflow:
+            await self._queue_notice(race, row, url, booth)
+            return
         if self._announce is None:
             return
-        key = self._match_key(race.match_id)
+        key = self._match_key(race.match_id, race.identity.game)
         continuation = bool(booth and booth.is_continuation)
         if self.announced.get(key):
             if not continuation or self.booth_notices.get(key) or self._announce_continuation is None:
@@ -486,6 +651,34 @@ class AutumnScheduler:
             self.booth_notices[key] = True
             self._save(self.booth_notice_store, self.booth_notices)
 
+    async def _queue_notice(self, race, row, url, booth):
+        key = self._match_key(race.match_id, race.identity.game)
+        continuation = bool(booth and booth.is_continuation)
+        if self.announced.get(key):
+            if not continuation or self.booth_notices.get(key):
+                return
+            phase = 'continuation'
+        else:
+            phase = 'room'
+        try:
+            answer = await self.engine.queue_announcement(dict(
+                edition=self.engine.edition, matchId=race.match_id, game=race.identity.game,
+                room=url, phase=phase, continuation=continuation,
+                crew=list(getattr(row, 'crew', ()) or ())))
+            if not answer.ok:
+                self.logger.error('Autumn: announcement queue unconfirmed for %s; no Discord post attempted', race.match_id)
+                return
+        except Exception:
+            self.logger.error('Autumn: cannot queue announcement for %s', race.match_id, exc_info=True)
+            return
+        if phase == 'room':
+            self.announced[key] = True
+            if not self._save(self.announced_store, self.announced):
+                return
+        if continuation:
+            self.booth_notices[key] = True
+            self._save(self.booth_notice_store, self.booth_notices)
+
     # -- bookkeeping -------------------------------------------------------
 
     def _unscoped_bindings(self):
@@ -495,12 +688,11 @@ class AutumnScheduler:
         other's, and handed over without it because the matcher only ever deals
         with one.
         """
-        prefix = '{}|'.format(self.event)
-        return {
-            key[len(prefix):]: value
-            for key, value in self.bindings.items()
-            if key.startswith(prefix)
-        }
+        prefixes = ['{}|'.format(self.event)]
+        if self._workflow:
+            prefixes = (prefixes if self.engine.edition == '2026' else []) + ['{}-{}|'.format(self.event, self.engine.edition)]
+        return {key[len(prefix):]: value for prefix in prefixes
+                for key, value in self.bindings.items() if key.startswith(prefix)}
 
     def _remember(self, bindings):
         """Persist any new binding. Returns whether it is safe to carry on.
@@ -511,7 +703,8 @@ class AutumnScheduler:
         """
         added = False
         for key, match_id in bindings.items():
-            scoped = '{}|{}'.format(self.event, key)
+            scope = '{}-{}'.format(self.event, self.engine.edition) if self._workflow else self.event
+            scoped = '{}|{}'.format(scope, key)
             if self.bindings.get(scoped) == match_id:
                 continue
             # A row never changes the match it was given. If this ever fires it

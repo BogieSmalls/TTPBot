@@ -38,6 +38,18 @@ class AutumnBroadcastRequestTests(unittest.TestCase):
         reset = replace(self.race, match_id='GF-2', identity=RaceIdentity('autumn', 'GF-2'))
         self.assertNotEqual(self.build_request(race=final)['requestKey'], self.build_request(race=reset)['requestKey'])
 
+    def test_each_best_of_game_has_its_own_booth_key_and_visible_game_number(self):
+        from ttpbot.autumn.announce import build_announcement
+        from ttpbot.autumn.rooms import room_title
+        for game in (1,2,3):
+            race=replace(self.race,identity=RaceIdentity('autumn','W1-1',game,'2026'))
+            race.room_marker='Z1RR:test'
+            payload=self.build_request(race=race)
+            self.assertTrue(payload['requestKey'].endswith('game:{}'.format(game)))
+            self.assertIn('Game {}'.format(game),payload['title'])
+            self.assertIn('Game {}'.format(game),build_announcement(race,ROOM_URL)['content'])
+            self.assertIn('Game {}'.format(game),room_title(race))
+
     def test_unassigned_channel_or_unknown_stream_does_not_make_a_booth(self):
         self.assertIsNone(self.build_request(row=replace(self.row, channel='')))
         missing = dict(self.document, twitchChannels={'ISUMatt': 'isumatt'})
