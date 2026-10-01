@@ -735,3 +735,28 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
             state=(await engine.state())['document']
             self.assertEqual(state['gameTimes']['W1-1']['3']['status'],'cancelled')
             self.assertEqual(state['results']['W1-1'],'Alice')
+
+class RetiredRoomTests(unittest.IsolatedAsyncioTestCase):
+    async def test_engine_retirement_clears_local_copies_and_never_reimports_them(self):
+        from types import SimpleNamespace
+        imports=[]
+        class Engine:
+            edition='2026'
+            async def import_room(self,payload):imports.append(payload);return Written(RECORDED)
+            async def room_work(self,payload):return Written(RECORDED,answer={'mayOpen':True,'action':{'id':'new'}})
+        runner=AutumnScheduler(FakeSource(''),Engine(),Log())
+        runner._workflow=True;runner._workflow_document={'actions':{'old':{'kind':'race-room','matchId':'W1-1','game':1,'room':ROOM,'replacementDecisionId':'council'}}}
+        key=runner._match_key('W1-1',1);runner.created.update({key:ROOM,'autumn|W1-1':ROOM});runner.announced[key]=True;runner.booth_notices[key]=True
+        race=SimpleNamespace(match_id='W1-1',identity=SimpleNamespace(game=1),at=START,runner_one='Alice',runner_two='Bob')
+        self.assertTrue((await runner._room_work(race))['mayOpen']);self.assertEqual(imports,[])
+        self.assertNotIn(key,runner.created);self.assertNotIn(key,runner.announced)
+        await runner._room_work(race);self.assertEqual(imports,[],'old edition-less entry cannot revive the retired room')
+
+    async def test_runner_does_not_delay_engine_lead_times_using_legacy_constants(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        runner=AutumnScheduler(FakeSource(''),SimpleNamespace(edition='2026'),Log())
+        runner._workflow=True;runner._workflow_document={'settings':{'wakeLeadMinutes':50,'roomLeadMinutes':40}}
+        runner._mirror=AsyncMock(return_value=True);runner._room_work=AsyncMock(return_value={'mayWake':False,'mayOpen':False});runner._room_v2=AsyncMock(return_value=None)
+        race=SimpleNamespace(match_id='W1-1',identity=SimpleNamespace(game=1),at=START,status='scheduled',conditional=False)
+        await runner._handle(race,None,at(START,45));runner._room_work.assert_awaited_once()

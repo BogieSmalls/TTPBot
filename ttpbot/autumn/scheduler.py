@@ -296,8 +296,9 @@ class AutumnScheduler:
             # is still mirrored -- the finalists agreed it -- but no room opens.
             return
 
-        opens_at = race.at - timedelta(minutes=ROOM_OPEN_MINUTES_BEFORE)
-        wakes_at = race.at - timedelta(minutes=BOOTH_WAKE_MINUTES_BEFORE)
+        settings = self._workflow_document.get('settings', {}) if self._workflow else {}
+        opens_at = race.at - timedelta(minutes=settings.get('roomLeadMinutes', ROOM_OPEN_MINUTES_BEFORE))
+        wakes_at = race.at - timedelta(minutes=settings.get('wakeLeadMinutes', BOOTH_WAKE_MINUTES_BEFORE))
         too_late = race.at + ROOM_OPEN_GRACE
 
         if now > too_late:
@@ -450,11 +451,21 @@ class AutumnScheduler:
         return dict(edition=self.engine.edition, matchId=race.match_id, game=race.identity.game)
 
     async def _room_work(self, race):
-        if not self._adopt_legacy(race):
+        actions = [a for a in self._workflow_document.get('actions', {}).values()
+                   if a.get('kind') == 'race-room' and a.get('matchId') == race.match_id
+                   and a.get('game') == race.identity.game]
+        if not actions and not self._adopt_legacy(race):
             return None
         identity = self._room_identity(race)
-        existing = self.created.get(self._match_key(race.match_id, race.identity.game))
-        if existing:
+        key = self._match_key(race.match_id, race.identity.game)
+        existing = self.created.get(key)
+        if existing and any(a.get('room') == existing and a.get('replacementDecisionId') for a in actions):
+            for entries, store in [(self.created,self.created_store),(self.announced,self.announced_store),(self.booth_notices,self.booth_notice_store)]:
+                entries.pop(key,None)
+                if not self._save(store,entries):
+                    return None
+            existing = None
+        if existing and not actions:
             if existing == UNCERTAIN_RACE:
                 # An engine-owned claim is already authoritative. Do not add a
                 # second legacy marker while importing our own last attempt.
