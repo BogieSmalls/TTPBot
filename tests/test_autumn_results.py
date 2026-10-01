@@ -210,7 +210,10 @@ server.listen(0, '127.0.0.1', () => console.log(server.address().port));
         mixed_ids = copy.deepcopy(DATA)
         mixed_ids['entrants'][0]['user']['id'] = 'Za'
         mixed_ids['entrants'][1]['user']['id'] = 'aZ'
-        await self.recorder.record(mixed_ids)
+        from ttpbot.handler import TTPRaceHandler
+        handler = TTPRaceHandler(conn=None, logger=logging.getLogger('test'), state={})
+        handler.data, handler.autumn_room, handler.autumn_results = mixed_ids, True, self.recorder
+        await handler.end()
         state = (await client.state())['document']
         self.assertEqual(len(state['proposals']), 1)
         self.assertEqual(state['results'], {})
