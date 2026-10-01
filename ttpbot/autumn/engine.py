@@ -299,6 +299,21 @@ class AutumnEngine:
         return await self._post('time', dict(matchId=match_id, game=game, edition=edition,
             status='cancelled', source='sheet', observedAt=observed_at))
 
+    async def queue_announcement(self, payload):
+        result = await self._post('queueAnnouncement', payload)
+        if result.ok or result.outcome == NOT_RECORDED:
+            return result
+        try:
+            document = (await self.state()).get('document') or {}
+            for action in document.get('actions', {}).values():
+                if (document.get('edition') == payload['edition']
+                        and action.get('kind') == 'room-announcement'
+                        and all(action.get(key) == payload[key] for key in ('matchId', 'game', 'room', 'phase'))):
+                    return Written(RECORDED, answer={'action': action})
+        except EngineUnreachable:
+            pass
+        return result
+
     async def room_work(self, payload):
         return await self._post('roomWork', payload)
 

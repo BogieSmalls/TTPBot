@@ -607,6 +607,9 @@ class AutumnScheduler:
 
     async def _tell(self, race, row, url, booth=None):
         """Announce once; recover a late already-on-air warning separately."""
+        if self._workflow:
+            await self._queue_notice(race, row, url, booth)
+            return
         if self._announce is None:
             return
         key = self._match_key(race.match_id, race.identity.game)
@@ -630,6 +633,34 @@ class AutumnScheduler:
                 self.logger.error('Autumn: could not announce %s; will try again',
                                   race.match_id, exc_info=True)
                 return
+            self.announced[key] = True
+            if not self._save(self.announced_store, self.announced):
+                return
+        if continuation:
+            self.booth_notices[key] = True
+            self._save(self.booth_notice_store, self.booth_notices)
+
+    async def _queue_notice(self, race, row, url, booth):
+        key = self._match_key(race.match_id, race.identity.game)
+        continuation = bool(booth and booth.is_continuation)
+        if self.announced.get(key):
+            if not continuation or self.booth_notices.get(key):
+                return
+            phase = 'continuation'
+        else:
+            phase = 'room'
+        try:
+            answer = await self.engine.queue_announcement(dict(
+                edition=self.engine.edition, matchId=race.match_id, game=race.identity.game,
+                room=url, phase=phase, continuation=continuation,
+                crew=list(getattr(row, 'crew', ()) or ())))
+            if not answer.ok:
+                self.logger.error('Autumn: announcement queue unconfirmed for %s; no Discord post attempted', race.match_id)
+                return
+        except Exception:
+            self.logger.error('Autumn: cannot queue announcement for %s', race.match_id, exc_info=True)
+            return
+        if phase == 'room':
             self.announced[key] = True
             if not self._save(self.announced_store, self.announced):
                 return

@@ -687,8 +687,11 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
         self.assertEqual(action['status'],'pending')
         self.assertTrue((await engine._post('decideRoom',dict(edition='2026',actionId=action['id'],actionRevision=action['revision'],decision='open',decisionId='yes',actor='council'))).ok)
         await first.tick(at(START,24));self.assertEqual(opened,['W1-1']);self.assertEqual(notices,[])
-        await scheduler().tick(at(START,23));self.assertEqual(opened,['W1-1']);self.assertEqual(notices,[ROOM])
+        await scheduler().tick(at(START,23));self.assertEqual(opened,['W1-1']);self.assertEqual(notices,[], 'v2 queues notices for Discord instead of posting here')
         saved=(await engine.state())['document'];self.assertEqual(saved['rooms']['W1-1|1']['room'],ROOM)
+        self.assertEqual(len([a for a in saved['actions'].values() if a['kind']=='room-announcement']),1)
+        await scheduler().tick(at(START,22))
+        self.assertEqual(len([a for a in (await engine.state())['document']['actions'].values() if a['kind']=='room-announcement']),1)
 
         # Three explicit times; Game 1 completing cannot start Game 2 early.
         game2=START+timedelta(hours=3);game3=START+timedelta(days=1)
