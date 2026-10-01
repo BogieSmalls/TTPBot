@@ -173,6 +173,8 @@ class AutumnEngine:
                 text = await response.text()
                 if response.status == 200:
                     answer = jsonlib.loads(text)
+                    if not isinstance(answer, dict):
+                        return Written(UNCONFIRMED, detail='answer was not an object')
                     return Written(
                         RECORDED, revision=answer.get('revision'), answer=answer)
                 detail = text.strip()[:200]
@@ -243,6 +245,48 @@ class AutumnEngine:
                 else 'the engine has no time recorded for this match yet'
             ),
         )
+
+    async def bind_result_room(self, payload):
+        result = await self._post('bindResultRoom', payload)
+        if result.outcome == NOT_RECORDED:
+            return result
+        def matches(room):
+            return (isinstance(room, dict) and room.get('room') == payload['room']
+                    and room.get('racers') == payload['racers']
+                    and room.get('matchId') == payload['matchId'] and room.get('game') == payload['game'])
+        if result.ok and matches((result.answer or {}).get('room')):
+            return result
+        try:
+            document = (await self.state()).get('document') or {}
+            room = (document.get('rooms') or {}).get('{}|{}'.format(payload['matchId'], payload['game']))
+            if document.get('edition') == payload['edition'] and matches(room):
+                return Written(RECORDED, revision=document.get('revision'), answer={'room': room})
+        except EngineUnreachable:
+            pass
+        return Written(UNCONFIRMED, detail='room binding could not be confirmed')
+
+    async def observe_result(self, payload):
+        # Stable observations are idempotent at the engine. Still read back a
+        # lost response now; the durable outbox may redeliver that same ID later.
+        result = await self._post('observeResult', payload)
+        if result.outcome == NOT_RECORDED:
+            return result
+        facts = {key: payload[key] for key in ('edition', 'matchId', 'game', 'room', 'status', 'entrants')}
+        facts['event'] = self._event
+        facts['entrants'] = sorted(facts['entrants'], key=lambda entrant: entrant['id'])
+        def matches(receipt):
+            return (isinstance(receipt, dict) and receipt.get('id') == payload['observationId']
+                    and receipt.get('facts') == facts and bool(receipt.get('proposalId')))
+        if result.ok and matches((result.answer or {}).get('observation')):
+            return result
+        try:
+            document = (await self.state()).get('document') or {}
+            receipt = (document.get('observations') or {}).get(payload['observationId'])
+            if document.get('edition') == payload['edition'] and matches(receipt):
+                return Written(RECORDED, revision=document.get('revision'), answer={'observation': receipt})
+        except EngineUnreachable:
+            pass
+        return Written(UNCONFIRMED, detail='observation receipt could not be confirmed')
 
     async def claim_thread(self, match_id, by):
         """Claim the right to create a match's thread. See the engine's writer."""

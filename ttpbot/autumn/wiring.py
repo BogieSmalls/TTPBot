@@ -149,7 +149,8 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         ids = [racetime_ids.get(who) for who in wanted]
         if results is not None:
             try:
-                results.bind(race, url, racetime_ids)
+                key = results.bind(race, url, racetime_ids)
+                await results.publish_binding(key, results.store.load()[key])
             except Exception:
                 logger.error('Autumn result receipt could not be saved for %s; invitations still proceed', race.match_id, exc_info=True)
         entry = bot.state.setdefault(name, {})

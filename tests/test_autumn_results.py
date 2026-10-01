@@ -5,6 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from ttpbot.autumn.engine import Written, RECORDED, UNCONFIRMED
 from ttpbot.autumn.results import AutumnResults, command_for
 from ttpbot.provider import RacetimeProvider
 from ttpbot.state import DestinationStateStore, StateStoreError
@@ -71,7 +72,7 @@ class AutumnResultsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_result_already_recorded_is_not_another_suggestion(self):
         self.recorder.bind(RACE, ROOM, {'Alice': 'a', 'Bob': 'b'})
-        self.engine.state.return_value['document']['games'] = {'GF-1': [{'game': 1, 'winner': 'Alice'}]}
+        self.engine.state.return_value['document']['games'] = {'GF-1': [{'game': 1, 'winner': 'Alice', 'room': ROOM}]}
         await self.recorder.record(DATA)
         self.assertEqual(self.store.load()['autumn-2026|GF-1|1']['status'], 'recorded')
 
@@ -105,7 +106,7 @@ class AutumnResultsTests(unittest.IsolatedAsyncioTestCase):
     async def test_operator_acceptance_clears_suggestion_on_next_poll(self):
         self.recorder.bind(RACE, ROOM, {'Alice': 'a', 'Bob': 'b'})
         await self.recorder.record(DATA)
-        self.engine.state.return_value['document']['games'] = {'GF-1': [{'game': 1, 'winner': 'Alice'}]}
+        self.engine.state.return_value['document']['games'] = {'GF-1': [{'game': 1, 'winner': 'Alice', 'room': ROOM}]}
         await self.recorder.recover()
         self.assertEqual(self.store.load()['autumn-2026|GF-1|1']['status'], 'recorded')
 
@@ -124,3 +125,104 @@ class AutumnResultsTests(unittest.IsolatedAsyncioTestCase):
         self.reader.return_value = dict(DATA, name='z1r/other-room')
         await self.recorder.recover()
         self.assertEqual(self.store.load()['autumn-2026|GF-1|1']['status'], 'tracking')
+
+
+    async def test_observation_is_saved_before_delivery_and_replayed_after_restart(self):
+        self.engine.state.return_value['document'].update(version=2, edition='2026')
+        self.engine.bind_result_room = AsyncMock(return_value=Written(RECORDED))
+        saved_ids = set()
+        async def deliver(facts):
+            entry = self.store.load()['autumn-2026|GF-1|1']
+            self.assertEqual(entry['observations'][facts['observationId']]['facts'], facts)
+            saved_ids.add(facts['observationId'])
+            return Written(UNCONFIRMED)
+        self.engine.observe_result = AsyncMock(side_effect=deliver)
+        self.recorder.bind(RACE, ROOM, {'Alice': 'a', 'Bob': 'b'})
+        await self.recorder.record(DATA)
+        entry = self.store.load()['autumn-2026|GF-1|1']
+        self.assertIn('observations', entry)
+        self.assertIsNone(next(iter(entry['observations'].values()))['receipt'])
+        self.engine.observe_result.side_effect = lambda facts: Written(RECORDED, answer={'observation': {'id': facts['observationId'], 'proposalId': 'proposal-one'}})
+        await self.make().recover()
+        entry = self.store.load()['autumn-2026|GF-1|1']
+        self.assertEqual(next(iter(entry['observations'].values()))['receipt']['proposalId'], 'proposal-one')
+        self.assertEqual(saved_ids, set(entry['observations']))
+        self.assertEqual(self.engine.observe_result.await_count, 2)
+        await self.make().recover()
+        self.assertEqual(self.engine.observe_result.await_count, 2)
+
+    async def test_same_winner_in_a_different_room_does_not_clear_a_suggestion(self):
+        self.recorder.bind(RACE, ROOM, {'Alice': 'a', 'Bob': 'b'})
+        await self.recorder.record(DATA)
+        self.engine.state.return_value['document']['games'] = {'GF-1': [{'game': 1, 'winner': 'Alice', 'room': 'https://racetime.gg/z1r/another-room'}]}
+        await self.recorder.recover()
+        self.assertEqual(self.store.load()['autumn-2026|GF-1|1']['status'], 'review')
+
+    async def test_changed_finish_preserves_both_observations_and_holds_the_local_suggestion(self):
+        self.recorder.bind(RACE, ROOM, {'Alice': 'a', 'Bob': 'b'})
+        await self.recorder.record(DATA)
+        changed = copy.deepcopy(DATA)
+        changed['entrants'][1]['finish_time'] = 'PT59M'
+        await self.recorder.record(changed)
+        entry = self.store.load()['autumn-2026|GF-1|1']
+        self.assertEqual(entry['status'], 'review')
+        self.assertEqual(len(entry['observations']), 2)
+
+    async def test_real_engine_accepts_one_observation_after_a_lost_reply_and_restart(self):
+        import asyncio
+        import json
+        import os
+        from pathlib import Path
+        import subprocess
+        from ttpbot.autumn.engine import AutumnEngine
+        engine_root = os.environ.get('Z1RR_ENGINE_DIR')
+        if not engine_root:
+            self.skipTest('set Z1RR_ENGINE_DIR for the real-engine contract test')
+        root = Path(engine_root).resolve()
+        code = '''
+import { createEngineService } from SERVICE;
+import { createTournamentStore } from STORE;
+const server = createEngineService({ token: 'scratch-token', storeFor: event => createTournamentStore({ event, dir: DIR }) });
+server.listen(0, '127.0.0.1', () => console.log(server.address().port));
+'''.replace('SERVICE', json.dumps((root / 'src/service.mjs').as_uri())).replace('STORE', json.dumps((root / 'src/store.mjs').as_uri())).replace('DIR', json.dumps(str(Path(self.temp.name) / 'engine')))
+        process = await asyncio.create_subprocess_exec('node', '--input-type=module', '--eval', code,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        async def stop():
+            if process.returncode is None:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), 5)
+        self.addAsyncCleanup(stop)
+        port = int(await asyncio.wait_for(process.stdout.readline(), 10))
+        client = AutumnEngine(url='http://127.0.0.1:{}'.format(port), token='scratch-token')
+        names = ['Alice'] + ['Racer{}'.format(i) for i in range(2, 16)] + ['Bob']
+        for operation, payload in [('draw', {'seeds': names}), ('racetime', {'racetimeIds': {'Alice': 'Za', 'Bob': 'aZ'}}), ('migrate', {'edition': '2026'})]:
+            self.assertTrue((await client._post(operation, payload)).ok)
+        self.engine = client
+        self.recorder = self.make()
+        race = SimpleNamespace(**{**vars(RACE), 'match_id': 'W1-1'})
+        self.recorder.bind(race, ROOM, {'Alice': 'Za', 'Bob': 'aZ'})
+        original = client.observe_result
+        async def lose_reply(facts):
+            self.assertTrue((await original(facts)).ok)
+            return Written(UNCONFIRMED)
+        client.observe_result = lose_reply
+        mixed_ids = copy.deepcopy(DATA)
+        mixed_ids['entrants'][0]['user']['id'] = 'Za'
+        mixed_ids['entrants'][1]['user']['id'] = 'aZ'
+        await self.recorder.record(mixed_ids)
+        state = (await client.state())['document']
+        self.assertEqual(len(state['proposals']), 1)
+        self.assertEqual(state['results'], {})
+        client.observe_result = original
+        await self.make().recover()
+        state = (await client.state())['document']
+        self.assertEqual(len(state['proposals']), 1)
+        item = next(iter(self.store.load()['autumn-2026|W1-1|1']['observations'].values()))
+        self.assertIsNotNone(item['receipt'])
+        proposal = next(iter(state['proposals'].values()))
+        self.assertTrue((await client._post('decideResult', dict(edition='2026', proposalId=proposal['id'],
+            proposalRevision=proposal['revision'], decision='confirm', decisionId='council', actor='council'))).ok)
+        state = (await client.state())['document']
+        self.assertEqual(state['results']['W1-1'], 'Alice')
+        self.assertEqual(len(state['actions']), 1)

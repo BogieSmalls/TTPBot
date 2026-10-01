@@ -225,7 +225,8 @@ class DestinationStateStore:
             self._validate_key(key)
             if self.entry_kind == "autumn_results":
                 if (not isinstance(value, dict)
-                        or set(value) != {"room", "racers", "status", "winner", "reason"}):
+                        or not {"room", "racers", "status", "winner", "reason"}.issubset(value)
+                        or not set(value).issubset({"room", "racers", "status", "winner", "reason", "observations"})):
                     raise StateStoreError("autumn result receipt fields are invalid")
                 racers = value["racers"]
                 if (not isinstance(racers, dict) or len(racers) != 2
@@ -247,6 +248,33 @@ class DestinationStateStore:
                     raise StateStoreError("autumn result room is invalid") from exc
                 if any(other["room"] == room for other in cleaned.values()):
                     raise StateStoreError("autumn result room is bound twice")
+                observations = value.get('observations', {})
+                if not isinstance(observations, dict) or len(observations) > 32:
+                    raise StateStoreError('autumn observations are invalid')
+                for oid, item in observations.items():
+                    if not isinstance(item, dict) or set(item) != {'facts', 'receipt'}:
+                        raise StateStoreError('autumn observation fields are invalid')
+                    observation = item['facts']
+                    fields = {"event", "edition", "matchId", "game", "room", "status", "entrants", "observationId"}
+                    if (not isinstance(observation, dict) or set(observation) != fields
+                            or observation["room"] != room or observation["status"] not in {"finished", "cancelled"}
+                            or not isinstance(observation["entrants"], list) or len(observation["entrants"]) > 16
+                            or key != '{}-{}|{}|{}'.format(observation['event'], observation['edition'], observation['matchId'], observation['game'])
+                            or not isinstance(observation['observationId'], str) or len(observation['observationId']) != 64 or observation['observationId'] != oid):
+                        raise StateStoreError("autumn observation identity is invalid")
+                    for entrant in observation['entrants']:
+                        if (not isinstance(entrant, dict) or set(entrant) != {'id', 'status', 'finishSeconds'}
+                                or not isinstance(entrant['id'], str) or not 0 < len(entrant['id']) <= 120
+                                or not isinstance(entrant['status'], str) or not 0 < len(entrant['status']) <= 40
+                                or entrant['finishSeconds'] is not None and
+                                (not isinstance(entrant['finishSeconds'], str) or len(entrant['finishSeconds']) > 40)):
+                            raise StateStoreError("autumn observation entrant is invalid")
+                    receipt = item['receipt']
+                    if receipt is not None and (not isinstance(receipt, dict)
+                            or set(receipt) != {'observationId', 'proposalId'}
+                            or receipt['observationId'] != oid
+                            or not isinstance(receipt['proposalId'], str) or not 0 < len(receipt['proposalId']) <= 100):
+                        raise StateStoreError('autumn observation receipt is invalid')
                 cleaned[key] = {**value, "room": room, "racers": dict(racers)}
                 continue
             if self.entry_kind == "autumn_bindings":
