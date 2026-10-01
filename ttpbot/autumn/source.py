@@ -80,6 +80,7 @@ class AutumnSource:
             return self._stale(now, 'was not the schedule tab (a sign-in page?)')
 
         parsed = parse_schedule(body, self.logger)
+        parsed.observed_at = now
         self._schedule = parsed
         self._fetched_at = now
         if self._complained:

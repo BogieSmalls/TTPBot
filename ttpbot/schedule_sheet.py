@@ -50,6 +50,8 @@ COLUMN_ALIASES = {
     'tracker': ('tracker',),
     'channel': ('channel',),
     'game': ('game',),
+    'match_id': ('match', 'match id'),
+    'status': ('status',),
 }
 
 # Without these there is no race to build, so a tab missing any of them is

@@ -166,6 +166,11 @@ class DestinationStateStore:
                     or not re.fullmatch(r"[1-9][0-9]{0,2}", parts[2])):
                 raise StateStoreError("autumn result key must be <edition>|<match>|<game>")
             return
+        if self.entry_kind != 'autumn_bindings' and len(parts) == 3:
+            if (not AUTUMN_EVENT.fullmatch(parts[0]) or not AUTUMN_MATCH.fullmatch(parts[1])
+                    or not re.fullmatch(r'[1-7]', parts[2])):
+                raise StateStoreError('game state key must be <competition-edition>|<match>|<game>')
+            return
         wanted = 3 if self.entry_kind == "autumn_bindings" else 2
         if len(parts) != wanted:
             raise StateStoreError(

@@ -344,3 +344,19 @@ def test_an_aliased_row_keeps_its_binding_across_a_tick():
     again = match_rows(
         rows, matches, aliases=ALIASES, bindings=first.bindings)
     assert [race.match_id for race in again.resolved] == ['W1-1']
+
+class ExplicitGameTests(unittest.TestCase):
+    def test_explicit_match_and_game_keep_three_rows_distinct_and_reject_a_conflicting_duplicate(self):
+        matches={'W1-1':{'a':'Alice','b':'Bob','state':'ready','series':{'bestOf':3,'a':0,'b':0,'decided':False}}}
+        rows=[dict(row('Alice','Bob',TONIGHT+timedelta(days=g)),match_id='W1-1',game=g) for g in (3,1,2)]
+        found=match_rows(rows,matches,edition='2026')
+        self.assertEqual(found.unresolved,[])
+        self.assertEqual(sorted(r.identity.game for r in found.resolved),[1,2,3])
+        self.assertEqual({r.identity.edition for r in found.resolved},{'2026'})
+        duplicate=dict(rows[-1],at=TONIGHT+timedelta(days=5))
+        conflict=match_rows(rows+[duplicate],matches,edition='2026')
+        self.assertTrue(conflict.unresolved)
+        self.assertNotIn(2,[r.identity.game for r in conflict.resolved])
+        missing=match_rows([row('Alice','Bob')],matches)
+        self.assertEqual(missing.resolved,[])
+        self.assertIn('Game',missing.unresolved[0].reason)

@@ -627,3 +627,108 @@ class TransientFailuresAreRetried(SchedulerTests):
 
 if __name__ == '__main__':
     unittest.main()
+
+class EngineAuthorityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_real_engine_holds_then_authorizes_one_room_and_restart_recovers_a_lost_creation(self):
+        await self._run_series(two_zero=False)
+
+    async def test_two_zero_never_opens_game_three_and_sheet_can_remove_unused_game(self):
+        await self._run_series(two_zero=True)
+
+    async def _run_series(self, two_zero):
+        import json
+        import os
+        import subprocess
+        from ttpbot.autumn.engine import AutumnEngine
+        engine_root = os.environ.get('Z1RR_ENGINE_DIR')
+        if not engine_root:
+            self.skipTest('set Z1RR_ENGINE_DIR for real engine room tests')
+        temp=TemporaryDirectory();self.addCleanup(temp.cleanup)
+        root=Path(engine_root).resolve()
+        clock=Path(temp.name)/'clock.txt';clock.write_text(at(START,25).isoformat())
+        code='''
+import {readFileSync} from 'node:fs';
+import {createEngineService} from SERVICE;
+import {createTournamentStore} from STORE;
+import {createTournamentWriter} from WRITER;
+const storeFor=event=>createTournamentStore({event,dir:DIR});
+const writer=createTournamentWriter({storeFor,now:()=>new Date(readFileSync(CLOCK,'utf8'))});
+const server=createEngineService({token:'scratch',storeFor,writer});
+server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
+'''
+        for key, value in {'SERVICE':(root/'src/service.mjs').as_uri(),'STORE':(root/'src/store.mjs').as_uri(),'WRITER':(root/'src/writer.mjs').as_uri(),'DIR':str(Path(temp.name)/'engine'),'CLOCK':str(clock)}.items():
+            code=code.replace(key,json.dumps(value))
+        process=await asyncio.create_subprocess_exec('node','--input-type=module','--eval',code,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE,creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+        async def stop():
+            if process.returncode is None:
+                process.terminate();await asyncio.wait_for(process.wait(),5)
+        self.addAsyncCleanup(stop)
+        port=int(await asyncio.wait_for(process.stdout.readline(),10))
+        engine=AutumnEngine(url='http://127.0.0.1:{}'.format(port),token='scratch')
+        for operation,payload in [('draw',{'seeds':['Alice']+['R{}'.format(i) for i in range(2,16)]+['Bob']}),('racetime',{'racetimeIds':{'Alice':'a','Bob':'b'}}),('series',{'bestOf':3}),('migrate',{'edition':'2026'})]:
+            self.assertTrue((await engine._post(operation,payload)).ok)
+        document=(await engine.state())['document']
+        self.assertTrue((await engine._post('autonomy',dict(edition='2026',level='hold-all',applyPending=False,expectedRevision=document['revision'],policyRevision=document['autonomy']['revision'],actor='council',decisionId='hold'))).ok)
+        opened=[];woken=[];notices=[];markers=[]
+        async def opener(race,row):
+            actions=(await engine.state())['document']['actions']
+            self.assertTrue(any(a['status']=='claimed' for a in actions.values()))
+            opened.append(race.match_id);markers.append(race.room_marker)
+            return UNCERTAIN_RACE if race.identity.game == 1 else 'https://racetime.gg/z1r/game-{}'.format(race.identity.game)
+        async def recover(race,action):
+            self.assertEqual(race.room_marker,markers[0]);return ROOM
+        async def wake(race,channel):woken.append(channel)
+        async def announce(race,row,url):notices.append(url)
+        source=FakeSource(HEADER+',Match,Game\n'+row(START,'Alice','Bob','z1rracing')+',W1-1,1')
+        def scheduler():return AutumnScheduler(source,engine,Log(),open_room=opener,wake_booth=wake,announce=announce,recover_room=recover)
+        first=scheduler();await first.tick(at(START,25))
+        self.assertEqual(opened,[]);self.assertEqual(woken,[])
+        actions=(await engine.state())['document']['actions'];action=next(a for a in actions.values() if a['kind']=='race-room')
+        self.assertEqual(action['status'],'pending')
+        self.assertTrue((await engine._post('decideRoom',dict(edition='2026',actionId=action['id'],actionRevision=action['revision'],decision='open',decisionId='yes',actor='council'))).ok)
+        await first.tick(at(START,24));self.assertEqual(opened,['W1-1']);self.assertEqual(notices,[])
+        await scheduler().tick(at(START,23));self.assertEqual(opened,['W1-1']);self.assertEqual(notices,[ROOM])
+        saved=(await engine.state())['document'];self.assertEqual(saved['rooms']['W1-1|1']['room'],ROOM)
+
+        # Three explicit times; Game 1 completing cannot start Game 2 early.
+        game2=START+timedelta(hours=3);game3=START+timedelta(days=1)
+        source.csv_text=HEADER+',Match,Game\n'+'\n'.join(row(when,'Alice','Bob')+',W1-1,{}'.format(game) for game,when in [(3,game3),(1,START),(2,game2)])
+        self.assertTrue((await engine._post('game',dict(edition='2026',matchId='W1-1',game=1,winner='Alice',room=ROOM))).ok)
+        await scheduler().tick(at(START,20))
+        self.assertEqual(opened,['W1-1'])
+        state=(await engine.state())['document']
+        self.assertEqual(state['times']['W1-1']['at'],START.isoformat())
+        self.assertEqual(state['gameTimes']['W1-1']['2']['at'],game2.isoformat())
+        game2+=timedelta(hours=1)
+        source.csv_text=HEADER+',Match,Game\n'+'\n'.join(row(when,'Alice','Bob')+',W1-1,{}'.format(game) for game,when in [(2,game2),(3,game3),(1,START)])
+        await scheduler().tick(at(START,19))
+        state=(await engine.state())['document']
+        self.assertEqual(state['gameTimes']['W1-1']['2']['at'],game2.isoformat())
+        self.assertEqual(state['times']['W1-1']['at'],START.isoformat())
+        # Switch to automatic result recording through the same saved policy.
+        self.assertTrue((await engine._post('autonomy',dict(edition='2026',level='auto-run',applyPending=False,expectedRevision=state['revision'],policyRevision=state['autonomy']['revision'],actor='council',decisionId='auto'))).ok)
+        finishing=[(2,game2,'a')] if two_zero else [(2,game2,'b'),(3,game3,'a')]
+        for game,when,winner in finishing:
+            clock.write_text(at(when,25).isoformat())
+            await scheduler().tick(at(when,25))
+            self.assertEqual(len(opened),game)
+            room='https://racetime.gg/z1r/game-{}'.format(game)
+            outcome=await engine.observe_result(dict(event='autumn',edition='2026',matchId='W1-1',game=game,room=room,observationId='finish-{}'.format(game),status='finished',entrants=[dict(id=who,status='done',finishSeconds='100' if who==winner else '101') for who in ('a','b')]))
+            self.assertTrue(outcome.ok)
+            await scheduler().tick(at(when,24))
+            self.assertEqual(len(opened),game)
+        state=(await engine.state())['document']
+        self.assertEqual(state['results']['W1-1'],'Alice')
+        self.assertEqual(len(state['games']['W1-1']),2 if two_zero else 3)
+        self.assertEqual(len(state['rooms']),2 if two_zero else 3)
+        self.assertEqual(state['times']['W1-1']['at'],START.isoformat())
+
+        if two_zero:
+            clock.write_text(at(game3,25).isoformat())
+            await scheduler().tick(at(game3,25))
+            self.assertEqual(len(opened),2, 'unused Game 3 never opens')
+            source.csv_text=HEADER+',Match,Game\n'+'\n'.join(row(when,'Alice','Bob')+',W1-1,{}'.format(game) for game,when in [(1,START),(2,game2)])
+            await scheduler().tick(at(game3,24))
+            state=(await engine.state())['document']
+            self.assertEqual(state['gameTimes']['W1-1']['3']['status'],'cancelled')
+            self.assertEqual(state['results']['W1-1'],'Alice')
