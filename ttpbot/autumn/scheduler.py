@@ -70,7 +70,7 @@ class AutumnScheduler:
                  created_store=None, mirrored_store=None, announced_store=None,
                  open_room=None, wake_booth=None, announce=None, invite=None,
                  event='autumn', request_booth=None, booth_notice_store=None,
-                 announce_continuation=None):
+                 announce_continuation=None, recover_results=None):
         self.source = source
         self.engine = engine
         self.logger = logger
@@ -93,6 +93,7 @@ class AutumnScheduler:
         self._announce = announce
         self._announce_continuation = announce_continuation
         self._invite = invite
+        self._recover_results = recover_results
 
         self.bindings = self._load(bindings_store)
         self.created = self._load(created_store)
@@ -180,6 +181,11 @@ class AutumnScheduler:
                 await self.tick(self._now())
             except Exception:
                 self.logger.error('Error in Autumn scheduler', exc_info=True)
+            if self._recover_results is not None:
+                try:
+                    await self._recover_results()
+                except Exception:
+                    self.logger.error('Autumn result recovery failed; receipts preserved', exc_info=True)
             await asyncio.sleep(TICK_SECONDS)
 
     @staticmethod

@@ -69,10 +69,11 @@ def _round_label(match_id, size=None):
 class AutumnRunner:
     """The scheduler plus the adapters it needs, ready to tick."""
 
-    def __init__(self, scheduler, engine, logger):
+    def __init__(self, scheduler, engine, logger, results=None):
         self.scheduler = scheduler
         self.engine = engine
         self.logger = logger
+        self.results = results
 
     @property
     def configured(self):
@@ -113,6 +114,12 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
     # when a race happens; and not once at startup either, because an id added
     # mid-season should reach a room opened an hour later without a restart. So:
     # cached, and re-read exactly when it would otherwise have to say "no id".
+    results = None
+    if stores.get('autumn_results') is not None:
+        from .results import AutumnResults
+        results = AutumnResults(store=stores['autumn_results'], engine=engine,
+                                provider=bot.provider, logger=logger, event=event,
+                                edition=(env.get('Z1RR_AUTUMN_EDITION') or '2026').strip())
     racetime_ids = {}
     racetime_ids.update(getattr(bot, 'autumn_racetime_ids', None) or {})
 
@@ -140,6 +147,11 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             racetime_ids.update(await _racetime_ids(engine, logger))
 
         ids = [racetime_ids.get(who) for who in wanted]
+        if results is not None:
+            try:
+                results.bind(race, url, racetime_ids)
+            except Exception:
+                logger.error('Autumn result receipt could not be saved for %s; invitations still proceed', race.match_id, exc_info=True)
         entry = bot.state.setdefault(name, {})
         entry['autumn_race'] = {
             # Both or neither. A one-element list would have the handler invite
@@ -213,8 +225,9 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         announce=announce,
         invite=seed_invites,
         event=event,
+        recover_results=results.recover if results else None,
     )
-    return AutumnRunner(scheduler, engine, logger)
+    return AutumnRunner(scheduler, engine, logger, results)
 
 
 async def _racetime_ids(engine, logger):

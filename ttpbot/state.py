@@ -28,7 +28,7 @@ LEAGUE_ENTRY_KINDS = {
 # second room, and the tournament does not get to repeat that.
 AUTUMN_ENTRY_KINDS = {
     "autumn_bindings", "autumn_created_races",
-    "autumn_sent_webhooks", "autumn_mirrored_times", "autumn_booth_notices",
+    "autumn_sent_webhooks", "autumn_mirrored_times", "autumn_booth_notices", "autumn_results",
 }
 CREATED_ENTRY_KINDS = {
     "created_races", "league_created_races", "autumn_created_races",
@@ -41,7 +41,7 @@ ENTRY_KINDS = (
 #: A binding outlives every reschedule and every restart: forgetting one is how
 #: a grand-final row gets reassigned to the reset after the final is played.
 TIMELESS_ENTRY_KINDS = {"autumn_bindings", "autumn_created_races",
-                        "autumn_sent_webhooks", "autumn_mirrored_times", "autumn_booth_notices"}
+                        "autumn_sent_webhooks", "autumn_mirrored_times", "autumn_booth_notices", "autumn_results"}
 
 LEAGUE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -160,6 +160,12 @@ class DestinationStateStore:
         # binding key that forgot its competition, and saying "must name two
         # racers" about it sends whoever reads the log the wrong way.
         parts = value.split("|")
+        if self.entry_kind == "autumn_results":
+            if (len(parts) != 3 or not AUTUMN_EVENT.fullmatch(parts[0])
+                    or not AUTUMN_MATCH.fullmatch(parts[1])
+                    or not re.fullmatch(r"[1-9][0-9]{0,2}", parts[2])):
+                raise StateStoreError("autumn result key must be <edition>|<match>|<game>")
+            return
         wanted = 3 if self.entry_kind == "autumn_bindings" else 2
         if len(parts) != wanted:
             raise StateStoreError(
@@ -217,6 +223,32 @@ class DestinationStateStore:
         cleaned = {}
         for key, value in entries.items():
             self._validate_key(key)
+            if self.entry_kind == "autumn_results":
+                if (not isinstance(value, dict)
+                        or set(value) != {"room", "racers", "status", "winner", "reason"}):
+                    raise StateStoreError("autumn result receipt fields are invalid")
+                racers = value["racers"]
+                if (not isinstance(racers, dict) or len(racers) != 2
+                        or not all(isinstance(item, str) and 0 < len(item) <= 120
+                                   and not any(c in item for c in "\r\n\x00")
+                                   for pair in racers.items() for item in pair)
+                        or len(set(racers.values())) != 2):
+                    raise StateStoreError("autumn result needs two distinct verified racers")
+                if value["status"] not in {"tracking", "suggested", "review", "recorded"}:
+                    raise StateStoreError("autumn result status is invalid")
+                if ((value["status"] in {"suggested", "recorded"} and value["winner"] not in racers)
+                        or (value["status"] in {"tracking", "review"} and value["winner"] is not None)
+                        or (value["reason"] is not None and
+                            (not isinstance(value["reason"], str) or len(value["reason"]) > 500))):
+                    raise StateStoreError("autumn result outcome is invalid")
+                try:
+                    room = self.provider.resolve_location(value["room"])
+                except (ProviderConfigurationError, TypeError) as exc:
+                    raise StateStoreError("autumn result room is invalid") from exc
+                if any(other["room"] == room for other in cleaned.values()):
+                    raise StateStoreError("autumn result room is bound twice")
+                cleaned[key] = {**value, "room": room, "racers": dict(racers)}
+                continue
             if self.entry_kind == "autumn_bindings":
                 # The match a row was given. Validated to the same shape the key
                 # of a created room is, so a binding cannot quietly point at
