@@ -261,3 +261,26 @@ Record only commit/lock hash, safe `destination_key`, preflight booleans, servic
 and lock status, room URL, one Discord announcement result, v2 state hashes, and
 rollback outcome, and never print OAuth client secrets, access tokens, webhook URLs,
 role IDs, environment contents, provider response bodies, or state contents.
+
+### Autumn restream booths
+
+Autumn reuses League's control-plane wake, managed crew directory, request
+transport and booth workflow. A Schedule row with a Channel wakes the control
+plane at T-35 and refreshes crew; at T-30 its existing room and invites are
+followed by `/internal/relay/tournament/broadcast`. A blank Channel does none
+of that broadcast work. The engine supplies verified `twitchChannels`,
+`racetimeIds` and ranks; missing stream data is logged without holding the race.
+
+The request identity includes competition, `Z1RR_AUTUMN_EDITION` (2026), match
+and game, and survives rescheduling/restart. Only a booth owned by the same
+competition and edition may be continued. A changed already-staged request
+needs operator reconciliation; it never creates another booth. The existing
+League already-on-air wording is used, including a later correction if the
+first request's answer was lost. `autumn_booth_notices.json` preserves that
+correction receipt; it has the same validation and corruption refusal as the
+other Autumn state files. Do not delete receipts to force a retry.
+
+The Autumn booth release can be staged and tested in a separate directory.
+Replacing `/opt/ttpbot` files, hot-reloading, stopping or restarting its service
+requires the agreed TTPBot activation window; testing an isolated candidate is
+not activation. Preserve `/var/lib/ttpbot` and `/etc/ttpbot.env` on deployment.

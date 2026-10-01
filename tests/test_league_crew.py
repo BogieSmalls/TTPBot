@@ -154,7 +154,7 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_sleeping_control_plane_keeps_the_cached_roster(self):
         self.crew.replace(ROSTER)
 
-        async def _boom(**_):
+        def _boom(**_):
             raise OSError('connection refused')
 
         ok = await self.crew.refresh('https://cp/x', 'tok', requester=_boom)
