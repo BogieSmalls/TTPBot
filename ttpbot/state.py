@@ -28,7 +28,7 @@ LEAGUE_ENTRY_KINDS = {
 # second room, and the tournament does not get to repeat that.
 AUTUMN_ENTRY_KINDS = {
     "autumn_bindings", "autumn_created_races",
-    "autumn_sent_webhooks", "autumn_mirrored_times",
+    "autumn_sent_webhooks", "autumn_mirrored_times", "autumn_booth_notices",
 }
 CREATED_ENTRY_KINDS = {
     "created_races", "league_created_races", "autumn_created_races",
@@ -41,7 +41,7 @@ ENTRY_KINDS = (
 #: A binding outlives every reschedule and every restart: forgetting one is how
 #: a grand-final row gets reassigned to the reset after the final is played.
 TIMELESS_ENTRY_KINDS = {"autumn_bindings", "autumn_created_races",
-                        "autumn_sent_webhooks", "autumn_mirrored_times"}
+                        "autumn_sent_webhooks", "autumn_mirrored_times", "autumn_booth_notices"}
 
 LEAGUE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 

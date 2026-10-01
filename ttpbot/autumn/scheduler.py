@@ -69,7 +69,8 @@ class AutumnScheduler:
     def __init__(self, source, engine, logger, bindings_store=None,
                  created_store=None, mirrored_store=None, announced_store=None,
                  open_room=None, wake_booth=None, announce=None, invite=None,
-                 event='autumn'):
+                 event='autumn', request_booth=None, booth_notice_store=None,
+                 announce_continuation=None):
         self.source = source
         self.engine = engine
         self.logger = logger
@@ -79,6 +80,7 @@ class AutumnScheduler:
         self.created_store = created_store
         self.mirrored_store = mirrored_store
         self.announced_store = announced_store
+        self.booth_notice_store = booth_notice_store
 
         # Each of these is "ask somebody else to do the side effect", so this
         # class can be ticked in a test without a racetime account or a Discord
@@ -87,13 +89,16 @@ class AutumnScheduler:
         # the League's contract, and the distinction the whole room path turns on.
         self._open_room = open_room
         self._wake_booth = wake_booth
+        self._request_booth = request_booth
         self._announce = announce
+        self._announce_continuation = announce_continuation
         self._invite = invite
 
         self.bindings = self._load(bindings_store)
         self.created = self._load(created_store)
         self.mirrored = self._load(mirrored_store)
         self.announced = self._load(announced_store)
+        self.booth_notices = self._load(booth_notice_store)
 
         #: Matches whose booth is awake. In memory on purpose: waking a control
         #: plane twice is harmless -- it is already awake -- and a note that
@@ -117,6 +122,7 @@ class AutumnScheduler:
                 (created_store, self.created),
                 (mirrored_store, self.mirrored),
                 (announced_store, self.announced),
+                (booth_notice_store, self.booth_notices),
             )
         )
 
@@ -282,7 +288,14 @@ class AutumnScheduler:
         # Then the announcement, every tick and behind its own guard. An
         # announcement that failed once is a match nobody was told about, and
         # tying it to the creation meant it was never tried again.
-        await self._tell(race, row, url)
+        booth = None
+        if self._request_booth is not None:
+            try:
+                booth = await self._request_booth(race, row, url)
+            except Exception:
+                self.logger.error('Autumn: booth request failed for %s; will retry',
+                                  race.match_id, exc_info=True)
+        await self._tell(race, row, url, booth)
 
     # -- the mirror --------------------------------------------------------
 
@@ -435,22 +448,37 @@ class AutumnScheduler:
                 'Autumn: could not tell the handler who to invite to %s',
                 race.match_id, exc_info=True)
 
-    async def _tell(self, race, row, url):
-        """Announce the room, once it has actually been announced."""
+    async def _tell(self, race, row, url, booth=None):
+        """Announce once; recover a late already-on-air warning separately."""
         if self._announce is None:
             return
         key = self._match_key(race.match_id)
+        continuation = bool(booth and booth.is_continuation)
         if self.announced.get(key):
-            return
-        try:
-            await self._announce(race, row, url)
-        except Exception:
-            self.logger.error(
-                'Autumn: could not announce %s; will try again', race.match_id,
-                exc_info=True)
-            return
-        self.announced[key] = True
-        self._save(self.announced_store, self.announced)
+            if not continuation or self.booth_notices.get(key) or self._announce_continuation is None:
+                return
+            try:
+                await self._announce_continuation(race, row, url)
+            except Exception:
+                self.logger.error('Autumn: could not announce continuation for %s; will retry',
+                                  race.match_id, exc_info=True)
+                return
+        else:
+            try:
+                if booth is None:
+                    await self._announce(race, row, url)
+                else:
+                    await self._announce(race, row, url, booth=booth)
+            except Exception:
+                self.logger.error('Autumn: could not announce %s; will try again',
+                                  race.match_id, exc_info=True)
+                return
+            self.announced[key] = True
+            if not self._save(self.announced_store, self.announced):
+                return
+        if continuation:
+            self.booth_notices[key] = True
+            self._save(self.booth_notice_store, self.booth_notices)
 
     # -- bookkeeping -------------------------------------------------------
 

@@ -59,13 +59,14 @@ def _unwrap(payload):
     )
 
 
-async def request_booth(payload, base_url, token, logger, requester=None):
+async def request_booth(payload, base_url, token, logger, requester=None, *,
+                        endpoint='/internal/relay/league/broadcast', label='League'):
     """Call the endpoint. Never raises, and never blocks the announcement."""
     if not base_url or not token:
         return BoothOutcome()
 
     request = requester if requester is not None else aiohttp.request
-    url = base_url.rstrip('/') + '/internal/relay/league/broadcast'
+    url = base_url.rstrip('/') + endpoint
     try:
         async with request(
             method='post',
@@ -79,14 +80,14 @@ async def request_booth(payload, base_url, token, logger, requester=None):
                 # A 409 is retryable at the far end; this tick simply does not
                 # know an outcome, and the announcement carries on.
                 logger.warning(
-                    'League booth request refused (HTTP %s): %s', response.status, body,
+                    '%s booth request refused (HTTP %s): %s', label, response.status, body,
                 )
                 return BoothOutcome()
             return _unwrap(await response.json())
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, TypeError) as exc:
         logger.warning(
-            'League booth request failed (%s); the announcement still goes out',
-            type(exc).__name__,
+            '%s booth request failed (%s); the announcement still goes out',
+            label, type(exc).__name__,
         )
         return BoothOutcome()
 

@@ -84,7 +84,8 @@ class ProviderIntegrationTests(unittest.IsolatedAsyncioTestCase):
             patch("ttpbot.bot.get_upcoming_races", return_value=[scheduled]),
         ):
             await bot._check_and_create_races()
-            await asyncio.sleep(0.05)
+            await asyncio.gather(*(task for task in asyncio.all_tasks()
+                                  if getattr(task.get_coro(), '__name__', '') == '_send_webhook'))
         self.assertEqual(len(self.fake.room_posts), 1)
         self.assertEqual(len(self.fake.webhooks), 1)
         self.assertEqual(
@@ -106,7 +107,8 @@ class ProviderIntegrationTests(unittest.IsolatedAsyncioTestCase):
             patch("ttpbot.bot.get_upcoming_races", return_value=[scheduled]),
         ):
             await restarted._check_and_create_races()
-            await asyncio.sleep(0.05)
+            await asyncio.gather(*(task for task in asyncio.all_tasks()
+                                  if getattr(task.get_coro(), '__name__', '') == '_send_webhook'))
         self.assertEqual(len(self.fake.room_posts), 1)
         self.assertEqual(len(self.fake.webhooks), 1)
 
@@ -148,9 +150,11 @@ class ProviderIntegrationTests(unittest.IsolatedAsyncioTestCase):
             patch("ttpbot.bot.get_upcoming_races", return_value=[scheduled]),
         ):
             await restarted._check_and_create_races()
-            await asyncio.sleep(0.05)
+            await asyncio.gather(*(task for task in asyncio.all_tasks()
+                                  if getattr(task.get_coro(), '__name__', '') == '_send_webhook'))
             await restarted._check_and_create_races()
-            await asyncio.sleep(0.05)
+            await asyncio.gather(*(task for task in asyncio.all_tasks()
+                                  if getattr(task.get_coro(), '__name__', '') == '_send_webhook'))
         self.assertEqual(len(self.fake.room_posts), 1)
         self.assertEqual(len(self.fake.webhooks), 1)
 

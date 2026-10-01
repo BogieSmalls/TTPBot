@@ -246,7 +246,7 @@ class TTPBot(Bot):
                     '{}.json'.format(kind), self.provider.destination_key, kind,
                     data_dir=root)
                 for kind in ('autumn_bindings', 'autumn_created_races',
-                             'autumn_mirrored_times', 'autumn_sent_webhooks')
+                             'autumn_mirrored_times', 'autumn_sent_webhooks', 'autumn_booth_notices')
             }
             runner = build_autumn_runner(os.environ, self, self.logger,
                                          stores=stores)

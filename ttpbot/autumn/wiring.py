@@ -27,15 +27,8 @@ field's 61 and not `chessjerk`, who is in the first match. A racer with no id on
 file is named in the log and can join the room themselves, since it is created
 with `invitational: false`.
 
-One thing is deliberately *not* wired, because the only way to do it properly
-changes a system that is live for something else.
-
-**The booth handoff.** `request_booth` posts to
-`/internal/relay/league/broadcast`, which belongs to the broadcast system, and
-there is no tournament equivalent. Inventing one means changing Z1RR.Restream,
-which is live for the League. So the control plane *is* woken at T-35 -- that is
-the relay's own endpoint and competition-agnostic -- and how a tournament match
-reaches a booth is left to whoever owns the broadcast side.
+The booth handoff uses the same crew directory and request transport as League,
+with tournament identity and the tournament route on the control plane.
 """
 
 from urllib.parse import urlsplit
@@ -46,6 +39,9 @@ from .engine import engine_from_env
 from .rooms import create_autumn_room, room_title
 from .scheduler import AutumnScheduler
 from .source import AutumnSource
+from .booths import AutumnBooths
+from ..league.crew import CrewDirectory
+from ..paths import runtime_path
 
 #: The Schedule tab of the League master sheet, exported as CSV. The tab is read
 #: rather than the form's responses, because the tab is what a council member
@@ -96,7 +92,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
     webhook -- the same objects the League's scheduler is handed, so a tournament
     room is opened against exactly the destination a League room is.
 
-    `stores` is a mapping of the four entry kinds to `DestinationStateStore`s.
+    `stores` is a mapping of the entry kinds to `DestinationStateStore`s.
     Built by the caller because the caller owns the data directory and the
     destination key, and both are checked by the store itself.
     """
@@ -168,7 +164,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         if send_invites is not None:
             await send_invites()
 
-    async def announce(race, row, url):
+    async def announce(race, row, url, booth=None, correction=False):
         # The ids come from the engine, which resolves a name through `seatFor` --
         # exact, then flattened, then the aliases -- so a racer is pinged whichever
         # way the form spelled them.
@@ -177,6 +173,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             race, url, (env.get('TTPBOT_AUTUMN_DISCORD_WEBHOOK_URL') or '').strip()
             or getattr(bot, 'autumn_webhook_url', None), logger,
             ids=ids, label=_round_label(race.match_id),
+            continuation=bool(booth and booth.is_continuation), correction=correction,
             crew=tuple(getattr(row, 'crew', ()) or ()),
             channel_id=(env.get('TTPBOT_AUTUMN_DISCORD_CHANNEL_ID') or '').strip(),
             bot_token=(env.get('TTPBOT_AUTUMN_DISCORD_BOT_TOKEN')
@@ -186,7 +183,19 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             # from "did this not raise" and a False here must be a retry.
             raise RuntimeError('Discord did not accept the announcement')
 
+    async def announce_continuation(race, row, url):
+        await announce(race, row, url, correction=True)
+
     wake = _wake_adapter(env, logger)
+    booth_url = (env.get('Z1RR_CONTROL_PLANE_URL') or '').strip()
+    booth_token = (env.get('Z1RR_ROSTER_TOKEN') or '').strip()
+    booths = None
+    if booth_url and booth_token:
+        booths = AutumnBooths(
+            engine=engine, crew=CrewDirectory(runtime_path('autumn_crew.json', env=env), logger),
+            logger=logger, base_url=booth_url, token=booth_token,
+            edition=(env.get('Z1RR_AUTUMN_EDITION') or '2026').strip(), wake=wake,
+            roster_url=(env.get('Z1RR_ROSTER_URL') or '').strip() or None)
 
     scheduler = AutumnScheduler(
         source=source,
@@ -196,8 +205,11 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         created_store=stores.get('autumn_created_races'),
         mirrored_store=stores.get('autumn_mirrored_times'),
         announced_store=stores.get('autumn_sent_webhooks'),
+        booth_notice_store=stores.get('autumn_booth_notices'),
+        announce_continuation=announce_continuation,
         open_room=open_room,
-        wake_booth=wake,
+        wake_booth=booths.prepare if booths else wake,
+        request_booth=booths.request if booths else None,
         announce=announce,
         invite=seed_invites,
         event=event,

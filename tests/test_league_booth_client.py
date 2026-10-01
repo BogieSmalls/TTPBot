@@ -90,7 +90,7 @@ class RequestBoothTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(logger.warning.called)
 
     async def test_survives_the_control_plane_being_unreachable(self):
-        async def boom(**_):
+        def boom(**_):
             raise OSError('connection refused')
 
         result = await request_booth(
