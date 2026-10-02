@@ -11,6 +11,7 @@ import asyncio
 import aiohttp
 
 from ..league.announce import ALREADY_ON_AIR
+from ..room_policy import tournament_name
 
 #: Discord renders two newlines as a paragraph break; one is a soft wrap.
 BLANK_LINE = '\n\n'
@@ -37,10 +38,10 @@ def build_announcement(race, race_url, ids=None, label=None, crew=(),
     one = _mention(race.runner_one, ids.get(race.runner_one))
     two = _mention(race.runner_two, ids.get(race.runner_two))
 
-    headline = 'Z1R Autumn'
+    headline = tournament_name('corto', race.identity.edition) + ' \u00b7 ' + race.match_id if race.identity.event == 'corto' else 'Z1R Autumn'
     if label:
         headline = '{} — {}'.format(headline, label)
-    if race.identity.edition or race.identity.game > 1:
+    if (race.identity.event == 'autumn' and race.identity.edition) or race.identity.game > 1 or getattr(race, 'best_of', 1) > 1:
         headline += ' - Game {}'.format(race.identity.game)
     content = '{}: {} vs {} — {}'.format(headline, one, two, race_url)
 

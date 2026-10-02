@@ -16,7 +16,7 @@ from .config import (
 from .handler import TTPRaceHandler
 from .paths import data_dir as configured_data_dir, runtime_path
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
-from .room_policy import is_autumn_room, is_league_room, is_ttp_scheduled_room
+from .room_policy import is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room
 from .state import DestinationStateStore, UNCERTAIN_RACE
 
 from .provider import ProviderConfigurationError
@@ -103,6 +103,7 @@ class TTPBot(Bot):
         TTPRaceHandler.grace_enforced = grace_enforced
         TTPRaceHandler.results_recorder = self._build_results_recorder()
         TTPRaceHandler.autumn_results = None
+        TTPRaceHandler.corto_results = None
         self.created_races = self._load_created_races()
         self.sent_webhooks = self._load_sent_webhooks()
 
@@ -138,7 +139,7 @@ class TTPBot(Bot):
         if not super().should_handle(race_data):
             return False
         return (is_ttp_scheduled_room(race_data) or is_league_room(race_data)
-                or is_autumn_room(race_data))
+                or is_autumn_room(race_data) or is_corto_room(race_data))
 
     def _build_results_recorder(self):
         """Construct the results recorder, or None if it is switched off.
@@ -228,6 +229,12 @@ class TTPBot(Bot):
             return None
 
     def _build_autumn_runner(self):
+        return self._build_tournament_runner("autumn")
+
+    def _build_corto_runner(self):
+        return self._build_tournament_runner("corto")
+
+    def _build_tournament_runner(self, event):
         """Construct the Autumn runner, or None if it cannot start.
 
         Off unless `Z1RR_AUTUMN_ENABLED` says otherwise, and off anyway without
@@ -235,7 +242,7 @@ class TTPBot(Bot):
         the League and TTP exactly as they were, which is why this is its own try
         and its own log line.
         """
-        if (os.environ.get('Z1RR_AUTUMN_ENABLED', '').strip().lower()
+        if (os.environ.get('Z1RR_{}_ENABLED'.format(event.upper()), '').strip().lower()
                 not in ('1', 'true', 'yes', 'on')):
             return None
         try:
@@ -244,19 +251,19 @@ class TTPBot(Bot):
             root = self.data_dir
             stores = {
                 kind: DestinationStateStore(
-                    '{}.json'.format(kind), self.provider.destination_key, kind,
+                    '{}.json'.format(kind.replace('autumn_', event + '_', 1)), self.provider.destination_key, kind,
                     data_dir=root)
                 for kind in ('autumn_bindings', 'autumn_created_races',
                              'autumn_mirrored_times', 'autumn_sent_webhooks', 'autumn_booth_notices', 'autumn_results')
             }
             runner = build_autumn_runner(os.environ, self, self.logger,
-                                         stores=stores)
-            TTPRaceHandler.autumn_results = runner.results
+                                         stores=stores, event=event)
+            setattr(TTPRaceHandler, event + '_results', runner.results)
             return runner if runner.configured else None
         except Exception:
             self.logger.error(
-                'Autumn scheduling is off (state or configuration is unusable); '
-                'League and TTP scheduling are unaffected', exc_info=True)
+                '%s scheduling is off (state or configuration is unusable); '
+                'League and TTP scheduling are unaffected', event, exc_info=True)
             return None
 
     #: Network failures that must never stop the bot.
@@ -320,6 +327,10 @@ class TTPBot(Bot):
         if autumn is not None:
             self.logger.info('Autumn tournament scheduling is enabled')
             self.loop.create_task(autumn.run())
+        corto = self._build_corto_runner()
+        if corto is not None:
+            self.logger.info('Torneo Corto scheduling is enabled')
+            self.loop.create_task(corto.run())
         self.loop.set_exception_handler(self.handle_exception)
         self.loop.run_forever()
 

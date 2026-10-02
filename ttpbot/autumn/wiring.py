@@ -98,7 +98,9 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
     destination key, and both are checked by the store itself.
     """
     engine = engine_from_env(env, event=event, logger=logger)
-    url = (env.get('Z1RR_AUTUMN_SCHEDULE_URL') or '').strip() or DEFAULT_SCHEDULE_URL
+    prefix = event.upper()
+    default_url = ('https://docs.google.com/spreadsheets/d/1eZsfEjRi0ni9aE0GbQSDrEOL178jVd7h-P-StsNO_AQ/export?format=csv&gid=2033319762' if event == 'corto' else DEFAULT_SCHEDULE_URL)
+    url = (env.get('Z1RR_{}_SCHEDULE_URL'.format(prefix)) or '').strip() or default_url
     source = AutumnSource(url, logger)
     stores = stores or {}
 
@@ -119,9 +121,9 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         from .results import AutumnResults
         results = AutumnResults(store=stores['autumn_results'], engine=engine,
                                 provider=bot.provider, logger=logger, event=event,
-                                edition=(env.get('Z1RR_AUTUMN_EDITION') or '2026').strip())
+                                edition=engine.edition)
     racetime_ids = {}
-    racetime_ids.update(getattr(bot, 'autumn_racetime_ids', None) or {})
+    racetime_ids.update(getattr(bot, event + '_racetime_ids', None) or {})
 
     async def open_room(race, row):
         return await create_autumn_room(
@@ -187,13 +189,13 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         # way the form spelled them.
         ids = await _racer_ids(engine, race, logger)
         posted = await send_autumn_announcement(
-            race, url, (env.get('TTPBOT_AUTUMN_DISCORD_WEBHOOK_URL') or '').strip()
-            or getattr(bot, 'autumn_webhook_url', None), logger,
+            race, url, (env.get('TTPBOT_{}_DISCORD_WEBHOOK_URL'.format(prefix)) or '').strip()
+            or getattr(bot, event + '_webhook_url', None), logger,
             ids=ids, label=_round_label(race.match_id),
             continuation=bool(booth and booth.is_continuation), correction=correction,
             crew=tuple(getattr(row, 'crew', ()) or ()),
-            channel_id=(env.get('TTPBOT_AUTUMN_DISCORD_CHANNEL_ID') or '').strip(),
-            bot_token=(env.get('TTPBOT_AUTUMN_DISCORD_BOT_TOKEN')
+            channel_id=(env.get('TTPBOT_{}_DISCORD_CHANNEL_ID'.format(prefix)) or '').strip(),
+            bot_token=(env.get('TTPBOT_{}_DISCORD_BOT_TOKEN'.format(prefix))
                        or env.get('TTPBOT_LEAGUE_DISCORD_BOT_TOKEN') or '').strip())
         if not posted:
             # Raised rather than returned, because the scheduler's guard is set
@@ -209,9 +211,9 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
     booths = None
     if booth_url and booth_token:
         booths = AutumnBooths(
-            engine=engine, crew=CrewDirectory(runtime_path('autumn_crew.json', env=env), logger),
+            engine=engine, crew=CrewDirectory(runtime_path(event + '_crew.json', env=env), logger),
             logger=logger, base_url=booth_url, token=booth_token,
-            edition=(env.get('Z1RR_AUTUMN_EDITION') or '2026').strip(), wake=wake,
+            edition=engine.edition, wake=wake,
             roster_url=(env.get('Z1RR_ROSTER_URL') or '').strip() or None)
 
     scheduler = AutumnScheduler(

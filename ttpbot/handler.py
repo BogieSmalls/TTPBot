@@ -31,7 +31,7 @@ from .config import (
     Z1RR_DISCORD_URL,
 )
 from .paths import ensure_parent_dir, runtime_path
-from .room_policy import is_autumn_room, is_league_room, is_ttp_scheduled_room
+from .room_policy import is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 
 CHAT_LOG_DIR = runtime_path('chat_logs')
@@ -153,6 +153,7 @@ class TTPRaceHandler(RaceHandler):
     #: result recording is switched off.
     results_recorder = None
     autumn_results = None
+    corto_results = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -162,6 +163,7 @@ class TTPRaceHandler(RaceHandler):
         self.ttp_scheduled_room = False
         self.league_room = False
         self.autumn_room = False
+        self.corto_room = False
         self.reminder_task = None
         self.pending_hash = None
         self.pending_hash_user = None
@@ -197,6 +199,7 @@ class TTPRaceHandler(RaceHandler):
         self.ttp_scheduled_room = is_ttp_scheduled_room(self.data)
         self.league_room = is_league_room(self.data)
         self.autumn_room = is_autumn_room(self.data)
+        self.corto_room = is_corto_room(self.data)
         self.history_command_cutoff_utc = self._recent_room_history_cutoff()
 
         if self.ttp_scheduled_room:
@@ -231,7 +234,7 @@ class TTPRaceHandler(RaceHandler):
             self.bot_created = False
             if self.league_room:
                 await self._send_league_invites()
-            elif self.autumn_room:
+            elif self.autumn_room or self.corto_room:
                 # Shared state is reseeded after reconnects and process restarts.
                 self.state['_autumn_send_invites'] = self._send_autumn_invites
                 await self._send_autumn_invites()
@@ -340,7 +343,7 @@ class TTPRaceHandler(RaceHandler):
     async def _send_autumn_invites(self):
         """Invite an Autumn room's two racers, exactly once."""
         await self._send_invites(
-            'Autumn', 'autumn_invited', self._autumn_invite_ids())
+            'Torneo Corto' if self.corto_room else 'Autumn', 'autumn_invited', self._autumn_invite_ids())
 
     async def _send_league_invites(self):
         """Invite the scheduled racers exactly once."""
@@ -876,11 +879,12 @@ class TTPRaceHandler(RaceHandler):
             except Exception:
                 self.logger.exception('League result could not be recorded')
 
-        if getattr(self, 'autumn_room', False) and self.autumn_results is not None:
+        collector = self.corto_results if getattr(self, 'corto_room', False) else self.autumn_results if getattr(self, 'autumn_room', False) else None
+        if collector is not None:
             try:
-                await self.autumn_results.record(self.data)
+                await collector.record(self.data)
             except Exception:
-                self.logger.exception('Autumn result suggestion pending recovery')
+                self.logger.exception('Tournament result suggestion pending recovery')
 
     async def ex_schedule(self, args, message):
         """!schedule - Show today's remaining race times."""

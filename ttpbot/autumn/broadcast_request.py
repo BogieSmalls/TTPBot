@@ -1,6 +1,8 @@
 """Map an engine match and authoritative sheet row onto the shared booth contract."""
 from datetime import timezone
 import re
+import math
+from ..room_policy import tournament_name
 from urllib.parse import urlsplit
 
 
@@ -46,6 +48,9 @@ def build_broadcast_request(race, row, room_url, document, crew, logger, *, edit
     else:
         label = {'GF-1': 'Grand Final', 'GF-2': 'Grand Final Reset'}.get(
             race.match_id, 'Match {}'.format(number or race.match_id))
+    if round_match and document.get('format') == 'single':
+        remaining = int(math.log2(len(document.get('seeds') or [None] * 8))) - int(round_match.group(2))
+        label = {0: 'Final', 1: 'Semifinals', 2: 'Quarterfinals'}.get(remaining, 'Round {}'.format(round_match.group(2)))
     if getattr(race, 'best_of', 1) > 1 or game > 1:
         label += ' - Game {}'.format(game)
     return {
@@ -53,7 +58,7 @@ def build_broadcast_request(race, row, room_url, document, crew, logger, *, edit
         'competition': event, 'edition': edition, 'matchId': race.match_id, 'game': game,
         'twitchChannel': row.channel, 'raceSlug': slug,
         'scheduledAt': race.at.astimezone(timezone.utc).isoformat(),
-        'title': '{} Autumn Tournament\n{}'.format(edition, label),
+        'title': '{}\n{}'.format(tournament_name(event, edition), label),
         'racers': racers,
         'commentatorUserIds': [who for who in (crew_id(row.comms_one), crew_id(row.comms_two)) if who],
         'trackerUserId': crew_id(row.tracker),

@@ -62,3 +62,14 @@ def is_league_room(race_data):
         info_user.startswith(LEAGUE_ROOM_INFO_PREFIX)
         or info_bot.startswith(LEAGUE_ROOM_INFO_PREFIX)
     )
+
+
+def tournament_name(event, edition):
+    return 'Torneo Corto #{}'.format(edition) if event == 'corto' else '{} Autumn Tournament'.format(edition or '2026')
+
+
+def is_corto_room(race_data):
+    if race_data.get('goal', {}).get('name') != POST_SEASON_GOAL_NAME:
+        return False
+    return any(re.match(r'^Torneo Corto #\d+ \u2014 ', race_data.get(field) or '')
+               for field in ('info_user', 'info_bot'))
