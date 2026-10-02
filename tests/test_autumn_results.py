@@ -53,6 +53,34 @@ class AutumnResultsTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(StateStoreError):
             restarted.bind(reset, ROOM, {'Alice': 'a', 'Bob': 'b'})
 
+    async def test_one_finisher_beats_dnf_in_either_entrant_order(self):
+        for finisher in (0, 1):
+            with self.subTest(finisher=finisher):
+                self.store.save({})
+                self.recorder.bind(RACE, ROOM, {'Alice': 'a', 'Bob': 'b'})
+                data = copy.deepcopy(DATA)
+                data['entrants'][1-finisher].update(status={'value': 'dnf'}, finish_time=None)
+                await self.recorder.record(data)
+                entry = self.store.load()['autumn-2026|GF-1|1']
+                self.assertEqual(entry['status'], 'suggested')
+                self.assertEqual(entry['winner'], ('Alice', 'Bob')[finisher])
+
+    async def test_dnf_needs_a_valid_finisher_and_finished_room(self):
+        for change in ('double-dnf', 'missing-time', 'still-racing', 'cancelled'):
+            with self.subTest(change=change):
+                self.store.save({})
+                self.recorder.bind(RACE, ROOM, {'Alice': 'a', 'Bob': 'b'})
+                data = copy.deepcopy(DATA)
+                data['entrants'][1].update(status={'value': 'dnf'}, finish_time=None)
+                if change == 'double-dnf': data['entrants'][0].update(status={'value': 'dnf'}, finish_time=None)
+                if change == 'missing-time': data['entrants'][0]['finish_time'] = None
+                if change == 'still-racing': data['entrants'][1]['status']['value'] = 'in_progress'
+                if change == 'cancelled': data['status']['value'] = 'cancelled'
+                await self.recorder.record(data)
+                entry = self.store.load()['autumn-2026|GF-1|1']
+                self.assertEqual(entry['status'], 'review')
+                self.assertIsNone(entry['winner'])
+
     async def test_bad_ids_ties_and_nonfinishes_need_human_review(self):
         for change in ('wrong-id', 'tie', 'dnf', 'dq', 'extra', 'missing', 'cancelled'):
             with self.subTest(change=change):
@@ -168,7 +196,7 @@ class AutumnResultsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry['status'], 'review')
         self.assertEqual(len(entry['observations']), 2)
 
-    async def test_real_engine_accepts_one_observation_after_a_lost_reply_and_restart(self):
+    async def test_real_engine_accepts_finisher_over_dnf_after_a_lost_reply_and_restart(self):
         import asyncio
         import json
         import os
@@ -210,6 +238,7 @@ server.listen(0, '127.0.0.1', () => console.log(server.address().port));
         mixed_ids = copy.deepcopy(DATA)
         mixed_ids['entrants'][0]['user']['id'] = 'Za'
         mixed_ids['entrants'][1]['user']['id'] = 'aZ'
+        mixed_ids['entrants'][1].update(status={'value': 'dnf'}, finish_time=None)
         from ttpbot.handler import TTPRaceHandler
         handler = TTPRaceHandler(conn=None, logger=logging.getLogger('test'), state={})
         handler.data, handler.autumn_room, handler.autumn_results = mixed_ids, True, self.recorder
@@ -224,6 +253,9 @@ server.listen(0, '127.0.0.1', () => console.log(server.address().port));
         item = next(iter(self.store.load()['autumn-2026|W1-1|1']['observations'].values()))
         self.assertIsNotNone(item['receipt'])
         proposal = next(iter(state['proposals'].values()))
+        self.assertEqual(proposal['status'], 'pending')
+        self.assertEqual(proposal['facts']['winner'], 'Alice')
+        self.assertIn('DNF', proposal['facts']['reason'])
         self.assertTrue((await client._post('decideResult', dict(edition='2026', proposalId=proposal['id'],
             proposalRevision=proposal['revision'], decision='confirm', decisionId='council', actor='council'))).ok)
         state = (await client.state())['document']

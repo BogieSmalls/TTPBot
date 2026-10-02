@@ -186,7 +186,13 @@ class AutumnResults:
                 {e.get('user', {}).get('id') for e in entrants} != set(saved['racers'].values())):
             return None, 'Room does not contain exactly the two expected racetime IDs'
         if any(e.get('status', {}).get('value') != 'done' for e in entrants):
-            return None, 'DNF, DQ, forfeit or inconsistent finish needs an operator'
+            finisher = next((e for e in entrants if e.get('status', {}).get('value') == 'done'), None)
+            forfeit = next((e for e in entrants if e.get('status', {}).get('value') == 'dnf'), None)
+            if (finisher is not None and forfeit is not None and forfeit.get('finish_time') is None
+                    and seconds(finisher.get('finish_time')) is not None):
+                identifier = finisher['user']['id']
+                return next(name for name, value in saved['racers'].items() if value == identifier), None
+            return None, 'DQ, double DNF or incomplete/inconsistent finish needs an operator'
         times = [seconds(e.get('finish_time')) for e in entrants]
         if any(t is None for t in times) or times[0] == times[1]:
             return None, 'Missing finish time or tie needs an operator'
