@@ -397,6 +397,21 @@ class TTPRaceHandler(RaceHandler):
         self.logger.info('[%s] invited %d %s racers',
                          self.data.get('name'), len(invite_ids), label)
 
+    async def error(self, data):
+        """A refused invitation is a room action failure, not a bot failure."""
+        errors = data.get('errors')
+        if (isinstance(errors, list) and errors
+                and all(isinstance(message, str) and re.fullmatch(
+                    r'.+ is not allowed to join this race\.', message)
+                        for message in errors)):
+            # racetime replies asynchronously, after invite_user has returned.
+            # Keep the invite guard claimed: repeating a refusal on reconnect
+            # used to terminate the handler, then the entire scheduler loop.
+            self.logger.warning('[%s] Invitation refused by racetime: %s',
+                                self.data.get('name'), '; '.join(errors))
+            return
+        await super().error(data)
+
     async def chat_history(self, data):
         """Check chat history for existing bot messages to avoid duplicates."""
         messages = data.get('messages', [])
