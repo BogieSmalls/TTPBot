@@ -374,10 +374,15 @@ def engine_from_env(env, event='autumn', logger=None):
             logger.info(
                 'Autumn: no Z1RR_ENGINE_TOKEN, so the tournament runner stays off')
         return None
+    edition = (env.get('Z1RR_{}_EDITION'.format(event.upper())) or ('2026' if event == 'autumn' else '')).strip()
+    if not edition:
+        if logger:
+            logger.warning('%s: an explicit competition edition is required', event)
+        return None
     return AutumnEngine(
         url=(env.get('Z1RR_ENGINE_URL') or '').strip() or DEFAULT_ENGINE_URL,
         token=token,
         event=event,
-        edition=(env.get('Z1RR_AUTUMN_EDITION') or '2026').strip(),
+        edition=edition,
         logger=logger,
     )

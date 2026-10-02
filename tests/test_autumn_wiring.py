@@ -184,6 +184,7 @@ class Startup(unittest.TestCase):
         bot = mock.Mock(spec=TTPBot)
         bot.logger = Log()
         bot._build_autumn_runner = TTPBot._build_autumn_runner.__get__(bot, TTPBot)
+        bot._build_tournament_runner = TTPBot._build_tournament_runner.__get__(bot, TTPBot)
         with mock.patch.dict('os.environ', env, clear=True):
             return bot._build_autumn_runner(), bot.logger
 

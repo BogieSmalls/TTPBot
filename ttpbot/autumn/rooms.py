@@ -27,6 +27,7 @@ import aiohttp
 from ..config import POST_SEASON_GOAL_NAME
 from ..provider import ProviderConfigurationError
 from ..state import UNCERTAIN_RACE
+from ..room_policy import tournament_name
 
 #: The match id goes in the room's own info, because that is what recovery reads.
 #: A pair of names is not enough -- the grand final and its reset are the same two
@@ -45,7 +46,7 @@ def room_title(race, label=None):
     is *this* match's rather than the same pair's other one.
     """
     matchup = '{} vs {}'.format(race.runner_one, race.runner_two)
-    parts = ['{} Autumn Tournament'.format(race.identity.edition or '2026')]
+    parts = [tournament_name(race.identity.event, race.identity.edition)]
     if label:
         parts.append(label)
     parts.append(matchup)
@@ -210,6 +211,8 @@ async def recover_autumn_room(race, provider, access_token, logger, label=None):
         return None
     # Keep recovering rooms opened before the display-name change. Two matches
     # across either naming format still refuse rather than selecting a room.
+    if race.identity.event != 'autumn':
+        return await _recover(provider, access_token, logger, {room_title(race, label)})
     parts = ['Z1R Autumn'] + ([label] if label else [])
     parts.append('{} vs {}'.format(race.runner_one, race.runner_two))
     legacy = '{} [{}] Game {} [{}]'.format(' \u2014 '.join(parts), race.match_id,
