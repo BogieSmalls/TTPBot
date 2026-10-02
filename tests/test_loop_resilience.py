@@ -133,3 +133,35 @@ class RealFailuresStillStopTheLoop(unittest.TestCase):
         bot.handle_exception(loop, {'message': 'something went wrong'})
 
         self.assertTrue(loop.stopped)
+
+
+class RefusedInvitationDoesNotKillTheRoom(unittest.TestCase):
+    def handler(self):
+        from ttpbot.handler import TTPRaceHandler
+        handler = TTPRaceHandler.__new__(TTPRaceHandler)
+        handler.data = {'name': 'z1r/superb-letter-3817'}
+        handler.state = {'league_invited': True}
+        handler.logger = Mock()
+        return handler
+
+    def test_refused_invite_keeps_processing_the_rooms_next_message(self):
+        from unittest.mock import AsyncMock
+        handler = self.handler()
+        handler.race_data = AsyncMock()
+
+        async def receive():
+            await handler.consume({'type': 'error', 'errors': [
+                'specialk3782#4459 is not allowed to join this race.']})
+            await handler.consume({'type': 'race.data', 'race': {'status': {'value': 'open'}}})
+
+        asyncio.run(receive())
+        handler.race_data.assert_awaited_once()
+        handler.logger.warning.assert_called_once()
+        self.assertTrue(handler.state['league_invited'])
+
+    def test_other_or_mixed_errors_still_raise(self):
+        for errors in (["Unknown action."],
+                       ['specialk3782#4459 is not allowed to join this race.', 'Invalid credentials.'],
+                       [], None):
+            with self.subTest(errors=errors), self.assertRaises(Exception):
+                asyncio.run(self.handler().consume({'type': 'error', 'errors': errors}))
