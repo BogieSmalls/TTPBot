@@ -39,15 +39,21 @@ def build_broadcast_request(race, row, room_url, document, crew, logger, *, edit
 
     event = race.identity.event
     game = race.identity.game
-    label = '#{}'.format(number) if number is not None else race.match_id
-    if race.identity.edition or game > 1:
+    round_match = re.fullmatch(r'([WL])([1-9]\d*)-\d+', race.match_id)
+    if round_match:
+        side = 'Winners' if round_match.group(1) == 'W' else 'Losers'
+        label = '{} Bracket: Round {}'.format(side, round_match.group(2))
+    else:
+        label = {'GF-1': 'Grand Final', 'GF-2': 'Grand Final Reset'}.get(
+            race.match_id, 'Match {}'.format(number or race.match_id))
+    if getattr(race, 'best_of', 1) > 1 or game > 1:
         label += ' - Game {}'.format(game)
     return {
         'requestKey': 'tournament:{}:{}:{}:game:{}'.format(event, edition, race.match_id, game),
         'competition': event, 'edition': edition, 'matchId': race.match_id, 'game': game,
         'twitchChannel': row.channel, 'raceSlug': slug,
         'scheduledAt': race.at.astimezone(timezone.utc).isoformat(),
-        'title': 'Z1R Autumn Tournament {}\n{} vs {}'.format(label, race.runner_one, race.runner_two),
+        'title': '{} Autumn Tournament\n{}'.format(edition, label),
         'racers': racers,
         'commentatorUserIds': [who for who in (crew_id(row.comms_one), crew_id(row.comms_two)) if who],
         'trackerUserId': crew_id(row.tracker),
