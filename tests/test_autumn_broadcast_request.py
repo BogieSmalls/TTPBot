@@ -29,7 +29,17 @@ class AutumnBroadcastRequestTests(unittest.TestCase):
         self.assertEqual(body['racers'][0], {'slot': 1, 'channel': 'isumatt', 'displayName': 'ISUMatt', 'racetimeId': 'id-one', 'tournamentSeed': '#46'})
         self.assertEqual(body['commentatorUserIds'], ['managed-1'])
         self.assertEqual(body['trackerUserId'], 'managed-2')
-        self.assertIn('#1', body['title'])
+        self.assertEqual(body['title'], '2026 Autumn Tournament\nWinners Bracket: Round 1')
+
+    def test_booth_title_names_the_bracket_round_and_both_finals(self):
+        for match_id, label in [('W3-2', 'Winners Bracket: Round 3'),
+                                ('L4-1', 'Losers Bracket: Round 4'),
+                                ('GF-1', 'Grand Final'), ('GF-2', 'Grand Final Reset')]:
+            with self.subTest(match_id=match_id):
+                race = replace(self.race, match_id=match_id,
+                               identity=RaceIdentity('autumn', match_id, 1, '2026'))
+                self.assertEqual(self.build_request(race=race)['title'],
+                                 '2026 Autumn Tournament\n' + label)
 
     def test_reschedule_keeps_identity_but_a_reset_has_its_own(self):
         from datetime import timedelta
