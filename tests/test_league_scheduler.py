@@ -1,4 +1,5 @@
 import logging
+from dataclasses import replace
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -6,6 +7,8 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, Mock, patch
 
 from ttpbot.config import TIMEZONE
+from ttpbot.league.coop import CoopMatch
+from tests.test_league_coop import rows as coop_rows
 from ttpbot.league.roster import Racer, Roster
 from ttpbot.league.booth import BoothOutcome
 from ttpbot.league.matchups import Fixture
@@ -77,6 +80,26 @@ class LeagueSchedulerTests(unittest.IsolatedAsyncioTestCase):
             webhook_url='https://discord.com/api/webhooks/1/token',
             logger=QUIET,
         )
+
+    async def test_coop_game_two_never_reuses_game_one_after_restart(self):
+        first = CoopMatch(rows=tuple(coop_rows()))
+        second = CoopMatch(rows=tuple(replace(r, game=2, start=r.start + timedelta(days=1)) for r in first.rows))
+        self.created.save({first.key: ROOM})
+        scheduler = self.scheduler(second.rows)
+        new_room = 'https://racetime.gg/z1r/game-two-1234'
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=new_room)) as create, \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)) as announce:
+            await scheduler.tick(second.start - timedelta(minutes=30))
+        create.assert_awaited_once()
+        self.assertEqual(self.created.load()[second.key], new_room)
+        self.assertEqual(announce.await_args.args[1], new_room)
+        postponed = tuple(replace(r, start=r.start + timedelta(hours=3)) for r in second.rows)
+        restarted = self.scheduler(postponed)
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock()) as create_again, \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)):
+            await restarted.tick(postponed[0].start - timedelta(minutes=30))
+        create_again.assert_not_awaited()
+        self.assertEqual(self.created.load()[CoopMatch(rows=postponed).key], new_room)
 
     async def test_opens_a_room_inside_the_window(self):
         scheduler = self.scheduler()
@@ -1148,7 +1171,7 @@ from ttpbot.league.coop import CoopMatch
 
 COOP_FIXTURE = Fixture(week=3, away='Bow Mode', home='Shadow Cartel',
                        label='Week 3 - Coop Info Share - 2023 Rookie Rumble')
-COOP_KEY = START.isoformat() + '|coop-bow-mode-vs-shadow-cartel'
+COOP_KEY = START.isoformat() + '|coop-week-3-game-1-bow-mode-vs-shadow-cartel'
 
 
 def _coop_rows(channel_one='Z1Rracing', channel_two=None):

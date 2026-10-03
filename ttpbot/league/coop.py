@@ -113,7 +113,9 @@ class CoopMatch:
 
     @property
     def slug(self):
-        return 'coop-{}-vs-{}'.format(_slugify(self.fixture.away), _slugify(self.fixture.home))
+        return 'coop-week-{}-game-{}-{}-vs-{}'.format(
+            self.fixture.week, self.game,
+            _slugify(self.fixture.away), _slugify(self.fixture.home))
 
     @property
     def key(self):
