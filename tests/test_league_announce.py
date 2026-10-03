@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from datetime import datetime
 
 from ttpbot.config import TIMEZONE
@@ -142,7 +143,8 @@ class CrewTaggingTests(unittest.TestCase):
 
         # Matchup and crew are two separate thoughts; a single break renders
         # too tightly in Discord to scan at a glance.
-        self.assertIn('\n\nComms:', body['content'])
+        self.assertIn('\n\nChannel:', body['content'])
+        self.assertIn('\nComms:', body['content'])
 
 
 class ContinuationAnnouncementTests(unittest.TestCase):
@@ -203,7 +205,7 @@ def _coop_match(tracker_one=None, tracker_two=None):
 class CoopAnnouncementTests(unittest.TestCase):
     def test_names_both_teams_away_first(self):
         body = build_announcement(_coop_match(), ROOM)
-        self.assertEqual(body['content'], 'League co-op: <@222> & <@333> vs <@111> & <@444> — ' + ROOM)
+        self.assertEqual(body['content'], 'Title: League co-op: <@222> & <@333> vs <@111> & <@444>\nRace Room: ' + ROOM)
 
     def test_allow_lists_all_four_runners(self):
         body = build_announcement(_coop_match(), ROOM)
@@ -211,8 +213,24 @@ class CoopAnnouncementTests(unittest.TestCase):
 
     def test_credits_both_trackers_when_the_rows_differ(self):
         body = build_announcement(_coop_match('droois', 'ISUMatt'), ROOM)
-        self.assertIn('Tracker: droois ISUMatt', body['content'])
+        self.assertIn('Tracker: droois, ISUMatt', body['content'])
 
-    def test_the_1v1_line_is_unchanged(self):
+    def test_the_1v1_post_uses_the_same_layout(self):
         race = _race(_racer('SirLinkalot', '111'), _racer('Windfox470', '222'))
-        self.assertEqual(build_announcement(race, ROOM)['content'], 'League: <@111> vs <@222> — ' + ROOM)
+        self.assertEqual(build_announcement(race, ROOM)['content'], 'Title: League: <@111> vs <@222>\nRace Room: ' + ROOM)
+
+
+class AnnouncementLayoutTests(unittest.TestCase):
+    def test_room_and_each_broadcast_detail_have_their_own_line(self):
+        body = build_announcement(_staffed_race(comms=('SpecialK', 'GrandpaSzabo'), tracker='Other'), ROOM, crew=CREW)
+        self.assertEqual(body['content'], 'Title: League: <@111> vs <@222>\nRace Room: ' + ROOM + '\n\nChannel: [Z1Rracing](https://www.twitch.tv/z1rracing)\nComms: <@429>, <@355>\nTracker: Other')
+
+    def test_coop_announces_both_assigned_channels_without_repeating_one(self):
+        match = _coop_match()
+        match = replace(match, rows=tuple(replace(row, channel=channel) for row,channel in zip(match.rows, ('Z1Rracing', 'Z1Rracing2'))))
+        body = build_announcement(match, ROOM)['content']
+        self.assertIn('Channel: [Z1Rracing](https://www.twitch.tv/z1rracing), [Z1Rracing2](https://www.twitch.tv/z1rracing2)', body)
+        self.assertNotIn('Comms:', body)
+        self.assertNotIn('Tracker:', body)
+        same = replace(match, rows=tuple(replace(row, channel='Z1Rracing') for row in match.rows))
+        self.assertEqual(build_announcement(same, ROOM)['content'].count('https://www.twitch.tv/z1rracing'), 1)

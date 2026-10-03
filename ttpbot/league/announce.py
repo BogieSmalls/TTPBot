@@ -5,6 +5,7 @@ allow-listed rather than parsed: only the scheduled racers' ids can ping.
 """
 
 import asyncio
+import re
 
 import aiohttp
 
@@ -44,7 +45,20 @@ def _crew_line(label, names, crew, allowed):
     if not rendered:
         return ''
     allowed.extend(ids)
-    return '{}: {}'.format(label, ' '.join(rendered))
+    return '{}: {}'.format(label, ', '.join(rendered))
+
+
+def _channel_line(race):
+    rows = race.rows if race.coop else (race,)
+    links, seen = [], set()
+    for row in rows:
+        channel = (row.channel or '').strip()
+        if not channel or channel.lower() in seen:
+            continue
+        seen.add(channel.lower())
+        links.append('[{}](https://www.twitch.tv/{})'.format(channel, channel.lower())
+                     if re.fullmatch(r'[a-zA-Z0-9_]+', channel) else channel)
+    return 'Channel: ' + ', '.join(links) if links else ''
 
 
 def build_announcement(race, race_url, crew=None, continuation=False):
@@ -64,12 +78,13 @@ def build_announcement(race, race_url, crew=None, continuation=False):
         racers = (race.runner_one, race.runner_two)
         matchup = 'League: {} vs {}'.format(_mention(race.runner_one), _mention(race.runner_two))
     allowed = [r.discord_id for r in racers if r.discord_id]
-    content = '{} — {}'.format(matchup, race_url)
+    content = 'Title: {}\nRace Room: {}'.format(matchup, race_url)
     segments = [
+        _channel_line(race),
         _crew_line('Comms', getattr(race, 'comms', ()), crew, allowed),
         _crew_line('Tracker', race.trackers, crew, allowed),
     ]
-    staffed = ' · '.join(segment for segment in segments if segment)
+    staffed = NEWLINE.join(segment for segment in segments if segment)
     if staffed:
         content = BLANK_LINE.join((content, staffed))
     if continuation:
@@ -95,10 +110,11 @@ def build_continuation_notice(race, race_url, crew=None):
     """
     allowed = []
     segments = [
+        _channel_line(race),
         _crew_line('Comms', getattr(race, 'comms', ()), crew, allowed),
         _crew_line('Tracker', race.trackers, crew, allowed),
     ]
-    staffed = ' · '.join(segment for segment in segments if segment)
+    staffed = NEWLINE.join(segment for segment in segments if segment)
     content = 'Correction for {} — {}'.format(race_url, ALREADY_ON_AIR)
     if staffed:
         content = BLANK_LINE.join((content, staffed))
