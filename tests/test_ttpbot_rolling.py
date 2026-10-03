@@ -37,13 +37,17 @@ class TTPBotRollingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(handler.messages[0].startswith(
             f'consternation - Flags: {CONSTERNATION} Seed: '))
 
-    async def test_preset_shorthand_defers_to_sahasrahbot(self):
+    async def test_preset_shorthand_posts_the_flags_with_sahasrahbot_present(self):
+        # SahasrahBot has no !consternation, so silence answered nobody.
         handler = command_handler()
         handler.sahasrahbot_present = True
 
         await handler.chat_message(say('!consternation'))
 
-        self.assertEqual(handler.messages, [])
+        self.assertFalse(handler.seed_rolled)
+        self.assertEqual(handler.messages, [
+            f'consternation flags: {CONSTERNATION} -- roll with !flags {CONSTERNATION}',
+        ])
 
     async def test_cancel_clears_the_seed_so_a_new_one_can_be_rolled(self):
         handler = command_handler()
