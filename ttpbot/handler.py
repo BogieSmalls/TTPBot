@@ -767,9 +767,10 @@ class TTPRaceHandler(RaceHandler):
                 except Exception:
                     self.logger.error('Command raised exception.', exc_info=True)
             elif command in SEED_PRESETS:
-                # !consternation is how people ask for a preset; it means !race.
+                # !consternation is how people ask for a preset. SahasrahBot has
+                # no such command, so with it present this posts the flags.
                 try:
-                    await self.ex_race([command], message)
+                    await self._roll_unknown_to_sahasrahbot(command, message)
                 except Exception:
                     self.logger.error('Command raised exception.', exc_info=True)
             return
