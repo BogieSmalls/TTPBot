@@ -49,3 +49,14 @@ class RoomTitles(unittest.TestCase):
         endpoint=Endpoint(Response(200,json={'current_races':[{'info_user':title,'url':ROOM_PATH},{'info_user':title,'url':'/z1r/other-room'}]}))
         with patch('ttpbot.autumn.rooms.aiohttp.request',endpoint):
             self.assertIsNone(asyncio.run(recover_autumn_room(r,provider(),'token',Log())))
+
+    def test_channel_is_shown_without_changing_room_identity_or_recovery(self):
+        from ttpbot.autumn.rooms import autumn_room_form_data
+        r=self.sample(); r.channel='Z1Rracing2'
+        title=autumn_room_form_data(r)['info_user']
+        self.assertIn('https://www.twitch.tv/z1rracing2',title)
+        self.assertIn('[W1-29]',title)
+        r.channel='Z1Rracing4'  # a later assignment cannot hide an existing room
+        endpoint=Endpoint(Response(200,json={'current_races':[{'info_user':title,'url':ROOM_PATH}]}))
+        with patch('ttpbot.autumn.rooms.aiohttp.request',endpoint):
+            self.assertEqual(asyncio.run(recover_autumn_room(r,provider(),'token',Log())),ROOM_URL)
