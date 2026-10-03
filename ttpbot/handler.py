@@ -198,6 +198,16 @@ class TTPRaceHandler(RaceHandler):
         bot_name = message.get('bot') or ''
         return 'sahasrahbot' in bot_name.lower()
 
+    def _room_is_open(self):
+        """Whether the race has yet to start.
+
+        A reconnect to a race already under way (a restart or deploy mid-race)
+        must say nothing: no welcome, no reminders, no invites. Racers are
+        playing, and anything TTPBot posts then is noise.
+        """
+        status = (self.data.get('status') or {}).get('value')
+        return status not in ('pending', 'in_progress', 'finished', 'cancelled')
+
     async def begin(self):
         self.ttp_scheduled_room = is_ttp_scheduled_room(self.data)
         self.league_room = is_league_room(self.data)
@@ -216,7 +226,7 @@ class TTPRaceHandler(RaceHandler):
                 now = datetime.now(TIMEZONE)
                 minutes_until = (self.scheduled_time - now).total_seconds() / 60
 
-                if minutes_until >= -1:
+                if minutes_until >= -1 and self._room_is_open():
                     # Race time is upcoming or just arrived - send reminders.
                     # Pre-mark reminders whose window is well past (>2 min ago)
                     # so a service restart doesn't dump all reminders at once.
@@ -235,7 +245,9 @@ class TTPRaceHandler(RaceHandler):
         else:
             self.scheduled_time = None
             self.bot_created = False
-            if self.league_room:
+            if not self._room_is_open():
+                pass
+            elif self.league_room:
                 await self._send_league_invites()
             elif self.autumn_room or self.corto_room:
                 # Shared state is reseeded after reconnects and process restarts.
@@ -477,7 +489,9 @@ class TTPRaceHandler(RaceHandler):
             if any(reminder_text in text for text in bot_messages):
                 self.reminders_sent.add(minutes_before)
 
-        if already_welcomed:
+        if already_welcomed or not self._room_is_open():
+            # A long race can push the welcome out of the history window, and
+            # a race under way is no place to say hello again.
             self.state['welcomed'] = True
         elif not self.state.get('welcomed'):
             if self.ttp_scheduled_room:
