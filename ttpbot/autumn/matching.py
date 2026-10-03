@@ -139,6 +139,7 @@ class Resolved:
     conditional: bool = False
     why_conditional: Optional[str] = None
     status: str = 'scheduled'
+    channel: Optional[str] = None
 
 
 @dataclass

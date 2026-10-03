@@ -27,7 +27,7 @@ import aiohttp
 from ..config import POST_SEASON_GOAL_NAME
 from ..provider import ProviderConfigurationError
 from ..state import UNCERTAIN_RACE
-from ..room_policy import tournament_name
+from ..room_policy import tournament_name, room_identity, with_broadcast_channel
 
 #: The match id goes in the room's own info, because that is what recovery reads.
 #: A pair of names is not enough -- the grand final and its reset are the same two
@@ -68,7 +68,7 @@ def autumn_room_form_data(race, label=None):
         # writing the title to each showed it twice, and info_bot is what
         # `setinfo` overwrites -- SahasrahBot replaces it when it rolls a seed.
         # Recovery depends on this field, so it must be one nobody else owns.
-        'info_user': room_title(race, label),
+        'info_user': with_broadcast_channel(room_title(race, label), getattr(race, 'channel', None)),
         'invitational': 'false',
         'unlisted': 'false',
         'start_delay': '15',
@@ -185,7 +185,7 @@ async def _recover(provider, access_token, logger, title, requester=None):
         for candidate in races:
             if not isinstance(candidate, dict):
                 continue
-            if not titles.intersection((candidate.get('info_user'), candidate.get('info_bot'))):
+            if not titles.intersection(room_identity(candidate.get(field)) for field in ('info_user', 'info_bot')):
                 continue
             raw = candidate.get('url')
             if not raw and isinstance(candidate.get('name'), str):

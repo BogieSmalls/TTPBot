@@ -92,3 +92,13 @@ class CoopRoomFormTests(unittest.TestCase):
 
     def test_a_1v1_room_does_not_send_ranked(self):
         self.assertNotIn('ranked', league_room_form_data(RACE))
+
+
+class BroadcastDisplayTests(unittest.TestCase):
+    def test_room_channel_does_not_become_part_of_racer_names(self):
+        from dataclasses import replace
+        from ttpbot.room_policy import room_identity
+        r=replace(RACE,channel='Z1Rracing3')
+        title=league_room_form_data(r)['info_user']
+        self.assertIn('https://www.twitch.tv/z1rracing3',title)
+        self.assertEqual(room_identity(title),r.title)

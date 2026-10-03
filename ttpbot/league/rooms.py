@@ -12,6 +12,7 @@ import aiohttp
 from ..config import POST_SEASON_GOAL_NAME
 from ..provider import ProviderConfigurationError
 from ..state import UNCERTAIN_RACE
+from ..room_policy import room_identity, with_broadcast_channel
 
 
 def league_room_form_data(race):
@@ -25,7 +26,7 @@ def league_room_form_data(race):
         # Leaving info_bot clear means the room reads title + seed rather than
         # title + title, and the restart recovery in _league_invite_ids()
         # stops depending on a field somebody else owns.
-        'info_user': race.title,
+        'info_user': with_broadcast_channel(race.title, race.channel),
         'invitational': 'false',
         'unlisted': 'false',
         'start_delay': '15',
@@ -99,8 +100,8 @@ async def _recover_uncertain_league_room(race, provider, access_token, logger):
             if not isinstance(candidate, dict):
                 continue
             if (
-                candidate.get('info_user') != race.title
-                and candidate.get('info_bot') != race.title
+                room_identity(candidate.get('info_user')) != race.title
+                and room_identity(candidate.get('info_bot')) != race.title
             ):
                 continue
             raw_url = candidate.get('url')

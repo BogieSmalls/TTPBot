@@ -31,7 +31,7 @@ from .config import (
     Z1RR_DISCORD_URL,
 )
 from .paths import ensure_parent_dir, runtime_path
-from .room_policy import is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room
+from .room_policy import room_identity, is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 
 CHAT_LOG_DIR = runtime_path('chat_logs')
@@ -293,7 +293,7 @@ class TTPRaceHandler(RaceHandler):
             self.logger.warning('[%s] League title is unparseable: %r',
                                 self.data.get('name'), info_bot)
             return []
-        pairing = title[len(LEAGUE_ROOM_INFO_PREFIX):]
+        pairing = room_identity(title)[len(LEAGUE_ROOM_INFO_PREFIX):]
         # 'A vs. B' for a 1v1; 'A & C vs. B & D' for a co-op match, whose
         # title lists the away team first.
         sides = [side.split(' & ') for side in pairing.split(' vs. ')]

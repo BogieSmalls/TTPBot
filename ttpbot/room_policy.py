@@ -73,3 +73,15 @@ def is_corto_room(race_data):
         return False
     return any(re.match(r'^Torneo Corto #\d+ \u2014 ', race_data.get(field) or '')
                for field in ('info_user', 'info_bot'))
+
+
+# Presentation metadata must not change a room's recovery identity or racer names.
+def room_identity(title):
+    return re.sub(r'\nRestream: https://www\.twitch\.tv/[a-z0-9_]+$', '', title or '', flags=re.I)
+
+
+def with_broadcast_channel(title, channel):
+    channel = (channel or '').strip()
+    if not re.fullmatch(r'[a-zA-Z0-9_]+', channel):
+        return title
+    return '{}\nRestream: https://www.twitch.tv/{}'.format(title, channel.lower())

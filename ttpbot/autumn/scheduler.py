@@ -280,6 +280,7 @@ class AutumnScheduler:
 
     async def _handle(self, race, row, now):
         """One resolved race, at whatever stage it is at."""
+        race.channel = getattr(row, 'channel', None)
         if self._workflow and race.status == 'cancelled':
             await self.engine.cancel_time(race.match_id, race.identity.game, self.engine.edition, self._schedule_observed_at.isoformat())
             return
