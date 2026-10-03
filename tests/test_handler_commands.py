@@ -9,6 +9,7 @@ from ttpbot.handler import TTPRaceHandler
 def command_handler():
     handler = object.__new__(TTPRaceHandler)
     handler.sahasrahbot_present = False
+    handler.sahasrahbot_overridden = False
     handler.seed_rolled = False
     handler.data = {'name': 'z1rr/test-room', 'info_bot': 'Test room'}
     handler.logger = Mock()
@@ -302,8 +303,9 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
             ]})
 
         self.assertTrue(handler.sahasrahbot_present)
-        # SahasrahBot's own roll must not be mistaken for one of TTPBot's.
-        self.assertFalse(handler.seed_rolled)
+        # SahasrahBot's roll locks rolling too, so an !override cannot add a
+        # second seed. TTPBot defers to SahasrahBot regardless, so nothing else changes.
+        self.assertTrue(handler.seed_rolled)
 
     async def test_sahasrahbot_detected_from_live_message(self):
         handler = command_handler()
@@ -314,6 +316,68 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
         }})
 
         self.assertTrue(handler.sahasrahbot_present)
+
+    async def test_override_takes_over_from_a_silent_sahasrahbot(self):
+        # 2026-10-02: SahasrahBot greeted the Autumn W1-2 room, then ignored
+        # three !flags, and TTPBot deferred to it the whole time.
+        handler = command_handler()
+        handler.sahasrahbot_present = True
+
+        await handler.ex_override([], {'user': {'name': 'Bogie'}})
+        with patch('ttpbot.handler.asyncio.sleep', new=AsyncMock()):
+            await handler.ex_flags(['oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A'], {})
+
+        self.assertIn('Override on', handler.messages[0])
+        self.assertRegex(handler.messages[1],
+                         r'^Seed: \d+ - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A$')
+        self.assertTrue(handler.seed_rolled)
+
+    async def test_override_survives_sahasrahbot_speaking_again(self):
+        handler = command_handler()
+        handler.sahasrahbot_present = True
+        await handler.ex_override([], {})
+
+        await handler.chat_message({'message': {
+            'is_bot': True, 'bot': 'SahasrahBot', 'message_plain': 'Hi!',
+        }})
+
+        self.assertFalse(handler.sahasrahbot_present)
+
+    async def test_a_late_sahasrahbot_roll_blocks_a_second_seed(self):
+        handler = command_handler()
+        handler.sahasrahbot_present = True
+        await handler.ex_override([], {})
+
+        await handler.chat_message({'message': {
+            'is_bot': True, 'bot': 'SahasrahBot',
+            'message_plain': 'Seed rolling complete.  See race info for details.',
+        }})
+        await handler.ex_flags(['abc'], {})
+
+        self.assertEqual(handler.messages[-1], 'A seed has already been rolled for this race.')
+
+    async def test_override_is_found_again_after_a_restart(self):
+        handler = command_handler()
+        handler.state = {'welcomed': True}
+        handler.ttp_scheduled_room = True
+        handler.reminders_sent = set()
+
+        with patch.object(TTPRaceHandler, '_handle_recent_history_commands', new=AsyncMock()):
+            await handler.chat_history({'messages': [
+                {'is_bot': True, 'bot': 'SahasrahBot', 'message_plain': 'Hi!'},
+                {'is_bot': False, 'message': '!override', 'message_plain': '!override'},
+            ]})
+
+        self.assertFalse(handler.sahasrahbot_present)
+        self.assertTrue(handler.sahasrahbot_overridden)
+
+    async def test_override_without_sahasrahbot_says_ttpbot_is_already_rolling(self):
+        handler = command_handler()
+
+        await handler.ex_override([], {})
+
+        self.assertIn('already rolling seeds', handler.messages[0])
+        self.assertFalse(handler.sahasrahbot_overridden)
 
     async def test_info_and_help_reference_ttp5_season(self):
         handler = command_handler()
