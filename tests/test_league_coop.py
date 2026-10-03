@@ -131,8 +131,8 @@ class CoopMatchTests(unittest.TestCase):
         self.assertEqual(self.match.title, 'League: Windfox470 & seanfreston vs. SirLinkalot & Stags28')
 
     def test_has_a_state_store_compatible_key(self):
-        self.assertEqual(self.match.slug, 'coop-bow-mode-vs-shadow-cartel')
-        self.assertEqual(self.match.key, START.isoformat() + '|coop-bow-mode-vs-shadow-cartel')
+        self.assertEqual(self.match.slug, 'coop-week-3-game-1-bow-mode-vs-shadow-cartel')
+        self.assertEqual(self.match.key, START.isoformat() + '|coop-week-3-game-1-bow-mode-vs-shadow-cartel')
 
     def test_features_only_rows_with_a_channel(self):
         self.assertEqual([row.channel for row in self.match.featured_rows], ['Z1Rracing'])
