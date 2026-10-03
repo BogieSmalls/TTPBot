@@ -180,6 +180,9 @@ class TTPRaceHandler(RaceHandler):
         self.grace = None
         self.grace_task = None
         self.sahasrahbot_present = False
+        #: Set by !override: SahasrahBot is in the room but not answering, so
+        #: TTPBot rolls seeds here and stops deferring to it.
+        self.sahasrahbot_overridden = False
         self.seed_rolled = False
         self.history_command_cutoff_utc = None
 
@@ -429,11 +432,22 @@ class TTPRaceHandler(RaceHandler):
                 )
                 break
 
-        # Also detect if a seed was already rolled (avoids double-roll on restart).
-        # Assumes only TTPBot and SahasrahBot are present; a third bot sending
-        # "Seed rolling complete." would incorrectly lock seed rolling.
+        # An !override survives a reconnect: SahasrahBot is still in the history.
         for msg in messages:
-            if msg.get('is_bot') and not self._is_sahasrahbot_msg(msg):
+            if not msg.get('is_bot') and self._is_override_command(msg):
+                self.sahasrahbot_overridden = True
+                self.sahasrahbot_present = False
+                self.logger.info(
+                    '[%s] !override found in chat history - rolling seeds for SahasrahBot',
+                    self.data.get('name'),
+                )
+                break
+
+        # Also detect if a seed was already rolled (avoids double-roll on restart).
+        # SahasrahBot's rolls count too, or an !override could roll a second
+        # seed. A third bot sending "Seed rolling complete." would lock rolling.
+        for msg in messages:
+            if msg.get('is_bot'):
                 text = msg.get('message_plain', '') or ''
                 if 'Seed rolling complete.' in text:
                     self.seed_rolled = True
@@ -698,12 +712,18 @@ class TTPRaceHandler(RaceHandler):
                 message.get('bot'),
                 (message.get('user') or {}).get('name'),
             )
-            if self._is_sahasrahbot_msg(message) and not self.sahasrahbot_present:
+            if (self._is_sahasrahbot_msg(message) and not self.sahasrahbot_present
+                    and not self.sahasrahbot_overridden):
                 self.sahasrahbot_present = True
                 self.logger.info(
                     '[%s] SahasrahBot detected live - seed commands deferred',
                     self.data.get('name'),
                 )
+            # Whichever bot rolled, the room has its seed. Matters after an
+            # !override, when SahasrahBot may yet wake up and roll one.
+            text = message.get('message_plain') or message.get('message') or ''
+            if 'Seed rolling complete.' in text:
+                self.seed_rolled = True
             return
 
         if message.get('is_system'):
@@ -967,6 +987,36 @@ class TTPRaceHandler(RaceHandler):
         await self.send_message('Seed rolling complete.  See race info for details.')
         self.logger.info('[%s] Seed rolled via !flags: %s', self.data.get('name'), seed_str)
 
+    @staticmethod
+    def _is_override_command(message):
+        text = (message.get('message') or message.get('message_plain') or '').strip()
+        words = text.lower().split()
+        return bool(words) and words[0] == '!override'
+
+    async def ex_override(self, args, message):
+        """!override -- Roll seeds here because SahasrahBot is not answering.
+
+        SahasrahBot can greet a room and then go silent, and TTPBot, having
+        seen the greeting, stays out of its way. This tells it to step in.
+        """
+        if self.sahasrahbot_overridden:
+            await self.send_message('TTPBot is already rolling seeds in this room.')
+            return
+        if not self.sahasrahbot_present:
+            await self.send_message(
+                "SahasrahBot hasn't been seen here, so TTPBot is already rolling seeds. "
+                'Use !flags <flagstring> or !race <preset>.'
+            )
+            return
+        self.sahasrahbot_overridden = True
+        self.sahasrahbot_present = False
+        self.logger.info('[%s] SahasrahBot overridden by %s', self.data.get('name'),
+                         (message.get('user') or {}).get('name'))
+        await self.send_message(
+            'Override on: TTPBot will roll seeds in this room instead of SahasrahBot. '
+            'Use !flags <flagstring>, !race <preset>, or a preset command like !ttp5.'
+        )
+
     async def ex_summary(self, args, message):
         """!summary [flagstring|preset] -- Describe a flag string in plain words.
 
@@ -1187,6 +1237,7 @@ class TTPRaceHandler(RaceHandler):
         lines = [
             'TTPBot commands:',
             '  Seed rolling (when SahasrahBot is offline):',
+            '    !override                   Roll seeds here when SahasrahBot is not answering',
             '    !race <preset>              Roll a seed by preset name',
             '    !flags <flagstring>         Roll a seed with a custom flag string',
             '    !ttp2                       Random TTP Season 2 preset',
