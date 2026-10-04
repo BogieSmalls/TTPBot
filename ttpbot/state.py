@@ -70,7 +70,17 @@ def _timestamp_suffix():
 
 
 class DestinationStateStore:
-    def __init__(self, path, destination_key, entry_kind, *, data_dir=None):
+    """Durable state for one destination.
+
+    ``mode`` is the file mode every write restores. It defaults to 0600, which
+    is right for state nobody else has any business reading. The League race
+    receipts are the exception: they are race room URLs, which racetime already
+    publishes, and the Council war room needs them to tell a room it confirmed
+    from a room it merely recognised. Without them it falls back to matching
+    racers by name and has to caveat every checkpoint.
+    """
+
+    def __init__(self, path, destination_key, entry_kind, *, data_dir=None, mode=0o600):
         if entry_kind not in ENTRY_KINDS:
             raise StateStoreError("state entry kind is invalid")
         if (
@@ -104,6 +114,7 @@ class DestinationStateStore:
         self.path = resolved_parent / target.name
         self.destination_key = destination_key
         self.entry_kind = entry_kind
+        self.mode = mode
         self.provider = provider
         # Where it is recorded that this store's state was lost. Beside the state
         # file rather than inside it, because the state file is the thing that
@@ -438,7 +449,7 @@ class DestinationStateStore:
             os.replace(temporary, self.path)
             temporary = None
             try:
-                os.chmod(self.path, 0o600)
+                os.chmod(self.path, self.mode)
             except OSError:
                 pass
             if os.name != "nt":

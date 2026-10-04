@@ -40,6 +40,32 @@ class DestinationStateStoreTests(unittest.TestCase):
         if os.name != "nt":
             self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
 
+    def test_mode_defaults_private_and_can_be_opened_for_one_store(self):
+        """0600 unless a store says otherwise, and every write restores it.
+
+        The League race receipts are read by the Council war room, which runs
+        as another user; without them it falls back to matching racers by name
+        and has to caveat every checkpoint. Everything else stays private.
+        """
+        if os.name == "nt":
+            self.skipTest("file modes are a POSIX question")
+        shared = DestinationStateStore(
+            "league_races.json", DESTINATION, "league_created_races",
+            data_dir=self.root, mode=0o640,
+        )
+        shared.save({})
+        self.assertEqual(shared.path.stat().st_mode & 0o777, 0o640)
+        # A second write restores it rather than dropping back to 0600.
+        shared.path.chmod(0o600)
+        shared.save({})
+        self.assertEqual(shared.path.stat().st_mode & 0o777, 0o640)
+        # And a store that says nothing is still private.
+        private = DestinationStateStore(
+            "league_webhooks.json", DESTINATION, "league_webhooks", data_dir=self.root,
+        )
+        private.save({})
+        self.assertEqual(private.path.stat().st_mode & 0o777, 0o600)
+
     def test_schema_destination_entry_shape_and_symlinks_fail_closed(self):
         invalid = (
             {"schema_version": 1, "destination_key": DESTINATION, "entries": {}},
