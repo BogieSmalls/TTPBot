@@ -109,7 +109,7 @@ class AutumnScheduler:
         #: plane twice is harmless -- it is already awake -- and a note that
         #: survived a restart would skip the wake after the restart that most
         #: needs it.
-        self._woken = set()
+        self._woken = {}
         #: Matches whose room is uncertain and has been complained about, so the
         #: complaint is once rather than once a minute.
         self._flagged = set()
@@ -314,7 +314,7 @@ class AutumnScheduler:
             work = await self._room_work(race)
             if work is None:
                 return
-            if work.get('mayWake'):
+            if work.get('mayWake') or (work.get('room') and not work['room'].get('obsolete')):
                 await self._wake(race, row)
             url = await self._room_v2(race, row, work)
         else:
@@ -397,9 +397,13 @@ class AutumnScheduler:
         transient failure became a permanent omission: the flag said it had been
         asked, and no later tick asked again.
         """
-        if self._wake_booth is None or self._match_key(race.match_id, race.identity.game) in self._woken:
+        if self._wake_booth is None:
             return
         channel = getattr(row, 'channel', '') if row else ''
+        signature = (channel, tuple(getattr(row, 'crew', ()) or ()))
+        key = self._match_key(race.match_id, race.identity.game)
+        if self._woken.get(key) == signature:
+            return
         if not channel:
             # No channel on the row means no restream, which is most matches.
             return
@@ -412,7 +416,7 @@ class AutumnScheduler:
                 'Autumn: could not wake the booth for %s; will try again',
                 race.match_id, exc_info=True)
             return
-        self._woken.add(self._match_key(race.match_id, race.identity.game))
+        self._woken[key] = signature
 
     async def _cancel_missing(self, races):
         active = {(race.match_id, race.identity.game) for race in races if race.status == 'scheduled'}

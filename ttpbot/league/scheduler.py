@@ -5,6 +5,7 @@ state, so a League failure cannot affect TTP scheduling.
 """
 
 import asyncio
+import json
 from datetime import timedelta
 from urllib.parse import urlsplit
 
@@ -207,7 +208,7 @@ class LeagueScheduler:
         self.booth_url = booth_url
         self.booth_token = booth_token
         #: Race keys whose control plane has been woken and crew re-read.
-        self._prepared = set()
+        self._prepared = {}
         #: Scheduling threads: the Discord client and the keys already opened.
         self.threads = threads
         self.thread_store = thread_store
@@ -364,7 +365,8 @@ class LeagueScheduler:
         so without this the T-30 post can tag nobody even though the control
         plane came up at T-35.
         """
-        if race.key in self._prepared:
+        signature = (race.channel, tuple(race.comms), tuple(race.trackers))
+        if self._prepared.get(race.key) == signature:
             return
         if not race.channel or not self.relay_wake_url or not self.relay_wake_token:
             return
@@ -381,7 +383,7 @@ class LeagueScheduler:
             )
             return
         if self.crew is None or not self.roster_url or not self.roster_token:
-            self._prepared.add(race.key)
+            self._prepared[race.key] = signature
             return
         try:
             refreshed = await self.crew.refresh(self.roster_url, self.roster_token)
@@ -398,7 +400,7 @@ class LeagueScheduler:
             )
             return
         self._crew_refreshed_at = None
-        self._prepared.add(race.key)
+        self._prepared[race.key] = signature
 
     async def _request_booth(self, race, room_url, coop=False):
         """Ask the control plane for a booth. Never raises.
@@ -406,15 +408,16 @@ class LeagueScheduler:
         The answer decides what the announcement says, which is why this runs
         before it rather than after.
         """
-        settled = self._booth_outcomes.get(race.key)
-        if settled is not None:
-            return settled
         if not race.channel or not self.booth_url or not self.booth_token:
             return BoothOutcome()
         payload = build_broadcast_request(
             race, _room_slug(room_url), self.crew, self.logger, coop=coop)
         if payload is None:
             return BoothOutcome()
+        signature = json.dumps(payload, sort_keys=True)
+        settled = self._booth_outcomes.get(race.key)
+        if settled is not None and settled[0] == signature:
+            return settled[1]
         try:
             outcome = await request_booth(
                 payload, self.booth_url, self.booth_token, self.logger)
@@ -423,7 +426,7 @@ class LeagueScheduler:
             self.logger.warning('League booth request failed for %s', race.title, exc_info=True)
             return BoothOutcome()
         if outcome.outcome is not None:
-            self._booth_outcomes[race.key] = outcome
+            self._booth_outcomes[race.key] = (signature, outcome)
         return outcome
 
     async def _request_booths(self, race, room_url):
@@ -445,13 +448,27 @@ class LeagueScheduler:
                 return outcome
         return outcomes[0] if outcomes else BoothOutcome()
 
+    async def _room_active(self, room):
+        try:
+            async with aiohttp.request(method='get',
+                    url=self.bot.provider.http_url(_race_name(room) + '/data'),
+                    timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status != 200:
+                    return False
+                data = await response.json()
+                return (data.get('status') or {}).get('value') in ('open', 'invitational', 'pending', 'in_progress')
+        except Exception:
+            self.logger.warning('League: could not verify the late room is active; will retry', exc_info=True)
+            return False
+
     async def _handle(self, race, now):
         minutes_until = (race.start - now).total_seconds() / 60
         if minutes_until < -LEAGUE_START_BUFFER_MINUTES:
-            # Races that are over come first. The sheet keeps every past week,
-            # so without this a restart wakes a control plane once per
-            # historical row that happened to have a Channel.
-            return
+            # Late crew can still get an existing, active race on air. Never
+            # create a new room for a historical row or wake for a finished one.
+            room = self._room_for(race)
+            if minutes_until < -120 or not room or room == UNCERTAIN_RACE or not await self._room_active(room):
+                return
         if minutes_until <= LEAGUE_WAKE_MINUTES_BEFORE:
             await self._prepare_control_plane(race)
         if minutes_until > LEAGUE_ROOM_OPEN_MINUTES_BEFORE:
