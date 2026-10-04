@@ -760,3 +760,17 @@ class RetiredRoomTests(unittest.IsolatedAsyncioTestCase):
         runner._mirror=AsyncMock(return_value=True);runner._room_work=AsyncMock(return_value={'mayWake':False,'mayOpen':False});runner._room_v2=AsyncMock(return_value=None)
         race=SimpleNamespace(match_id='W1-1',identity=SimpleNamespace(game=1),at=START,status='scheduled',conditional=False)
         await runner._handle(race,None,at(START,45));runner._room_work.assert_awaited_once()
+
+class LateBroadcastTests(unittest.IsolatedAsyncioTestCase):
+    async def test_existing_room_still_wakes_when_broadcast_is_assigned_late(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        runner=AutumnScheduler(FakeSource(''),SimpleNamespace(edition='2026'),Log())
+        runner._workflow=True;runner._workflow_document={}
+        runner._mirror=AsyncMock(return_value=True)
+        runner._room_work=AsyncMock(return_value={'mayWake':False,'room':{'room':ROOM}})
+        runner._room_v2=AsyncMock(return_value=ROOM)
+        runner._wake=AsyncMock();runner._let_in=AsyncMock();runner._tell=AsyncMock()
+        race=SimpleNamespace(match_id='W1-1',identity=SimpleNamespace(game=1),at=START,status='scheduled',conditional=False)
+        await runner._handle(race,SimpleNamespace(channel='Z1Rracing'),START+timedelta(minutes=10))
+        runner._wake.assert_awaited_once()

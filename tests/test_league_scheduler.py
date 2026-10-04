@@ -562,6 +562,35 @@ class BoothPhaseTests(unittest.IsolatedAsyncioTestCase):
             booth_url='https://cp.example', booth_token='tok',
         )
 
+    async def test_late_channel_uses_existing_active_room_and_new_crew_reaches_same_booth(self):
+        scheduler = self.scheduler()
+        scheduler.created[STAGED_RACE.key] = ROOM
+        scheduler.created_store.save(scheduler.created)
+        scheduler._room_active = AsyncMock(return_value=True)
+        scheduler._prepare_control_plane = AsyncMock()
+        changed = replace(STAGED_RACE, comms=('NewCrew',))
+        scheduler.crew.user_id_for = lambda name: 'new-crew' if name == 'NewCrew' else 'original-crew'
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock()) as create, \
+             patch('ttpbot.league.scheduler.request_booth', AsyncMock(return_value=BoothOutcome('staged', 'b1'))) as booth, \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)):
+            await scheduler.tick(START + timedelta(minutes=15))
+            scheduler.source._races = [changed]
+            await scheduler.tick(START + timedelta(minutes=16))
+            self.assertEqual(booth.await_count, 2)
+            self.assertEqual(booth.await_args.args[0]['commentatorUserIds'], ['new-crew'])
+            create.assert_not_awaited()
+            self.assertEqual(scheduler._prepare_control_plane.await_count, 2)
+
+    async def test_late_finished_room_never_wakes_or_creates_a_booth(self):
+        scheduler = self.scheduler()
+        scheduler.created[STAGED_RACE.key] = ROOM
+        scheduler._room_active = AsyncMock(return_value=False)
+        scheduler._prepare_control_plane = AsyncMock()
+        scheduler._request_booths = AsyncMock()
+        await scheduler.tick(START + timedelta(minutes=15))
+        scheduler._prepare_control_plane.assert_not_awaited()
+        scheduler._request_booths.assert_not_awaited()
+
     async def test_calls_the_booth_before_announcing(self):
         order = []
         booth = AsyncMock(side_effect=lambda *a, **k: order.append('booth') or BoothOutcome('staged', 'b1'))
