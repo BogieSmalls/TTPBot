@@ -183,9 +183,12 @@ class TTPBot(Bot):
 
             roster = load_roster()
             root = self.data_dir
+            # 0640: the Council war room reads these to tell a room it
+            # confirmed from a room it only recognised by the racers in it.
+            # They are racetime room URLs, which racetime publishes anyway.
             created = DestinationStateStore(
                 'league_races.json', self.provider.destination_key,
-                'league_created_races', data_dir=root)
+                'league_created_races', data_dir=root, mode=0o640)
             webhooks = DestinationStateStore(
                 'league_webhooks.json', self.provider.destination_key,
                 'league_sent_webhooks', data_dir=root)
