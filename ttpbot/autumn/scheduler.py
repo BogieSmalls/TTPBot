@@ -670,6 +670,7 @@ class AutumnScheduler:
             answer = await self.engine.queue_announcement(dict(
                 edition=self.engine.edition, matchId=race.match_id, game=race.identity.game,
                 room=url, phase=phase, continuation=continuation,
+                restreamChannel=getattr(row, 'channel', '') or '',
                 crew=list(getattr(row, 'crew', ()) or ())))
             if not answer.ok:
                 self.logger.error('Autumn: announcement queue unconfirmed for %s; no Discord post attempted', race.match_id)

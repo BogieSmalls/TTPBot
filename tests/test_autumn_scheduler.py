@@ -761,6 +761,25 @@ class RetiredRoomTests(unittest.IsolatedAsyncioTestCase):
         race=SimpleNamespace(match_id='W1-1',identity=SimpleNamespace(game=1),at=START,status='scheduled',conditional=False)
         await runner._handle(race,None,at(START,45));runner._room_work.assert_awaited_once()
 
+class AnnouncementChannelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_queued_notice_carries_the_assigned_channel_and_crew(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        for channel in ('Z1Rracing2', ''):
+            with self.subTest(channel=channel):
+                engine=SimpleNamespace(edition='2026',queue_announcement=AsyncMock(return_value=Written(RECORDED)))
+                runner=AutumnScheduler(FakeSource(''),engine,Log())
+                runner._workflow=True
+                race=SimpleNamespace(match_id='W1-1',identity=SimpleNamespace(game=1))
+                scheduled=parse_schedule(sheet(row(START,'Alice','Bob',channel))).rows[0]
+                await runner._tell(race,scheduled,ROOM)
+                request=engine.queue_announcement.call_args.args[0]
+                self.assertEqual(request['restreamChannel'],channel)
+                self.assertEqual(request['crew'],['Bogie'] if channel else [])
+                await runner._tell(race,scheduled,ROOM)
+                engine.queue_announcement.assert_awaited_once()
+
+
 class LateBroadcastTests(unittest.IsolatedAsyncioTestCase):
     async def test_existing_room_still_wakes_when_broadcast_is_assigned_late(self):
         from types import SimpleNamespace
