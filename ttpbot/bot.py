@@ -176,7 +176,7 @@ class TTPBot(Bot):
     def _build_league_scheduler(self):
         """Construct the League scheduler, or None if it cannot start."""
         try:
-            from .league.crew import CrewDirectory
+            from .league.crew import CrewDirectory, booth_token_from_env
             from .league.roster import load_roster
             from .league.scheduler import LeagueScheduler, ScheduleSource
             from .league.scheduling_threads import DiscordThreads
@@ -198,13 +198,12 @@ class TTPBot(Bot):
             source = ScheduleSource(
                 self.league_schedule_url, roster, self.logger,
                 matchups_url=self.league_matchups_url)
-            # Crew identity is read live from Z1RR.Restream, unlike racers,
-            # which are committed: the Comms/Tracker dropdown is that app's
-            # user list and changes whenever someone joins or is deactivated.
+            # Crew identity comes from the configured always-on owner.
             # Unconfigured is fine - the announcement falls back to names.
             crew = CrewDirectory(
                 cache_path=runtime_path('league_crew.json', env=os.environ),
                 logger=self.logger,
+                environment=os.environ.get('Z1RR_ROSTER_ENVIRONMENT', '').strip(),
             )
             return LeagueScheduler(
                 bot=self, source=source, created_store=created,
@@ -224,7 +223,7 @@ class TTPBot(Bot):
                 wake_target=(os.environ.get('Z1RR_WAKE_TARGET', '').strip()
                              or 'production'),
                 booth_url=os.environ.get('Z1RR_CONTROL_PLANE_URL', '').strip(),
-                booth_token=os.environ.get('Z1RR_ROSTER_TOKEN', '').strip())
+                booth_token=booth_token_from_env(os.environ))
         except Exception:
             self.logger.error(
                 'League scheduling is off (roster or state is unusable); '

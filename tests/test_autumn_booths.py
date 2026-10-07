@@ -8,6 +8,17 @@ from ttpbot.autumn.schedule import ScheduleRow
 from ttpbot.league.booth import BoothOutcome
 
 class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
+    async def test_roster_and_booth_requests_use_different_credentials(self):
+        from ttpbot.autumn.booths import AutumnBooths
+        booths = AutumnBooths(engine=self.engine, crew=self.crew, logger=Log(), base_url='https://cp.example',
+                             token='booth-token', roster_token='owner-read', roster_url='https://owner/v1/roster', edition='2026')
+        await booths.prepare(self.race, 'Z1Rracing')
+        self.crew.refresh.assert_awaited_with('https://owner/v1/roster', 'owner-read')
+        with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
+            request.return_value = BoothOutcome('staged', 'one')
+            await booths.request(self.race, self.row, ROOM_URL)
+            self.assertEqual(request.await_args.args[2], 'booth-token')
+
     def setUp(self):
         self.assertIsNotNone(importlib.util.find_spec('ttpbot.autumn.booths'))
         cls = importlib.import_module('ttpbot.autumn.booths').AutumnBooths

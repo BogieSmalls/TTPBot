@@ -5,12 +5,13 @@ from .broadcast_request import build_broadcast_request
 
 
 class AutumnBooths:
-    def __init__(self, *, engine, crew, logger, base_url, token, edition, wake=None, roster_url=None):
+    def __init__(self, *, engine, crew, logger, base_url, token, edition, wake=None, roster_url=None, roster_token=None):
         self.engine = engine
         self.crew = crew
         self.logger = logger
         self.base_url = base_url
         self.token = token
+        self.roster_token = token if roster_token is None else roster_token
         self.edition = edition
         self.wake = wake
         self.roster_url = roster_url or base_url.rstrip('/') + '/internal/relay/league/roster'
@@ -19,8 +20,8 @@ class AutumnBooths:
     async def prepare(self, race, channel):
         if self.wake is not None:
             await self.wake(race, channel)
-        if not await self.crew.refresh(self.roster_url, self.token):
-            raise RuntimeError('the control plane crew roster has not refreshed yet')
+        if not await self.crew.refresh(self.roster_url, self.roster_token):
+            raise RuntimeError('the crew roster has not refreshed yet')
 
     async def request(self, race, row, room_url):
         if row is None or not row.channel:

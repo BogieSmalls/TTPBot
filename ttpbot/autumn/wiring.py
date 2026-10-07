@@ -40,7 +40,7 @@ from .rooms import create_autumn_room, room_title, recover_autumn_room
 from .scheduler import AutumnScheduler
 from .source import AutumnSource
 from .booths import AutumnBooths
-from ..league.crew import CrewDirectory
+from ..league.crew import CrewDirectory, booth_token_from_env
 from ..paths import runtime_path
 
 #: The Schedule tab of the League master sheet, exported as CSV. The tab is read
@@ -207,14 +207,16 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
 
     wake = _wake_adapter(env, logger)
     booth_url = (env.get('Z1RR_CONTROL_PLANE_URL') or '').strip()
-    booth_token = (env.get('Z1RR_ROSTER_TOKEN') or '').strip()
+    booth_token = booth_token_from_env(env)
     booths = None
     if booth_url and booth_token:
         booths = AutumnBooths(
-            engine=engine, crew=CrewDirectory(runtime_path(event + '_crew.json', env=env), logger),
+            engine=engine, crew=CrewDirectory(runtime_path(event + '_crew.json', env=env), logger,
+                                             environment=(env.get('Z1RR_ROSTER_ENVIRONMENT') or '').strip()),
             logger=logger, base_url=booth_url, token=booth_token,
             edition=engine.edition, wake=wake,
-            roster_url=(env.get('Z1RR_ROSTER_URL') or '').strip() or None)
+            roster_url=(env.get('Z1RR_ROSTER_URL') or '').strip() or None,
+            roster_token=(env.get('Z1RR_ROSTER_TOKEN') or '').strip())
 
     scheduler = AutumnScheduler(
         source=source,

@@ -128,6 +128,44 @@ class _FakeResponse:
 
 
 class RefreshTests(unittest.IsolatedAsyncioTestCase):
+    async def test_versioned_owner_aliases_environment_and_complete_empty_roster(self):
+        crew = CrewDirectory(Path(self.dir.name) / 'owner.json', QUIET, environment='staging')
+        envelope = {'schemaVersion': 1, 'environment': 'staging', 'complete': True, 'revision': 4,
+                    'roster': [{**ROSTER[0], 'aliases': ['Old Name']}]}
+        self.assertTrue(await crew.refresh('https://owner/v1/roster', 'read', requester=self.requester(_FakeResponse(200, envelope))))
+        self.assertEqual(self.seen['headers']['X-Z1RR-Environment'], 'staging')
+        self.assertEqual(self.seen['timeout'].total, 8)
+        self.assertEqual(crew.user_id_for('old name'), 'u-k')
+        self.assertEqual(crew.discord_id_for('Old Name'), '429')
+        self.assertIsNone(crew.discord_id_for('Old'))
+        empty = {**envelope, 'roster': []}
+        self.assertTrue(await crew.refresh('https://owner/v1/roster', 'read', requester=self.requester(_FakeResponse(200, empty))))
+        self.assertEqual(crew.size, 0)
+        self.assertEqual(CrewDirectory(Path(self.dir.name) / 'owner.json', QUIET, environment='staging').size, 0)
+
+    async def test_incomplete_wrong_environment_malformed_or_ambiguous_owner_preserves_cache(self):
+        crew = CrewDirectory(Path(self.dir.name) / 'owner.json', QUIET, environment='production')
+        crew.replace(ROSTER)
+        valid = {'schemaVersion': 1, 'environment': 'production', 'complete': True, 'revision': 4, 'roster': ROSTER}
+        for payload in [{**valid, 'complete': False}, {**valid, 'environment': 'staging'}, {**valid, 'schemaVersion': 2},
+                        {**valid, 'roster': [ROSTER[0], {'name': 'Broken'}]}, {'roster': []},
+                        {**valid, 'roster': [ROSTER[0], {**ROSTER[1], 'aliases': ['SpecialK']}]}]:
+            self.assertFalse(await crew.refresh('https://owner/v1/roster', 'read', requester=self.requester(_FakeResponse(200, payload))))
+            self.assertEqual(crew.discord_id_for('GrandpaSzabo'), '355')
+        self.assertEqual(CrewDirectory(Path(self.dir.name) / 'owner.json', QUIET, environment='staging').size, 0)
+
+    def test_central_roster_credentials_are_never_reused_for_booth_calls(self):
+        from ttpbot.league.crew import booth_token_from_env
+        self.assertEqual(booth_token_from_env({'Z1RR_ROSTER_TOKEN': 'legacy'}), 'legacy')
+        central = {'Z1RR_ROSTER_ENVIRONMENT': 'production', 'Z1RR_ROSTER_URL': 'https://owner/v1/roster', 'Z1RR_ROSTER_TOKEN': 'read', 'Z1RR_CONTROL_PLANE_URL': 'https://cp'}
+        with self.assertRaises(ValueError):
+            booth_token_from_env(central)
+        self.assertEqual(booth_token_from_env({**central, 'Z1RR_BOOTH_TOKEN': 'booth'}), 'booth')
+        with self.assertRaises(ValueError):
+            booth_token_from_env({**central, 'Z1RR_ROSTER_URL': '', 'Z1RR_BOOTH_TOKEN': 'booth'})
+        with self.assertRaises(ValueError):
+            booth_token_from_env({**central, 'Z1RR_BOOTH_TOKEN': 'read'})
+
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)

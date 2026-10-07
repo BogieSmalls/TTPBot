@@ -144,7 +144,17 @@ automation — the control-plane wake, the crew roster lookup, and the booth
 request — each of which is skipped when its variables are unset.
 
 - `Z1RR_ROSTER_URL` / `Z1RR_ROSTER_TOKEN` — crew roster lookup, so the
-  announcement can tag crew by Discord ID rather than by name
+  announcement can tag crew by Discord ID rather than by name. At the Crew
+  cutover, use the always-on owner's `/v1/roster` and its read credential.
+- `Z1RR_ROSTER_ENVIRONMENT` — `production` or `staging` for the versioned owner.
+  Responses and disk caches must match this environment. Exact verified aliases
+  resolve to the same managed UUID and Discord ID. A complete, valid empty
+  snapshot clears mappings; failed, malformed or incomplete reads retain the
+  last good announcement cache. This cache never grants booth access.
+- `Z1RR_BOOTH_TOKEN` — CP relay credential, separate from the owner read token.
+  Required with a CP URL in central roster mode; leave production configuration
+  unchanged until the fresh identity import and coordinated cutover. Legacy mode
+  keeps the existing `Z1RR_ROSTER_TOKEN` fallback until then.
 - `Z1RR_RELAY_URL` — lifecycle relay base URL (loopback; the relay runs on
   the same host)
 - `Z1RR_WAKE_TOKEN` — bearer token for `POST /api/wake`. It must match the

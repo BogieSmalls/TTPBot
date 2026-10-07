@@ -1,15 +1,7 @@
-"""Crew identity for League races.
+"""Crew names from the always-on owner, cached for announcement continuity.
 
-Racers come from a committed file because room creation must not depend on a
-live API. Crew is different: the Comms and Tracker columns are a dropdown of
-Z1RR.Restream user names, and that list changes whenever someone joins, leaves
-or is deactivated. Reading it live is the point - a committed copy would go
-stale silently and start tagging people who are no longer crew.
-
-The control plane sleeps on idle, so it is regularly unreachable at announce
-time. Every lookup therefore serves from an on-disk cache that outlives a
-sleeping server, and a name that cannot be resolved degrades to plain text
-rather than costing anyone their announcement.
+This cache never grants permissions. Unknown names remain plain text. Legacy
+roster responses remain supported until the coordinated production cutover.
 """
 
 import asyncio
@@ -33,10 +25,28 @@ def _key(name):
     return _clean(name).lower()
 
 
+def booth_token_from_env(env):
+    """A central read credential must never be sent to the control plane."""
+    token = _clean(env.get('Z1RR_BOOTH_TOKEN'))
+    if _clean(env.get('Z1RR_ROSTER_ENVIRONMENT')):
+        roster_token = _clean(env.get('Z1RR_ROSTER_TOKEN'))
+        if not roster_token or not _clean(env.get('Z1RR_ROSTER_URL')):
+            raise ValueError('Central crew mode requires an explicit owner roster URL and token')
+        if token == roster_token:
+            raise ValueError('Owner and booth credentials must be separate')
+        if not token and _clean(env.get('Z1RR_CONTROL_PLANE_URL')):
+            raise ValueError('Central crew mode requires Z1RR_BOOTH_TOKEN for booth requests')
+        return token
+    return token or _clean(env.get('Z1RR_ROSTER_TOKEN'))
+
+
 class CrewDirectory:
     """Name -> Discord id for everyone eligible to be named as crew."""
 
-    def __init__(self, cache_path, logger):
+    def __init__(self, cache_path, logger, environment=None):
+        if environment not in (None, '', 'production', 'staging'):
+            raise ValueError('Invalid Crew roster environment')
+        self._environment = environment or None
         self._cache_path = cache_path
         self._logger = logger
         self._by_name = {}
@@ -95,7 +105,7 @@ class CrewDirectory:
         return rendered, ids
 
     async def refresh(self, url, token, requester=None):
-        """Re-read the roster from the control plane. Never raises.
+        """Re-read the roster from its configured owner. Never raises.
 
         Returns True only when a usable roster was adopted. Every failure
         path keeps whatever is already cached, because the control plane
@@ -109,7 +119,8 @@ class CrewDirectory:
             async with request(
                 method='get',
                 url=url,
-                headers={'Authorization': 'Bearer {}'.format(token)},
+                headers={'Authorization': 'Bearer {}'.format(token),
+                         **({'X-Z1RR-Environment': self._environment} if self._environment else {})},
                 timeout=aiohttp.ClientTimeout(total=FETCH_TIMEOUT_SECONDS),
             ) as response:
                 if response.status != 200:
@@ -127,13 +138,23 @@ class CrewDirectory:
             )
             return False
         members = payload.get('roster') if isinstance(payload, dict) else None
+        if self._environment or (isinstance(payload, dict) and 'schemaVersion' in payload):
+            if (not isinstance(payload, dict) or payload.get('schemaVersion') != 1
+                    or not self._environment or payload.get('environment') != self._environment
+                    or payload.get('complete') is not True
+                    or type(payload.get('revision')) is not int or payload['revision'] < 0
+                    or not isinstance(members, list)):
+                return False
+            return self.replace(members, complete=True)
         return self.replace(members)
 
-    def replace(self, members):
+    def replace(self, members, complete=False):
         """Adopt a freshly fetched roster and persist it."""
         parsed = {}
         for member in members or ():
             if not isinstance(member, dict):
+                if complete:
+                    return False
                 continue
             name = _clean(member.get('name'))
             discord_id = _clean(member.get('discordId'))
@@ -142,9 +163,19 @@ class CrewDirectory:
             # or seated but not mentioned, is half-resolved and worse than
             # absent - it would look resolvable right up to the failure.
             if not name or not discord_id or not user_id:
+                if complete:
+                    return False
                 continue
-            parsed[_key(name)] = {'id': user_id, 'discordId': discord_id, 'name': name}
-        if not parsed:
+            aliases = member.get('aliases', [])
+            if not isinstance(aliases, list) or any(not _clean(a) for a in aliases):
+                return False
+            entry = {'id': user_id, 'discordId': discord_id, 'name': name}
+            for alias in [name] + aliases:
+                key = _key(alias)
+                if key in parsed and (parsed[key]['id'], parsed[key]['discordId']) != (user_id, discord_id):
+                    return False
+                parsed[key] = entry
+        if not parsed and not complete:
             # An empty payload is far likelier to be a broken response than a
             # league with no crew, and forgetting everyone turns every mention
             # into plain text with nothing to show why.
@@ -169,6 +200,12 @@ class CrewDirectory:
             self._logger.warning('League crew cache is unreadable; ignoring it')
             return
         if isinstance(cached, dict):
+            if self._environment:
+                if cached.get('schemaVersion') != 1 or cached.get('environment') != self._environment or not isinstance(cached.get('byName'), dict):
+                    return
+                cached = cached['byName']
+            elif 'schemaVersion' in cached:
+                return
             self._by_name = {
                 _key(name): value
                 for name, value in cached.items()
@@ -182,7 +219,8 @@ class CrewDirectory:
         try:
             ensure_parent_dir(self._cache_path)
             self._cache_path.write_text(
-                json.dumps(self._by_name, indent=2, sort_keys=True), encoding='utf-8',
+                json.dumps({'schemaVersion': 1, 'environment': self._environment, 'byName': self._by_name}
+                           if self._environment else self._by_name, indent=2, sort_keys=True), encoding='utf-8',
             )
         except OSError:
             # Losing the cache costs a stale-roster fallback, not a race.
