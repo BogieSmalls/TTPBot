@@ -18,9 +18,11 @@ for `Z1RR_ROSTER_TOKEN`. Preserve the former CP credential separately as
 control-plane, relay and race-scheduler settings unchanged. Verify the roster
 read from this host without sending an announcement or creating a race room.
 
-The Crew reader branch includes main's October 8 results and scheduled-channel
-fixes. Deployment still needs the approved off-air window; a successful local
-test does not mean the running bot has switched. Once central identity writes
+Crew runtime `fe7b0f6` was deployed on October 8 in the approved off-air cutover,
+including main's results and scheduled-channel fixes. Production now uses the
+always-on production roster with its separate reader credential and preserved
+booth credential. The actual Python reader fetched and validated 70 alias/name
+entries from this host, and `ttpbot.service` is running. Once central identity writes
 begin, code rollback must retain the central roster URL and current identity
 owner. TTPBot's announcement cache never owns identities or grants access.
 
