@@ -160,12 +160,28 @@ class TTPBot(Bot):
                 'league_results.json', self.provider.destination_key,
                 'league_results', data_dir=self.data_dir)
             self.logger.info('League result recording is enabled')
+            provider = self.provider
+
+            async def room_reader(race_data):
+                # The room as it stands after the settle, read the same way the
+                # bot reads every room: through the provider, not a guessed URL.
+                name = str(race_data.get('name') or '').strip('/')
+                if not name:
+                    return None
+                async with aiohttp.request('get', provider.http_url('/' + name + '/data'),
+                                           timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    return await response.json() if response.status == 200 else None
+
             return ResultsRecorder(
                 roster=load_roster(),
                 store=store,
                 logger=self.logger,
                 archives_url=DEFAULT_ARCHIVES_URL,
                 schedule_url=self.league_schedule_url,
+                # Long enough for a racer to undo a finish and forfeit, as
+                # Antlerz44 did on 2026-10-08, before anything is filed.
+                settle_seconds=120,
+                room_reader=room_reader,
             )
         except Exception:
             # A results recorder that cannot be built must not stop races

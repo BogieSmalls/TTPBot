@@ -293,7 +293,8 @@ class ResultsRecorder:
     """
 
     def __init__(self, *, roster, store, logger, archives_url, schedule_url,
-                 form_url=LEAGUE_RESULTS_FORM_URL, requester=None, fetcher=None):
+                 form_url=LEAGUE_RESULTS_FORM_URL, requester=None, fetcher=None,
+                 settle_seconds=0, room_reader=None):
         self.roster = roster
         self.store = store
         self.logger = logger
@@ -302,14 +303,49 @@ class ResultsRecorder:
         self.form_url = form_url
         self._requester = requester
         self._fetcher = fetcher
+        # A racer can undo a finish and forfeit after the room first reports
+        # "finished", and the room then finishes again with a new end time
+        # (Bogie vs Antlerz44, 2026-10-08: two contradictory rows on the form).
+        # So a finished room is filed only after it has stayed still this long,
+        # from a fresh read of it, and only once.
+        self.settle_seconds = settle_seconds
+        self._room_reader = room_reader
+        self._settling = set()
 
     async def record(self, race_data):
         """Submit every result this race produces. Returns how many were sent."""
         status = (race_data.get('status') or {}).get('value', '')
         if status != 'finished':
             return 0
-
         slug = str(race_data.get('name') or '').rpartition('/')[2]
+        if slug in self._settling:
+            # Already waiting on this room; that wait reads it fresh at the end.
+            return 0
+        self._settling.add(slug)
+        try:
+            if self.settle_seconds:
+                await asyncio.sleep(self.settle_seconds)
+            return await self._submit(await self._settled(race_data))
+        finally:
+            self._settling.discard(slug)
+
+    async def _settled(self, race_data):
+        """The room as it stands now, or as it was handed over if it cannot be read."""
+        if self._room_reader is None:
+            return race_data
+        try:
+            fresh = await self._room_reader(race_data)
+        except Exception:
+            self.logger.warning('League result: could not re-read the room; filing what it last said')
+            return race_data
+        return fresh or race_data
+
+    async def _submit(self, race_data):
+        status = (race_data.get('status') or {}).get('value', '')
+        slug = str(race_data.get('name') or '').rpartition('/')[2]
+        if status != 'finished':
+            self.logger.info('League race %s reopened before its result settled; nothing filed', slug)
+            return 0
         ended = race_data.get('ended_at')
         if not slug or not ended:
             self.logger.error('League result skipped: race has no slug or end time')
@@ -343,6 +379,15 @@ class ResultsRecorder:
         for index, submission in enumerate(submissions):
             key = keys[index]
             if key in recorded:
+                continue
+            filed = '|{}-{}'.format(slug, index)
+            if any(other.endswith(filed) for other in recorded):
+                # Filed already under another end time: the room was reopened
+                # after it settled. A second row would contradict the first.
+                self.logger.warning(
+                    'League result for %s was already filed; not filing it again (%s)',
+                    slug, submission.describe(),
+                )
                 continue
             if not await self._post(submission):
                 self.logger.error(
