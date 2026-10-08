@@ -8,6 +8,22 @@
 - Secrets: `/etc/ttpbot.env`
 - Service: `ttpbot.service`
 
+## Crew owner cutover
+
+Only during the coordinated Crew cutover, set `Z1RR_ROSTER_URL` to
+`https://api.z1rracing.com/crew-production/v1/roster`, set
+`Z1RR_ROSTER_ENVIRONMENT=production`, and use the owner's read-only credential
+for `Z1RR_ROSTER_TOKEN`. Preserve the former CP credential separately as
+`Z1RR_BOOTH_TOKEN`; verify the two differ before restarting. Keep existing
+control-plane, relay and race-scheduler settings unchanged. Verify the roster
+read from this host without sending an announcement or creating a race room.
+
+The Crew reader branch includes main's October 8 results and scheduled-channel
+fixes. Deployment still needs the approved off-air window; a successful local
+test does not mean the running bot has switched. Once central identity writes
+begin, code rollback must retain the central roster URL and current identity
+owner. TTPBot's announcement cache never owns identities or grants access.
+
 ## Install or Update Code
 
 ```bash

@@ -41,6 +41,8 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_AUTUMN_DISCORD_CHANNEL_ID",
             "TTPBOT_AUTUMN_DISCORD_BOT_TOKEN",
             "TTPBOT_AUTUMN_DISCORD_WEBHOOK_URL",
+            "Z1RR_ROSTER_URL", "Z1RR_ROSTER_TOKEN",
+            "Z1RR_ROSTER_ENVIRONMENT", "Z1RR_BOOTH_TOKEN",
         }
         variables = {
             line.split("=", 1)[0]
@@ -56,6 +58,7 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_Z1RR_DISCORD_URL",
             "TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL",
             "TTPBOT_LEAGUE_DISCORD_BOT_TOKEN",
+            "Z1RR_ROSTER_TOKEN", "Z1RR_BOOTH_TOKEN",
         ):
             line = next(line for line in self.env.splitlines() if line.startswith(secret + "="))
             self.assertEqual(line, secret + "=")
