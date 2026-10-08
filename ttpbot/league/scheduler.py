@@ -451,7 +451,10 @@ class LeagueScheduler:
     async def _room_active(self, room):
         try:
             async with aiohttp.request(method='get',
-                    url=self.bot.provider.http_url(_race_name(room) + '/data'),
+                    # The provider takes an absolute path; _race_name is 'z1r/slug'
+                    # with no leading slash, which it refused as invalid on every
+                    # late check (2026-10-07), so no late crew got a room on air.
+                    url=self.bot.provider.http_url('/' + _race_name(room) + '/data'),
                     timeout=aiohttp.ClientTimeout(total=10)) as response:
                 if response.status != 200:
                     return False
