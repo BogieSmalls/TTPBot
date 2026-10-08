@@ -9,6 +9,10 @@ from difflib import get_close_matches
 import aiohttp
 from racetime_bot import RaceHandler
 
+#: League results waiting out their settle. Held so a pending one is not
+#: collected before it files.
+_LEAGUE_RESULTS = set()
+
 from .flag_summary import FlagStringError, decode as decode_flags, format_summary
 from .grace import GRACE_START, STARTED, GraceRace, entrants_from
 from .matchup import matchup_reply
@@ -915,11 +919,19 @@ class TTPRaceHandler(RaceHandler):
 
         # A finished League race records itself. end() also fires for a
         # cancelled room, which the recorder ignores: there is no result.
+        # It waits for the room to settle before filing, so it runs on its own
+        # rather than holding the room's end for two minutes.
         if self.league_room and self.results_recorder is not None:
-            try:
-                await self.results_recorder.record(self.data)
-            except Exception:
-                self.logger.exception('League result could not be recorded')
+            recorder, data, logger = self.results_recorder, dict(self.data), self.logger
+
+            async def record():
+                try:
+                    await recorder.record(data)
+                except Exception:
+                    logger.exception('League result could not be recorded')
+            task = asyncio.get_running_loop().create_task(record())
+            _LEAGUE_RESULTS.add(task)
+            task.add_done_callback(_LEAGUE_RESULTS.discard)
 
         collector = self.corto_results if getattr(self, 'corto_room', False) else self.autumn_results if getattr(self, 'autumn_room', False) else None
         if collector is not None:

@@ -298,6 +298,13 @@ class HandlerHookTest(unittest.IsolatedAsyncioTestCase):
     out of the sheet for a day.
     """
 
+    async def _settled(self):
+        # end() hands the result to its own task, which waits for the room to
+        # settle before filing; let those tasks finish.
+        import asyncio
+        from ttpbot.handler import _LEAGUE_RESULTS
+        await asyncio.gather(*list(_LEAGUE_RESULTS))
+
     def _handler(self, *, league_room, recorder):
         from ttpbot.handler import TTPRaceHandler
 
@@ -315,6 +322,7 @@ class HandlerHookTest(unittest.IsolatedAsyncioTestCase):
         recorder = MagicMock()
         recorder.record = AsyncMock(return_value=2)
         await self._handler(league_room=True, recorder=recorder).end()
+        await self._settled()
         recorder.record.assert_awaited_once_with(ROOMS[0])
 
     async def test_a_ttp_race_does_not(self):
@@ -332,4 +340,5 @@ class HandlerHookTest(unittest.IsolatedAsyncioTestCase):
         recorder.record = AsyncMock(side_effect=RuntimeError('boom'))
         handler = self._handler(league_room=True, recorder=recorder)
         await handler.end()  # swallowed and logged, never raised
+        await self._settled()
         handler.logger.exception.assert_called_once()
