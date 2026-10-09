@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 import json
 import hashlib
 import shlex
+from types import SimpleNamespace
 
 import aiohttp
 
@@ -37,19 +38,29 @@ def command_for(key, entry, *, event='autumn'):
 
 
 class AutumnResults:
-    def __init__(self, *, store, engine, provider, logger, event='autumn', edition='2026', reader=None):
+    def __init__(self, *, store, engine, provider, logger, event='autumn', edition='2026', reader=None, created=None):
         self.store, self.engine, self.provider, self.logger = store, engine, provider, logger
+        # The rooms this bot opened, so only those are ever adopted (_adopt).
+        self.created = created
         self.edition = edition
         self.event, self.scope = event, '{}-{}'.format(event, edition)
         self.reader = reader or self._read_room
         self._lock = asyncio.Lock()
 
-    def bind(self, race, room, racers):
+    def bind(self, race, room, racers, retired=()):
         room = self.provider.resolve_location(room)
         key = '{}|{}|{}'.format(self.scope, race.match_id, race.identity.game)
         wanted = {name: racers.get(name) for name in (race.runner_one, race.runner_two)}
         entries = self.store.load()
         previous = entries.get(key)
+        if previous and previous['room'] != room and previous['room'] in retired:
+            # The engine retired the old room when the result was vacated
+            # (Autumn L1-16, 2026-10-09): the rematch's room takes its place,
+            # and the old receipt is kept inside the new one.
+            vacated = [*previous.pop('vacated', []), dict(previous, status='vacated')]
+            entries[key] = dict(room=room, racers=wanted, status='tracking', winner=None, reason=None, vacated=vacated)
+            self.store.save(entries)
+            return key
         if previous:
             if previous['room'] != room or previous['racers'] != wanted:
                 raise StateStoreError('Autumn result receipt conflicts with its original room/racers')
@@ -83,6 +94,10 @@ class AutumnResults:
             entries = self.store.load()
             found = [(key, value) for key, value in entries.items()
                      if key.startswith(self.scope + '|') and value['room'] == room]
+            if not found:
+                # A room this receipt store never saw, but the engine bound:
+                # a vacated match's rematch opened after the old receipt.
+                found = await self._adopt(room)
             if len(found) != 1:
                 return
             key, saved = found[0]
@@ -134,6 +149,27 @@ class AutumnResults:
             await self._deliver(key, updated, document)
             self.logger.info('Autumn result %s %s: %s %s', key, outcome, room,
                              command_for(key, updated, event=self.event) or reason or '')
+
+    async def _adopt(self, room):
+        # Never ask the engine about a room this bot did not open itself.
+        opened = (self.created.load() if self.created is not None else {}) or {}
+        if not any(self.provider.resolve_location(url) == room for url in opened.values() if isinstance(url, str)):
+            return []
+        document = (await self.engine.state()).get('document') or {}
+        bound = [value for value in (document.get('rooms') or {}).values() if value.get('room') == room]
+        if len(bound) != 1 or not bound[0].get('matchId') or not bound[0].get('racers'):
+            return []
+        race = SimpleNamespace(match_id=bound[0]['matchId'], identity=SimpleNamespace(game=int(bound[0]['game'])),
+                               runner_one=None, runner_two=None)
+        names = list(bound[0]['racers'])
+        race.runner_one, race.runner_two = names[0], names[-1]
+        try:
+            key = self.bind(race, room, bound[0]['racers'], retired=document.get('retiredRooms') or ())
+        except StateStoreError:
+            self.logger.warning('Autumn room %s is bound in the engine but conflicts with a saved receipt', room)
+            return []
+        self.logger.info('Autumn receipt %s adopted the engine-bound room %s', key, room)
+        return [(key, self.store.load()[key])]
 
     async def publish_binding(self, key, saved, document=None):
         document = document if document is not None else (await self.engine.state()).get('document') or {}
