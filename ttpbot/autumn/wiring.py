@@ -121,7 +121,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         from .results import AutumnResults
         results = AutumnResults(store=stores['autumn_results'], engine=engine,
                                 provider=bot.provider, logger=logger, event=event,
-                                edition=engine.edition)
+                                edition=engine.edition, created=stores.get('autumn_created_races'))
     racetime_ids = {}
     racetime_ids.update(getattr(bot, event + '_racetime_ids', None) or {})
 
@@ -155,8 +155,11 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         ids = [racetime_ids.get(who) for who in wanted]
         if results is not None:
             try:
-                key = results.bind(race, url, racetime_ids)
-                await results.publish_binding(key, results.store.load()[key])
+                # A vacated match's old room is retired in the engine; its
+                # receipt gives way to the rematch's room (L1-16, 2026-10-09).
+                document = (await results.engine.state()).get('document') or {}
+                key = results.bind(race, url, racetime_ids, retired=document.get('retiredRooms') or ())
+                await results.publish_binding(key, results.store.load()[key], document)
             except Exception:
                 logger.error('Autumn result receipt could not be saved for %s; invitations still proceed', race.match_id, exc_info=True)
         entry = bot.state.setdefault(name, {})

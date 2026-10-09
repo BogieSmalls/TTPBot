@@ -242,7 +242,10 @@ class DestinationStateStore:
             if self.entry_kind == "autumn_results":
                 if (not isinstance(value, dict)
                         or not {"room", "racers", "status", "winner", "reason"}.issubset(value)
-                        or not set(value).issubset({"room", "racers", "status", "winner", "reason", "observations"})):
+                        or not set(value).issubset({"room", "racers", "status", "winner", "reason", "observations", "vacated"})
+                        # Receipts a vacated result's rematch replaced (L1-16, 2026-10-09).
+                        or not (isinstance(value.get("vacated", []), list) and len(value.get("vacated", [])) <= 20
+                                and all(isinstance(item, dict) for item in value.get("vacated", [])))):
                     raise StateStoreError("autumn result receipt fields are invalid")
                 racers = value["racers"]
                 if (not isinstance(racers, dict) or len(racers) != 2

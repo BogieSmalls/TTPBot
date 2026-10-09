@@ -148,6 +148,43 @@ class AutumnResultsTests(unittest.IsolatedAsyncioTestCase):
         await handler.end()
         self.assertEqual(self.store.load()['autumn-2026|GF-1|1']['winner'], 'Alice')
 
+
+    async def test_a_vacated_receipt_gives_way_to_the_rematch_room(self):
+        # 2026-10-09: L1-16 was vacated and rescheduled; the old receipt kept
+        # the rematch's room from being tracked, so its result went nowhere.
+        old, new = 'https://racetime.gg/z1r/fried-lastlocation-0009', ROOM
+        self.recorder.bind(RACE, old, {'Alice': 'a', 'Bob': 'b'})
+        with self.assertRaises(StateStoreError):
+            self.recorder.bind(RACE, new, {'Alice': 'a', 'Bob': 'b'})
+        self.recorder.bind(RACE, new, {'Alice': 'a', 'Bob': 'b'}, retired=[old])
+        entries = self.store.load()
+        self.assertEqual(entries['autumn-2026|GF-1|1']['room'], new)
+        self.assertEqual(entries['autumn-2026|GF-1|1']['vacated'][0]['room'], old)
+
+    async def test_a_finished_room_the_engine_bound_is_adopted_over_a_vacated_receipt(self):
+        old = 'https://racetime.gg/z1r/fried-lastlocation-0009'
+        self.recorder.bind(RACE, old, {'Alice': 'a', 'Bob': 'b'})
+        self.recorder.created = SimpleNamespace(load=lambda: {'autumn-2026|GF-1|1': ROOM})
+        self.engine.state = AsyncMock(return_value={'document': {
+            'racetimeIds': {'Alice': 'a', 'Bob': 'b'}, 'results': {}, 'games': {},
+            'retiredRooms': [old],
+            'rooms': {'GF-1|1': {'room': ROOM, 'matchId': 'GF-1', 'game': 1, 'racers': {'Alice': 'a', 'Bob': 'b'}}}}})
+        await self.recorder.record(copy.deepcopy(DATA))
+        entry = self.store.load()['autumn-2026|GF-1|1']
+        self.assertEqual(entry['room'], ROOM)
+        self.assertEqual(entry['status'], 'suggested')
+        self.assertEqual(entry['winner'], 'Alice')
+
+    async def test_an_unretired_receipt_is_never_replaced_by_an_engine_room(self):
+        old = 'https://racetime.gg/z1r/fried-lastlocation-0009'
+        self.recorder.bind(RACE, old, {'Alice': 'a', 'Bob': 'b'})
+        self.recorder.created = SimpleNamespace(load=lambda: {'autumn-2026|GF-1|1': ROOM})
+        self.engine.state = AsyncMock(return_value={'document': {
+            'racetimeIds': {'Alice': 'a', 'Bob': 'b'}, 'results': {}, 'games': {},
+            'rooms': {'GF-1|1': {'room': ROOM, 'matchId': 'GF-1', 'game': 1, 'racers': {'Alice': 'a', 'Bob': 'b'}}}}})
+        await self.recorder.record(copy.deepcopy(DATA))
+        self.assertEqual(self.store.load()['autumn-2026|GF-1|1']['room'], old)
+
     async def test_recovery_rejects_an_answer_for_a_different_room(self):
         self.recorder.bind(RACE, ROOM, {'Alice': 'a', 'Bob': 'b'})
         self.reader.return_value = dict(DATA, name='z1r/other-room')
