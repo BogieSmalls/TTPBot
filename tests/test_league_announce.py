@@ -178,7 +178,7 @@ class ContinuationAnnouncementTests(unittest.TestCase):
         self.assertEqual(sorted(body['allowed_mentions']['users']), ['111', '222', '355', '429'])
 
 
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from ttpbot.league.coop import group_coop_matches
 from ttpbot.league.matchups import Fixture
@@ -207,7 +207,7 @@ def _coop_match(tracker_one=None, tracker_two=None):
 class CoopAnnouncementTests(unittest.TestCase):
     def test_names_both_teams_away_first(self):
         body = build_announcement(_coop_match(), ROOM)
-        self.assertIn('Windfox470 & seanfreston vs SirLinkalot & Stags28', body['embeds'][0]['description'])
+        self.assertIn('<@222> & <@333> vs <@111> & <@444>', body['embeds'][0]['description'])
         self.assertEqual(body['embeds'][0]['title'], 'League Season 1 · Week 3 · Game 1 · Co-op')
 
     def test_allow_lists_all_four_runners(self):
@@ -221,17 +221,44 @@ class CoopAnnouncementTests(unittest.TestCase):
     def test_the_1v1_post_uses_the_same_layout(self):
         race = _race(_racer('SirLinkalot', '111'), _racer('Windfox470', '222'))
         card = build_announcement(race, ROOM)['embeds'][0]
-        self.assertIn('SirLinkalot vs Windfox470', card['description'])
-        self.assertIn('[Open race room](' + ROOM + ')', card['description'])
+        self.assertIn('<@111> vs <@222>', card['description'])
+        self.assertIn('[Race Room](' + ROOM + ')', card['description'])
 
 
 class AnnouncementLayoutTests(unittest.TestCase):
+    def test_week_flagset_time_and_links_share_one_clear_card(self):
+        race = replace(_staffed_race(), game=2, fixture=Fixture(6, 'Shadow Cartel', 'The Missing Links', 'Consternation'))
+        thread = 'https://discord.com/channels/123/456'
+        body = build_announcement(race, ROOM, matchup_url=thread)
+        card = body['embeds'][0]
+        self.assertEqual(card['title'], 'League Season 1 · Week 6 · Game 2')
+        self.assertIn('**<@111> vs <@222>**', card['description'])
+        self.assertIn('Consternation', card['description'])
+        self.assertIn('**Starts:** <t:', card['description'])
+        self.assertIn('[Race Room]({}) | [Matchup Thread]({})'.format(ROOM, thread), card['description'])
+        self.assertNotIn('Open race room', card['description'])
+
+
+class AnnouncementLinkDeliveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unavailable_thread_lookup_still_posts_the_room(self):
+        from ttpbot.league.announce import send_league_announcement
+        race = replace(_staffed_race(), fixture=Fixture(6, 'Shadow Cartel', 'The Missing Links', 'Consternation'))
+        threads = Mock(configured=True, matchup_url=AsyncMock(side_effect=TimeoutError()))
+        response = AsyncMock()
+        response.__aenter__.return_value = Mock(status=204)
+        with patch('ttpbot.league.announce.aiohttp.request', return_value=response) as request:
+            sent = await send_league_announcement(race, ROOM, 'https://example.test/webhook', Mock(), threads=threads)
+        self.assertTrue(sent)
+        description = request.call_args.kwargs['json']['embeds'][0]['description']
+        self.assertIn('[Race Room](' + ROOM + ')', description)
+        self.assertNotIn('Matchup Thread', description)
+
     def test_room_link_is_inside_one_rich_card_without_an_automatic_preview(self):
         body = build_announcement(_staffed_race(comms=('SpecialK',)), ROOM, crew=CREW)
         self.assertNotIn(ROOM, body['content'])
         self.assertEqual(len(body['embeds']), 1)
         card = body['embeds'][0]
-        self.assertIn('[Open race room](' + ROOM + ')', card['description'])
+        self.assertIn('[Race Room](' + ROOM + ')', card['description'])
         self.assertTrue(card['title'].startswith('League Season 1'))
         self.assertEqual([field['name'] for field in card['fields']], ['Restream crew', 'Restream channel'])
 

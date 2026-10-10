@@ -10,6 +10,7 @@ Thread creation needs a bot token; a webhook cannot create threads. Posting is
 best effort per fixture: one failure must never cost the other six threads.
 """
 
+import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import re
@@ -193,6 +194,27 @@ class DiscordThreads:
             'auto_archive_duration': AUTO_ARCHIVE_MINUTES,
         })
         return thread['id']
+
+    async def matchup_url(self, fixture):
+        """Link only a uniquely identified existing matchup; never create a thread."""
+        channel = await self._call('get', '/channels/{}'.format(self.channel_id), None)
+        guild = channel['guild_id']
+        listings = await asyncio.gather(
+            self._call('get', '/guilds/{}/threads/active'.format(guild), None),
+            self._call('get', '/channels/{}/threads/archived/public?limit=100'.format(self.channel_id), None),
+        )
+        key = lambda name: NON_ALNUM.sub('', name.lower())
+        wanted = {key(fixture.away), key(fixture.home)}
+        found = set()
+        for listing in listings:
+            for thread in listing.get('threads', []):
+                match = re.fullmatch(r'Week\s*(\d+)\s*[-–:]\s*(.+?)\s+@\s+(.+)', thread.get('name', ''), re.IGNORECASE)
+                if (thread.get('parent_id') == self.channel_id and match
+                        and int(match[1]) == fixture.week
+                        and {key(match[2]), key(match[3])} == wanted
+                        and str(thread.get('id', '')).isdigit()):
+                    found.add(thread['id'])
+        return 'https://discord.com/channels/{}/{}'.format(guild, found.pop()) if len(found) == 1 else None
 
     async def post(self, thread_id, post):
         await self._call('post', '/channels/{}/messages'.format(thread_id), {

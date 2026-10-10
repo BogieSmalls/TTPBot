@@ -511,6 +511,7 @@ class LeagueScheduler:
         sent = await send_league_announcement(
             race, room_url, self.webhook_url, self.logger, crew=self.crew,
             continuation=booth.is_continuation,
+            threads=self.threads,
         )
         if not sent:
             # Left unrecorded so the next tick posts it. Recording a webhook
