@@ -125,6 +125,8 @@ class CrewTaggingTests(unittest.TestCase):
 
         self.assertNotIn('Comms', body['content'])
         self.assertNotIn('Tracker', body['content'])
+        self.assertEqual([field['name'] for field in body['embeds'][0]['fields']], ['Restream channel'])
+        self.assertEqual(build_announcement(replace(_staffed_race(), channel=None), ROOM)['embeds'][0]['fields'], [])
 
     def test_works_with_no_crew_directory_at_all(self):
         # The control plane may never have been reachable. The announcement
@@ -244,9 +246,9 @@ class AnnouncementLayoutTests(unittest.TestCase):
     def test_coop_announces_both_assigned_channels_without_repeating_one(self):
         match = _coop_match()
         match = replace(match, rows=tuple(replace(row, channel=channel) for row,channel in zip(match.rows, ('Z1Rracing', 'Z1Rracing2'))))
-        body = build_announcement(match, ROOM)['embeds'][0]['fields'][1]['value']
+        body = build_announcement(match, ROOM)['embeds'][0]['fields'][0]['value']
         self.assertEqual('[Z1Rracing](https://www.twitch.tv/z1rracing), [Z1Rracing2](https://www.twitch.tv/z1rracing2)', body)
         self.assertNotIn('Comms:', body)
         self.assertNotIn('Tracker:', body)
         same = replace(match, rows=tuple(replace(row, channel='Z1Rracing') for row in match.rows))
-        self.assertEqual(build_announcement(same, ROOM)['embeds'][0]['fields'][1]['value'].count('https://www.twitch.tv/z1rracing'), 1)
+        self.assertEqual(build_announcement(same, ROOM)['embeds'][0]['fields'][0]['value'].count('https://www.twitch.tv/z1rracing'), 1)
