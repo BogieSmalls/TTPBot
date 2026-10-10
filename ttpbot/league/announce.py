@@ -99,10 +99,10 @@ def build_announcement(race, race_url, crew=None, continuation=False):
         'content': ' '.join('<@{}>'.format(user) for user in sorted(set(allowed))),
         'embeds': [{
             'title': title, 'description': description, 'color': 4877708,
-            'fields': [
-                {'name': 'Restream crew', 'value': staffed or 'To be assigned'},
-                {'name': 'Restream channel', 'value': channel or 'To be assigned'},
-            ],
+            'fields': [field for field in [
+                {'name': 'Restream crew', 'value': staffed},
+                {'name': 'Restream channel', 'value': channel},
+            ] if field['value']],
             'footer': {'text': 'Race room open · Z1R Racing'},
         }],
         'allowed_mentions': {
