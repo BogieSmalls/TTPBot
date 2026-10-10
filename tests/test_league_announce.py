@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from dataclasses import replace
 from datetime import datetime
@@ -243,7 +244,7 @@ class AnnouncementLinkDeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_unavailable_thread_lookup_still_posts_the_room(self):
         from ttpbot.league.announce import send_league_announcement
         race = replace(_staffed_race(), fixture=Fixture(6, 'Shadow Cartel', 'The Missing Links', 'Consternation'))
-        threads = Mock(configured=True, matchup_url=AsyncMock(side_effect=TimeoutError()))
+        threads = Mock(configured=True, matchup_url=AsyncMock(side_effect=asyncio.TimeoutError()))
         response = AsyncMock()
         response.__aenter__.return_value = Mock(status=204)
         with patch('ttpbot.league.announce.aiohttp.request', return_value=response) as request:
