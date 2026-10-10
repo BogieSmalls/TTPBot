@@ -61,7 +61,7 @@ def _channel_line(race):
     return 'Channel: ' + ', '.join(links) if links else ''
 
 
-def build_announcement(race, race_url, crew=None, continuation=False):
+def build_announcement(race, race_url, crew=None, continuation=False, matchup_url=None):
     """Return the webhook JSON body for a League room.
 
     `crew` resolves the sheet's Comms/Tracker names to Discord ids. It is
@@ -71,12 +71,12 @@ def build_announcement(race, race_url, crew=None, continuation=False):
     if race.coop:
         racers = race.runners
         matchup = '{} vs {}'.format(
-            ' & '.join(r.display_name for r in race.away_runners),
-            ' & '.join(r.display_name for r in race.home_runners),
+            ' & '.join(_mention(r) for r in race.away_runners),
+            ' & '.join(_mention(r) for r in race.home_runners),
         )
     else:
         racers = (race.runner_one, race.runner_two)
-        matchup = '{} vs {}'.format(race.runner_one.display_name, race.runner_two.display_name)
+        matchup = '{} vs {}'.format(_mention(race.runner_one), _mention(race.runner_two))
     allowed = [r.discord_id for r in racers if r.discord_id]
     title = 'League Season 1'
     if race.fixture:
@@ -85,8 +85,11 @@ def build_announcement(race, race_url, crew=None, continuation=False):
         title += ' · Game {}'.format(race.game)
     if race.coop:
         title += ' · Co-op'
-    description = '**{}**\n<t:{}:F>\n\n[Open race room]({})'.format(
-        matchup, int(race.start.timestamp()), race_url)
+    flagset = re.sub(r'^Week\s+\d+\s*[-–]?\s*', '', race.fixture.label).split(':', 1)[0].strip() if race.fixture else ''
+    description = NEWLINE.join(part for part in (
+        '**{}**'.format(matchup), flagset,
+        '**Starts:** <t:{}:F>'.format(int(race.start.timestamp())),
+    ) if part)
     segments = [
         _crew_line('Comms', getattr(race, 'comms', ()), crew, allowed),
         _crew_line('Tracker', race.trackers, crew, allowed),
@@ -94,6 +97,10 @@ def build_announcement(race, race_url, crew=None, continuation=False):
     staffed = NEWLINE.join(segment for segment in segments if segment)
     if continuation:
         description = BLANK_LINE.join((description, ALREADY_ON_AIR))
+    links = ['[Race Room]({})'.format(race_url)]
+    if matchup_url:
+        links.append('[Matchup Thread]({})'.format(matchup_url))
+    description = BLANK_LINE.join((description, ' | '.join(links)))
     channel = _channel_line(race).removeprefix('Channel: ')
     return {
         'content': ' '.join('<@{}>'.format(user) for user in sorted(set(allowed))),
@@ -161,13 +168,19 @@ async def send_league_continuation_notice(race, race_url, webhook_url, logger, c
 
 
 async def send_league_announcement(
-    race, race_url, webhook_url, logger, crew=None, continuation=False,
+    race, race_url, webhook_url, logger, crew=None, continuation=False, threads=None,
 ):
     """Post the League announcement. Returns True when Discord accepted it."""
     if not webhook_url:
         logger.warning('League Discord announcements are not configured')
         return False
-    body = build_announcement(race, race_url, crew=crew, continuation=continuation)
+    matchup_url = None
+    if threads and threads.configured and race.fixture:
+        try:
+            matchup_url = await asyncio.wait_for(threads.matchup_url(race.fixture), timeout=8)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, KeyError, TypeError) as exc:
+            logger.warning('League matchup link unavailable (%s); announcing the room', type(exc).__name__)
+    body = build_announcement(race, race_url, crew=crew, continuation=continuation, matchup_url=matchup_url)
     logger.info('Announcing League room: %s', race.title)
     try:
         async with aiohttp.request(

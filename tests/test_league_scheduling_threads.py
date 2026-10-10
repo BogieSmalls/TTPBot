@@ -203,5 +203,34 @@ class RosterByTeamTests(unittest.TestCase):
         self.assertEqual(roster.by_team('Nobody'), [])
 
 
+class MatchupLinkTests(unittest.IsolatedAsyncioTestCase):
+    async def test_finds_the_fixture_in_active_or_archived_threads(self):
+        from unittest.mock import AsyncMock
+        from ttpbot.league.scheduling_threads import DiscordThreads
+        fixture = Fixture(6, 'Shadow Cartel', 'The Missing Links')
+        thread = {'id': '456', 'parent_id': '123', 'name': 'Week 6 - Shadow Cartel @ The Missing Links'}
+        for archived in (False, True):
+            client = DiscordThreads('secret', '123', LOGGER)
+            async def call(method, path, payload):
+                if path == '/channels/123':
+                    return {'guild_id': '789'}
+                return {'threads': [thread] if ('archived' in path) == archived else []}
+            client._call = AsyncMock(side_effect=call)
+            self.assertEqual(await client.matchup_url(fixture), 'https://discord.com/channels/789/456')
+
+    async def test_ambiguous_or_wrong_week_threads_do_not_produce_a_link(self):
+        from unittest.mock import AsyncMock
+        from ttpbot.league.scheduling_threads import DiscordThreads
+        fixture = Fixture(6, 'Shadow Cartel', 'The Missing Links')
+        for names in (['Week 5 - Shadow Cartel @ The Missing Links'], ['Week 6 - Shadow Cartel @ The Missing Links'] * 2):
+            client = DiscordThreads('secret', '123', LOGGER)
+            async def call(method, path, payload):
+                if path == '/channels/123':
+                    return {'guild_id': '789'}
+                return {'threads': [] if 'archived' in path else [{'id': str(456+i), 'parent_id': '123', 'name': name} for i, name in enumerate(names)]}
+            client._call = AsyncMock(side_effect=call)
+            self.assertIsNone(await client.matchup_url(fixture))
+
+
 if __name__ == '__main__':
     unittest.main()
