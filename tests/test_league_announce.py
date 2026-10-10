@@ -35,7 +35,7 @@ class BuildAnnouncementTests(unittest.TestCase):
         self.assertIn('<@222>', self.body['content'])
 
     def test_includes_the_room_url(self):
-        self.assertIn(ROOM, self.body['content'])
+        self.assertIn(ROOM, self.body['embeds'][0]['description'])
 
     def test_allow_lists_exactly_the_two_racers(self):
         self.assertEqual(self.body['allowed_mentions'],
@@ -51,7 +51,7 @@ class BuildAnnouncementTests(unittest.TestCase):
         race = _race(_racer('SirLinkalot', None), _racer('Windfox470', '222'))
         body = build_announcement(race, ROOM)
 
-        self.assertIn('SirLinkalot', body['content'])
+        self.assertIn('SirLinkalot', body['embeds'][0]['description'])
         self.assertNotIn('<@None>', body['content'])
         self.assertNotIn('<@>', body['content'])
         self.assertEqual(body['allowed_mentions']['users'], ['222'])
@@ -61,7 +61,7 @@ class BuildAnnouncementTests(unittest.TestCase):
         body = build_announcement(race, ROOM)
 
         self.assertEqual(body['allowed_mentions']['users'], [])
-        self.assertIn(ROOM, body['content'])
+        self.assertIn(ROOM, body['embeds'][0]['description'])
 
 
 if __name__ == '__main__':
@@ -116,7 +116,7 @@ class CrewTaggingTests(unittest.TestCase):
             _staffed_race(comms=('Nobody',), tracker=None), ROOM, crew=CREW,
         )
 
-        self.assertIn('Nobody', body['content'])
+        self.assertIn('Nobody', body['embeds'][0]['fields'][0]['value'])
         self.assertNotIn('<@>', body['content'])
         self.assertEqual(sorted(body['allowed_mentions']['users']), ['111', '222'])
 
@@ -133,7 +133,7 @@ class CrewTaggingTests(unittest.TestCase):
             _staffed_race(comms=('SpecialK',), tracker='GrandpaSzabo'), ROOM,
         )
 
-        self.assertIn('SpecialK', body['content'])
+        self.assertIn('SpecialK', body['embeds'][0]['fields'][0]['value'])
         self.assertEqual(sorted(body['allowed_mentions']['users']), ['111', '222'])
 
     def test_separates_the_crew_credits_with_a_blank_line(self):
@@ -143,8 +143,8 @@ class CrewTaggingTests(unittest.TestCase):
 
         # Matchup and crew are two separate thoughts; a single break renders
         # too tightly in Discord to scan at a glance.
-        self.assertIn('\n\nChannel:', body['content'])
-        self.assertIn('\nComms:', body['content'])
+        self.assertEqual(body['embeds'][0]['fields'][0]['value'], 'Comms: <@429>\nTracker: <@355>')
+        self.assertEqual(body['embeds'][0]['fields'][1]['name'], 'Restream channel')
 
 
 class ContinuationAnnouncementTests(unittest.TestCase):
@@ -157,14 +157,14 @@ class ContinuationAnnouncementTests(unittest.TestCase):
         # The booth was not created for this race - the previous one is still
         # on air and the operator swaps the room and racers over. Crew opening
         # the booth mid-show should expect that rather than think it is broken.
-        self.assertIn('already ON THE AIR', body['content'])
+        self.assertIn('already ON THE AIR', body['embeds'][0]['description'])
 
     def test_says_nothing_extra_for_an_ordinary_race(self):
         body = build_announcement(
             _staffed_race(comms=('SpecialK',), tracker='GrandpaSzabo'), ROOM, crew=CREW,
         )
 
-        self.assertNotIn('ON THE AIR', body['content'])
+        self.assertNotIn('ON THE AIR', body['embeds'][0]['description'])
 
     def test_still_tags_the_crew_on_a_continuation(self):
         body = build_announcement(
@@ -205,7 +205,8 @@ def _coop_match(tracker_one=None, tracker_two=None):
 class CoopAnnouncementTests(unittest.TestCase):
     def test_names_both_teams_away_first(self):
         body = build_announcement(_coop_match(), ROOM)
-        self.assertEqual(body['content'], 'Title: League co-op: <@222> & <@333> vs <@111> & <@444>\nRace Room: ' + ROOM)
+        self.assertIn('Windfox470 & seanfreston vs SirLinkalot & Stags28', body['embeds'][0]['description'])
+        self.assertEqual(body['embeds'][0]['title'], 'League Season 1 · Week 3 · Game 1 · Co-op')
 
     def test_allow_lists_all_four_runners(self):
         body = build_announcement(_coop_match(), ROOM)
@@ -213,24 +214,39 @@ class CoopAnnouncementTests(unittest.TestCase):
 
     def test_credits_both_trackers_when_the_rows_differ(self):
         body = build_announcement(_coop_match('droois', 'ISUMatt'), ROOM)
-        self.assertIn('Tracker: droois, ISUMatt', body['content'])
+        self.assertIn('Tracker: droois, ISUMatt', body['embeds'][0]['fields'][0]['value'])
 
     def test_the_1v1_post_uses_the_same_layout(self):
         race = _race(_racer('SirLinkalot', '111'), _racer('Windfox470', '222'))
-        self.assertEqual(build_announcement(race, ROOM)['content'], 'Title: League: <@111> vs <@222>\nRace Room: ' + ROOM)
+        card = build_announcement(race, ROOM)['embeds'][0]
+        self.assertIn('SirLinkalot vs Windfox470', card['description'])
+        self.assertIn('[Open race room](' + ROOM + ')', card['description'])
 
 
 class AnnouncementLayoutTests(unittest.TestCase):
+    def test_room_link_is_inside_one_rich_card_without_an_automatic_preview(self):
+        body = build_announcement(_staffed_race(comms=('SpecialK',)), ROOM, crew=CREW)
+        self.assertNotIn(ROOM, body['content'])
+        self.assertEqual(len(body['embeds']), 1)
+        card = body['embeds'][0]
+        self.assertIn('[Open race room](' + ROOM + ')', card['description'])
+        self.assertTrue(card['title'].startswith('League Season 1'))
+        self.assertEqual([field['name'] for field in card['fields']], ['Restream crew', 'Restream channel'])
+
     def test_room_and_each_broadcast_detail_have_their_own_line(self):
         body = build_announcement(_staffed_race(comms=('SpecialK', 'GrandpaSzabo'), tracker='Other'), ROOM, crew=CREW)
-        self.assertEqual(body['content'], 'Title: League: <@111> vs <@222>\nRace Room: ' + ROOM + '\n\nChannel: [Z1Rracing](https://www.twitch.tv/z1rracing)\nComms: <@429>, <@355>\nTracker: Other')
+        self.assertEqual(body['content'], '<@111> <@222> <@355> <@429>')
+        self.assertEqual(body['embeds'][0]['fields'], [
+            {'name': 'Restream crew', 'value': 'Comms: <@429>, <@355>\nTracker: Other'},
+            {'name': 'Restream channel', 'value': '[Z1Rracing](https://www.twitch.tv/z1rracing)'},
+        ])
 
     def test_coop_announces_both_assigned_channels_without_repeating_one(self):
         match = _coop_match()
         match = replace(match, rows=tuple(replace(row, channel=channel) for row,channel in zip(match.rows, ('Z1Rracing', 'Z1Rracing2'))))
-        body = build_announcement(match, ROOM)['content']
-        self.assertIn('Channel: [Z1Rracing](https://www.twitch.tv/z1rracing), [Z1Rracing2](https://www.twitch.tv/z1rracing2)', body)
+        body = build_announcement(match, ROOM)['embeds'][0]['fields'][1]['value']
+        self.assertEqual('[Z1Rracing](https://www.twitch.tv/z1rracing), [Z1Rracing2](https://www.twitch.tv/z1rracing2)', body)
         self.assertNotIn('Comms:', body)
         self.assertNotIn('Tracker:', body)
         same = replace(match, rows=tuple(replace(row, channel='Z1Rracing') for row in match.rows))
-        self.assertEqual(build_announcement(same, ROOM)['content'].count('https://www.twitch.tv/z1rracing'), 1)
+        self.assertEqual(build_announcement(same, ROOM)['embeds'][0]['fields'][1]['value'].count('https://www.twitch.tv/z1rracing'), 1)

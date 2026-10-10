@@ -70,27 +70,41 @@ def build_announcement(race, race_url, crew=None, continuation=False):
     """
     if race.coop:
         racers = race.runners
-        matchup = 'League co-op: {} vs {}'.format(
-            ' & '.join(_mention(r) for r in race.away_runners),
-            ' & '.join(_mention(r) for r in race.home_runners),
+        matchup = '{} vs {}'.format(
+            ' & '.join(r.display_name for r in race.away_runners),
+            ' & '.join(r.display_name for r in race.home_runners),
         )
     else:
         racers = (race.runner_one, race.runner_two)
-        matchup = 'League: {} vs {}'.format(_mention(race.runner_one), _mention(race.runner_two))
+        matchup = '{} vs {}'.format(race.runner_one.display_name, race.runner_two.display_name)
     allowed = [r.discord_id for r in racers if r.discord_id]
-    content = 'Title: {}\nRace Room: {}'.format(matchup, race_url)
+    title = 'League Season 1'
+    if race.fixture:
+        title += ' · Week {}'.format(race.fixture.week)
+    if race.game:
+        title += ' · Game {}'.format(race.game)
+    if race.coop:
+        title += ' · Co-op'
+    description = '**{}**\n<t:{}:F>\n\n[Open race room]({})'.format(
+        matchup, int(race.start.timestamp()), race_url)
     segments = [
-        _channel_line(race),
         _crew_line('Comms', getattr(race, 'comms', ()), crew, allowed),
         _crew_line('Tracker', race.trackers, crew, allowed),
     ]
     staffed = NEWLINE.join(segment for segment in segments if segment)
-    if staffed:
-        content = BLANK_LINE.join((content, staffed))
     if continuation:
-        content = BLANK_LINE.join((content, ALREADY_ON_AIR))
+        description = BLANK_LINE.join((description, ALREADY_ON_AIR))
+    channel = _channel_line(race).removeprefix('Channel: ')
     return {
-        'content': content,
+        'content': ' '.join('<@{}>'.format(user) for user in sorted(set(allowed))),
+        'embeds': [{
+            'title': title, 'description': description, 'color': 4877708,
+            'fields': [
+                {'name': 'Restream crew', 'value': staffed or 'To be assigned'},
+                {'name': 'Restream channel', 'value': channel or 'To be assigned'},
+            ],
+            'footer': {'text': 'Race room open · Z1R Racing'},
+        }],
         'allowed_mentions': {
             'parse': [],
             # De-duplicated because someone can be both a racer elsewhere and
@@ -115,7 +129,7 @@ def build_continuation_notice(race, race_url, crew=None):
         _crew_line('Tracker', race.trackers, crew, allowed),
     ]
     staffed = NEWLINE.join(segment for segment in segments if segment)
-    content = 'Correction for {} — {}'.format(race_url, ALREADY_ON_AIR)
+    content = 'Correction for <{}> — {}'.format(race_url, ALREADY_ON_AIR)
     if staffed:
         content = BLANK_LINE.join((content, staffed))
     return {

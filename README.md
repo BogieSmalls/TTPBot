@@ -26,6 +26,11 @@ TTP5 regular-season rooms use the `TTP Season 5` goal from Monday, August 31, 20
 
 ### Discord announcements
 
+League race-room announcements use a single card with the matchup, scheduled
+time, crew, broadcast channel, and an **Open race room** link. The room link
+does not generate a separate racetime preview. Known racers and assigned crew
+still receive their existing Discord notifications.
+
 20 minutes before each race (10 minutes after the room opens), TTPBot posts a message to the configured Race Seekers Discord channel with an `@Race Seekers` mention and the room URL:
 
 ```
