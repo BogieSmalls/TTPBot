@@ -22,6 +22,7 @@ from .coop import group_coop_matches
 from .matchups import parse_matchups
 from .schedule import parse_schedule, schedule_is_readable
 from .scheduling_threads import open_week_threads, week_due
+from .result_context import bind_room
 
 LEAGUE_ROOM_OPEN_MINUTES_BEFORE = 30
 LEAGUE_START_BUFFER_MINUTES = 5
@@ -189,10 +190,12 @@ class LeagueScheduler:
                  webhook_url, logger, crew=None, roster_url=None,
                  roster_token=None, relay_wake_url=None, relay_wake_token=None,
                  wake_target='production', booth_url=None, booth_token=None,
-                 threads=None, thread_store=None):
+                 threads=None, thread_store=None, result_context_store=None, results_recorder=None):
         self.bot = bot
         self.source = source
         self.created_store = created_store
+        self.result_context_store = result_context_store
+        self.results_recorder = results_recorder
         self.webhook_store = webhook_store
         self.webhook_url = webhook_url
         self.logger = logger
@@ -281,6 +284,11 @@ class LeagueScheduler:
             except Exception:
                 self.logger.error('Error handling League race %s',
                                   race.title, exc_info=True)
+        if self.results_recorder:
+            try:
+                await self.results_recorder.reconcile()
+            except Exception:
+                self.logger.warning('League result reconciliation unavailable', exc_info=True)
 
     async def _open_scheduling_threads(self, now):
         """Open this week's scheduling threads, once each.
@@ -488,6 +496,8 @@ class LeagueScheduler:
 
         if room_url == UNCERTAIN_RACE:
             return
+
+        bind_room(self.result_context_store, race, room_url)
 
         # Every tick, not only at creation. Handler state does not survive a
         # restart, and for a co-op match the title is the only other record of

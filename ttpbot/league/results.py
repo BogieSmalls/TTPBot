@@ -22,7 +22,7 @@ silently drops those rows rather than failing loudly.
 """
 import asyncio
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 
 import aiohttp
@@ -294,7 +294,8 @@ class ResultsRecorder:
 
     def __init__(self, *, roster, store, logger, archives_url, schedule_url,
                  form_url=LEAGUE_RESULTS_FORM_URL, requester=None, fetcher=None,
-                 settle_seconds=0, room_reader=None):
+                 settle_seconds=0, room_reader=None, context_store=None,
+                 result_url=None, result_token=None, result_sender=None):
         self.roster = roster
         self.store = store
         self.logger = logger
@@ -311,6 +312,10 @@ class ResultsRecorder:
         self.settle_seconds = settle_seconds
         self._room_reader = room_reader
         self._settling = set()
+        self.context_store = context_store
+        self.result_url = result_url
+        self.result_token = result_token
+        self._result_sender = result_sender
 
     async def record(self, race_data):
         """Submit every result this race produces. Returns how many were sent."""
@@ -336,9 +341,9 @@ class ResultsRecorder:
         try:
             fresh = await self._room_reader(race_data)
         except Exception:
-            self.logger.warning('League result: could not re-read the room; filing what it last said')
-            return race_data
-        return fresh or race_data
+            self.logger.warning('League result: could not re-read the room; result will wait')
+            return {}
+        return fresh or {}
 
     async def _submit(self, race_data):
         status = (race_data.get('status') or {}).get('value', '')
@@ -350,6 +355,9 @@ class ResultsRecorder:
         if not slug or not ended:
             self.logger.error('League result skipped: race has no slug or end time')
             return 0
+
+        if self.result_url:
+            return await self._submit_official(race_data, slug, ended)
 
         try:
             pairings = await self._pairings()
@@ -398,8 +406,84 @@ class ResultsRecorder:
             recorded[key] = True
             self.store.save(recorded)
             sent += 1
-            self.logger.info('League result recorded: %s', submission.describe())
+            self.logger.info('League result submitted to form; official confirmation pending: %s', submission.describe())
         return sent
+
+    async def _submit_official(self, race_data, slug, ended):
+        recorded = self.store.load()
+        if any('|{}-'.format(slug) in key for key in recorded):
+            return 0
+        context = self.context_store.load().get(slug) if self.context_store else None
+        if not context:
+            # A manually opened room has no durable scheduling receipt. Keep
+            # its results visible to Council without inferring a game number.
+            pairings = await self._pairings()
+            pairings = [p for p in pairings if _started(race_data) and abs(p.when - _started(race_data)) <= NEAR_START]
+            seats = entrants_by_racer(race_data, self.roster)
+            pairings = [p for p in pairings if p.one.sheet_name in seats and p.two.sheet_name in seats]
+            if not pairings and len(seats) == 2:
+                a, b = [seat['racer'] for seat in seats.values()]
+                pairings = [Pairing(a, b, _started(race_data))]
+            pairings = list({tuple(sorted((p.one.sheet_name,p.two.sheet_name))):p for p in pairings}.values())
+        else:
+            pairings = [Pairing(self.roster.resolve(a), self.roster.resolve(b),
+                               datetime.fromisoformat(context['scheduledAt']))
+                        for a, b in context['pairs']]
+        # Identity was captured when this room opened. A delayed start cannot
+        # change the game, so use the room's actual start for entrant matching.
+        pairings = [Pairing(p.one, p.two, _started(race_data)) for p in pairings]
+        submissions, problems = submissions_for(race_data, pairings, self.roster)
+        if problems or not submissions or len(submissions) != len(pairings):
+            self.logger.error('League result needs Council review for %s: incomplete racer finishes', slug)
+            return 0
+        payload = ({key: context[key] for key in ('week', 'game', 'scheduledAt')}
+                   if context else {'unresolved': True, 'scheduledAt': _started(race_data).isoformat()})
+        payload.update(room='https://racetime.gg/z1r/' + slug,
+                       submissions=[asdict(s) for s in submissions])
+        try:
+            if self._result_sender:
+                result = await self._result_sender(payload)
+            else:
+                async with aiohttp.request('post', self.result_url, json=payload,
+                        headers={'Authorization': 'Bearer ' + self.result_token},
+                        timeout=aiohttp.ClientTimeout(total=60), allow_redirects=False) as response:
+                    if response.status != 200:
+                        raise RuntimeError('League results HTTP {}'.format(response.status))
+                    result = await response.json()
+        except Exception:
+            self.logger.warning('League result delivery pending for %s; will retry', slug)
+            return 0
+        if result.get('status') != 'confirmed':
+            self.logger.warning('League result for %s is pending official confirmation; Council can review it', slug)
+            return 0
+        recorded = self.store.load()  # Another room may have confirmed during the HTTP call.
+        for index in range(len(submissions)):
+            recorded[state_key(ended, slug, index)] = True
+        self.store.save(recorded)
+        self.logger.info('League result verified in official Results: Week %s Game %s, %s', context['week'], context['game'], slug)
+        return len(submissions)
+
+    async def reconcile(self):
+        """Retry remembered rooms after network failures and process restarts."""
+        if not self.result_url or not self.context_store or not self._room_reader:
+            return
+        recorded = self.store.load()
+        for slug in self.context_store.load():
+            if slug in self._settling or any('|{}-'.format(slug) in key for key in recorded):
+                continue
+            self._settling.add(slug)
+            try:
+                data = await self._room_reader({'name': 'z1r/' + slug})
+                if not data or (data.get('status') or {}).get('value') != 'finished':
+                    continue
+                ended = datetime.fromisoformat(data['ended_at'].replace('Z', '+00:00'))
+                if (datetime.now(timezone.utc) - ended).total_seconds() < self.settle_seconds:
+                    continue
+                await self._submit(data)
+            except Exception:
+                self.logger.warning('League result reconciliation pending for %s', slug)
+            finally:
+                self._settling.discard(slug)
 
     async def _pairings(self):
         """Every pairing the League has scheduled, played or not.
