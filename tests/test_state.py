@@ -61,7 +61,7 @@ class DestinationStateStoreTests(unittest.TestCase):
         self.assertEqual(shared.path.stat().st_mode & 0o777, 0o640)
         # And a store that says nothing is still private.
         private = DestinationStateStore(
-            "league_webhooks.json", DESTINATION, "league_webhooks", data_dir=self.root,
+            "league_webhooks.json", DESTINATION, "league_sent_webhooks", data_dir=self.root,
         )
         private.save({})
         self.assertEqual(private.path.stat().st_mode & 0o777, 0o600)
