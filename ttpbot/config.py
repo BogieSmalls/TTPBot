@@ -238,6 +238,8 @@ SEED_PRESETS = {
     'walkitin':          'oIbnPfPaymqfyH3OJhgiKHew0nr6Guj6lqHtv',
     'swordlessplus':     'oIbnPfPb01Hns9ilYf3aXrUwNv7SZU05a56UV',
     'randomforce':       'oIbnPfPazW!1troLaKovLCWdzL0Ech79PCP7x',
+    'rr2026':            'e2kxDFZQ!9oaB3CJrZ6XlkAuDSBkqONiEiNvPy8',
+    'sgl26ip':           '12TDBKH6mxLfnSz4T7ME4bcIaaUe9sE7UVmj7RA',
     'rr2025':            'CKnGZ6u7XaVW!hJ!sGTvkRim82t8PvIW1BEycZo',
     'sgl25online':       '12TDBJOu7zgjkBGTDwHViA9wS3IpdJcvhCVEtu9',
     'power':             '143oNtDD4PAvBt5G8xyCFu5kwp7tS8vUBVpiZY',
@@ -270,6 +272,8 @@ TTP5_PRESETS = ['ttp5uphill', 'ttp5muffle', 'ttp5pick5']
 
 # Full names, for the hand-off message posted when SahasrahBot is present.
 PRESET_NAMES = {
+    'rr2026': '2026 Rookie Rumble',
+    'sgl26ip': '2026 SGLive Onsite Flags',
     'tc33': 'Torneo Corto #33',
     'tc32': 'Torneo Corto #32',
     'tc31': 'Torneo Corto #31',

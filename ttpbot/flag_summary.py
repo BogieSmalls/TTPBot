@@ -152,6 +152,9 @@ CHECKBOXES = (
     ('owVisibleTiles', 'Change Hidden OW Tiles'),
     ('bombCapacityUp', 'Increase Bomb Capacity Upgrade'),
     ('altDrops', 'Allow Universal Drops in Shapes'),
+    ('noMaps', 'Remove Maps'),
+    ('startMaps', 'All Maps'),
+    ('startAllCompasses', 'All Compasses'),
 )
 
 _CHECKBOX_STATES = ('off', 'on', 'possible')

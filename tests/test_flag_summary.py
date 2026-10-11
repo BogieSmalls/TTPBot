@@ -1,19 +1,59 @@
 import unittest
 
 from ttpbot.flag_summary import (
+    CHECKBOXES,
     MESSAGE_LIMIT,
     FlagStringError,
+    decode,
+    decoded_lines,
     format_summary,
     summary_lines,
 )
+from ttpbot.config import SEED_PRESETS
 
 # TTP4 Random% Remastered: close to the worst case for length.
 RANDOM_PERCENT = '24hJoDaoq92qaumIfio4Qq8LtfU0Xt8tpG3Iafo'
 # The 3v3 Week 6 flagset from the 2026-09-25 race room that prompted !summary.
 WEEK_SIX = 'CKnGaCG0jI3PvaGohjRZIOxiM8Y9W8GjoIpZfdC'
+REMOVE_MAPS = 'BtH0Hdj8LFZAMsoiZhzzjYvUTJrPTLuFnv7j0000'
+ALL_MAPS_AND_COMPASSES = '2GXF3MZeDhvazAbVcd6YQigUnT9jyaVtNdFLLuKkg'
+TTP5_PICK5 = 'p8GIOeYEAonHy5131VdG6b94Ts3EMMvBaQoWR'
 
 
 class FlagSummaryTests(unittest.TestCase):
+    def test_v366_checkbox_tail_matches_the_randomizer(self):
+        self.assertEqual(len(CHECKBOXES), 94)
+        self.assertEqual(CHECKBOXES[-4:], (
+            ('altDrops', 'Allow Universal Drops in Shapes'),
+            ('noMaps', 'Remove Maps'),
+            ('startMaps', 'All Maps'),
+            ('startAllCompasses', 'All Compasses'),
+        ))
+
+    def test_v366_map_flags_print_only_when_on_or_possible(self):
+        self.assertIn('Remove Maps', summary_lines(REMOVE_MAPS))
+        self.assertIn('All Maps', summary_lines(ALL_MAPS_AND_COMPASSES))
+        self.assertIn('All Compasses', summary_lines(ALL_MAPS_AND_COMPASSES))
+
+        off = summary_lines(TTP5_PICK5)
+        self.assertNotIn('Remove Maps', off)
+        self.assertNotIn('All Maps', off)
+        self.assertNotIn('All Compasses', off)
+
+        combos, checkboxes = decode(TTP5_PICK5)
+        checkboxes['noMaps'] = 'possible'
+        checkboxes['startMaps'] = 'possible'
+        checkboxes['startAllCompasses'] = 'possible'
+        lines = decoded_lines(combos, checkboxes)
+        self.assertIn('Remove Maps: Possible', lines)
+        self.assertIn('All Maps: Possible', lines)
+        self.assertIn('All Compasses: Possible', lines)
+
+    def test_v366_named_presets_decode_and_can_be_named(self):
+        for preset in ('rr2026', 'sgl26ip', 'ttp5uphill', 'ttp5muffle', 'ttp5pick5'):
+            self.assertIn(preset, SEED_PRESETS)
+            format_summary(SEED_PRESETS[preset])
+
     def test_rejects_characters_no_flag_string_contains(self):
         with self.assertRaises(FlagStringError):
             format_summary('not-a-flag-string')
