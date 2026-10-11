@@ -173,6 +173,10 @@ class TTPBot(Bot):
                     return await response.json() if response.status == 200 else None
 
             return ResultsRecorder(
+                context_store=DestinationStateStore('league_room_context.json', self.provider.destination_key,
+                    'league_room_context', data_dir=self.data_dir),
+                result_url=os.environ.get('Z1RR_LEAGUE_RESULTS_URL', '').strip(),
+                result_token=os.environ.get('Z1RR_LEAGUE_RESULTS_TOKEN', '').strip(),
                 roster=load_roster(),
                 store=store,
                 logger=self.logger,
@@ -230,6 +234,10 @@ class TTPBot(Bot):
                     self.league_discord_bot_token,
                     self.league_scheduling_channel_id, self.logger),
                 thread_store=thread_store,
+                result_context_store=DestinationStateStore('league_room_context.json', self.provider.destination_key,
+                    'league_room_context', data_dir=root),
+                results_recorder=TTPRaceHandler.results_recorder,
+
                 roster_url=os.environ.get('Z1RR_ROSTER_URL', '').strip(),
                 roster_token=os.environ.get('Z1RR_ROSTER_TOKEN', '').strip(),
                 # The relay runs on this host, so the wake is a loopback call

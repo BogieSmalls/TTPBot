@@ -59,7 +59,6 @@ OPEN_WINDOW = timedelta(hours=30)
 #: Where the agreed date and time is recorded. The short link is the one the
 #: League Team posts in #league-announcements, and it survives the form being
 #: rebuilt behind it.
-SCHEDULING_FORM_URL = 'https://forms.gle/dFpq13NUxPLPqUJ78'
 
 #: Discord's limit is 100 characters. Team names are long ("Dodongo Ate My
 #: Baby" vs "Horny Steel Crushers" is already 60 with the week prefix).
@@ -160,8 +159,10 @@ def build_thread_post(week, fixture, roster, week_label=None):
         'the opponent may change theirs too. If you cannot reach your opponent, '
         'tell the League Team.',
         '',
-        'Agree a date and time here, then submit it on the scheduling form: '
-        '<{}>'.format(SCHEDULING_FORM_URL),
+        'Agree a date and time here, then use **`/schedule league`** in this thread. '
+        'Select both racers, **Game 1 or Game 2**, and the agreed date and time. '
+        'The game number identifies the matchup’s game, not the order you play it. '
+        'Use the same command and game number to update an agreed time.',
     ]
     return ThreadPost(content='\n'.join(lines), allowed_user_ids=away_ids + home_ids)
 

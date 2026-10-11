@@ -119,6 +119,9 @@ class ThreadPostTests(unittest.TestCase):
         self.assertIn('**Shadow Cartel** (home for game 1)', content)
         self.assertIn('**Fahrenheit 451** declare their racer(s) first', content)
         self.assertIn('the sides swap', content)
+        self.assertIn('/schedule league', content)
+        self.assertIn('Game 1 or Game 2', content)
+        self.assertNotIn('forms.gle', content)
 
     def test_every_rostered_player_is_pinged_and_only_them(self):
         self.assertEqual(self.post.allowed_user_ids, ['1', '2', '4', '5', '6'])

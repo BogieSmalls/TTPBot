@@ -34,13 +34,13 @@ CREATED_ENTRY_KINDS = {
     "created_races", "league_created_races", "autumn_created_races",
 }
 ENTRY_KINDS = (
-    {"created_races", "sent_webhooks"} | LEAGUE_ENTRY_KINDS | AUTUMN_ENTRY_KINDS
+    {"created_races", "sent_webhooks", "league_room_context"} | LEAGUE_ENTRY_KINDS | AUTUMN_ENTRY_KINDS
 )
 
 #: Kinds whose keys carry no timestamp, so `cleanup_before` must not touch them.
 #: A binding outlives every reschedule and every restart: forgetting one is how
 #: a grand-final row gets reassigned to the reset after the final is played.
-TIMELESS_ENTRY_KINDS = {"autumn_bindings", "autumn_created_races",
+TIMELESS_ENTRY_KINDS = {"league_room_context", "autumn_bindings", "autumn_created_races",
                         "autumn_sent_webhooks", "autumn_mirrored_times", "autumn_booth_notices", "autumn_results"}
 
 LEAGUE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -211,6 +211,10 @@ class DestinationStateStore:
             raise StateStoreError("autumn state entry key must name a match")
 
     def _validate_key(self, value):
+        if self.entry_kind == 'league_room_context':
+            if not isinstance(value, str) or len(value) > 150 or not LEAGUE_SLUG.fullmatch(value):
+                raise StateStoreError('League room slug is invalid')
+            return
         if self.entry_kind in AUTUMN_ENTRY_KINDS:
             self._validate_autumn_key(value)
             return
@@ -239,6 +243,23 @@ class DestinationStateStore:
         cleaned = {}
         for key, value in entries.items():
             self._validate_key(key)
+            if self.entry_kind == 'league_room_context':
+                if (not isinstance(value, dict) or set(value) != {'week', 'game', 'scheduledAt', 'pairs'}
+                        or type(value['week']) is not int or not 1 <= value['week'] <= 7
+                        or value['game'] not in (1, 2)
+                        or not isinstance(value['pairs'], list) or not 1 <= len(value['pairs']) <= 2
+                        or any(not isinstance(pair, list) or len(pair) != 2
+                               or any(not isinstance(name, str) or not 0 < len(name) <= 120 for name in pair)
+                               for pair in value['pairs'])):
+                    raise StateStoreError('League room context is invalid')
+                try:
+                    stamp = datetime.fromisoformat(value['scheduledAt'])
+                    if stamp.tzinfo is None:
+                        raise ValueError()
+                except (TypeError, ValueError) as exc:
+                    raise StateStoreError('League scheduled time is invalid') from exc
+                cleaned[key] = value
+                continue
             if self.entry_kind == "autumn_results":
                 if (not isinstance(value, dict)
                         or not {"room", "racers", "status", "winner", "reason"}.issubset(value)
