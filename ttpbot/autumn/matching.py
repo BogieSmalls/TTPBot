@@ -217,6 +217,15 @@ def match_rows(rows, matches, *, event='autumn', bindings=None, aliases=None, ed
     `Matching` for the caller to persist.
     """
     by_id = dict(matches)
+    # Matching already ignores case/punctuation, but every downstream identity
+    # map is keyed by the bracket's spelling. Carry that spelling forward too:
+    # eatmysteel must resolve to Eatmysteel for invites, booths and results.
+    seats = {
+        flatten(name): name
+        for match in by_id.values()
+        for name in (match.get('a'), match.get('b'))
+        if name
+    }
     ordered = sorted(
         rows,
         key=lambda row: (row.get('at') is None, row.get('at')),
@@ -231,6 +240,8 @@ def match_rows(rows, matches, *, event='autumn', bindings=None, aliases=None, ed
     for row in ordered:
         one = canonical(row.get('runner_one'), aliases)
         two = canonical(row.get('runner_two'), aliases)
+        one = seats.get(flatten(one), one)
+        two = seats.get(flatten(two), two)
         pair = frozenset((flatten(one), flatten(two)))
 
         if len(pair) < 2:

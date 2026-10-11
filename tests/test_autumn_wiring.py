@@ -8,7 +8,10 @@ is optional rather than required.
 
 import asyncio
 import logging
+import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from ttpbot.autumn.wiring import (
     DEFAULT_SCHEDULE_URL,
@@ -159,6 +162,64 @@ class Building(unittest.TestCase):
         asyncio.run(runner.scheduler._invite(
             race, 'https://racetime.gg/z1r/fancy-mario-1234'))
         self.assertTrue(bot.state['z1r/fancy-mario-1234']['something_else'])
+
+
+class CanonicalRacerFlow(unittest.IsolatedAsyncioTestCase):
+    """The sheet's spelling must reach every consumer as the engine's identity."""
+
+    def setUp(self):
+        from ttpbot.autumn.engine import RECORDED, Written
+        from ttpbot.autumn.matching import match_rows
+        from ttpbot.autumn.schedule import ScheduleRow
+        from ttpbot.provider import RacetimeProvider
+        from ttpbot.state import DestinationStateStore
+        from tests.test_autumn_matching import TONIGHT, row
+
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        provider = RacetimeProvider('https://racetime.gg', 'z1r')
+        self.store = DestinationStateStore('autumn_results.json', provider.destination_key,
+            'autumn_results', data_dir=temp.name)
+        self.bot = SimpleNamespace(state={}, provider=provider)
+        self.log = Log()
+        self.runner = build_autumn_runner({
+            'Z1RR_ENGINE_TOKEN': 'test-engine', 'TTPBOT_DATA_DIR': temp.name,
+            'Z1RR_CONTROL_PLANE_URL': 'https://cp.example', 'Z1RR_BOOTH_TOKEN': 'test-booth',
+        }, self.bot, self.log, stores={'autumn_results': self.store})
+        self.ids = {'Eatmysteel': 'steel-id', 'shatty': 'shatty-id'}
+        match = {'id': 'W2-3', 'a': 'Eatmysteel', 'b': 'shatty', 'state': 'ready'}
+        self.runner.engine.draw = AsyncMock(return_value={'matches': [match]})
+        self.runner.engine.state = AsyncMock(return_value={'document': {
+            'version': 2, 'racetimeIds': self.ids,
+            'twitchChannels': {'Eatmysteel': 'eatmysteel1', 'shatty': 'shatty'},
+        }})
+        self.runner.engine.bind_result_room = AsyncMock(return_value=Written(RECORDED))
+        self.race = match_rows([row('eatmysteel', 'SHATTY')], {'W2-3': match},
+            edition='2026').resolved[0]
+        self.row = ScheduleRow(TONIGHT, 'eatmysteel', 'SHATTY', channel='Z1Rracing')
+        self.room = 'https://racetime.gg/z1r/canonical-test'
+
+    async def test_case_variant_gets_both_racer_invites(self):
+        await self.runner.scheduler._invite(self.race, self.room)
+        self.assertEqual(self.bot.state['z1r/canonical-test']['autumn_race']['invite'],
+                         ['steel-id', 'shatty-id'])
+
+    async def test_case_variant_registers_result_tracking(self):
+        await self.runner.scheduler._invite(self.race, self.room)
+        saved = self.store.load()
+        self.assertIn('autumn-2026|W2-3|1', saved)
+        self.assertEqual(saved['autumn-2026|W2-3|1']['racers'], self.ids)
+        self.runner.engine.bind_result_room.assert_awaited_once()
+
+    async def test_case_variant_requests_booth_with_verified_streams(self):
+        from ttpbot.league.booth import BoothOutcome
+        with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
+            request.return_value = BoothOutcome('staged', 'test-broadcast')
+            outcome = await self.runner.scheduler._request_booth(self.race, self.row, self.room)
+            self.assertEqual(outcome.broadcast_id, 'test-broadcast')
+            payload = request.await_args.args[0]
+            self.assertEqual([(r['displayName'], r['channel'], r['racetimeId']) for r in payload['racers']],
+                [('Eatmysteel', 'eatmysteel1', 'steel-id'), ('shatty', 'shatty', 'shatty-id')])
 
 
 class RoundLabels(unittest.TestCase):

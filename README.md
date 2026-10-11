@@ -66,6 +66,15 @@ from 35 minutes before its start.
 no League rooms open at all (`League matchups unavailable`), because co-op rows
 cannot be told from 1v1 rows without it. It retries every minute.
 
+### Tournament racer names
+
+Tournament schedule names are matched without regard to capitalization, using
+the existing punctuation/rank-prefix handling and registered aliases. Once a
+match is found, racer invites, booth setup and result tracking all use the
+bracket's canonical names and verified account mappings. There is no need to
+retype a schedule entry just to match capitalization; a genuinely unknown racer
+or missing account mapping still needs correction.
+
 ## Requirements
 
 - Python ≥ 3.10 (tested on 3.13)

@@ -74,6 +74,29 @@ class OrdinaryRowTests(unittest.TestCase):
         # the page; it must not also cost them their room.
         found = match_rows([row('isumatt', 'CHESSJERK')], bracket())
         self.assertEqual(found.resolved[0].match_id, 'W1-1')
+        self.assertEqual(
+            (found.resolved[0].runner_one, found.resolved[0].runner_two),
+            ('ISUMatt', 'chessjerk'))
+
+    def test_bracket_names_survive_repeated_ticks_and_preserve_sheet_order(self):
+        matches = {'W2-3': {'a': 'Eatmysteel', 'b': 'shatty', 'state': 'ready'}}
+        rows = [row(' SHATTY ', '(5) eatmysteel')]
+        bindings = None
+        for tick in range(2):
+            with self.subTest(tick=tick):
+                found = match_rows(rows, matches, bindings=bindings)
+                self.assertEqual(found.unresolved, [])
+                race = found.resolved[0]
+                self.assertEqual((race.runner_one, race.runner_two), ('shatty', 'Eatmysteel'))
+                if bindings is not None:
+                    self.assertEqual(found.bindings, bindings)
+                bindings = found.bindings
+
+    def test_alias_target_uses_the_brackets_spelling(self):
+        found = match_rows([row('steel', 'SHATTY')],
+            {'W2-3': {'a': 'Eatmysteel', 'b': 'shatty', 'state': 'ready'}},
+            aliases={'steel': 'eatmysteel'})
+        self.assertEqual(found.resolved[0].runner_one, 'Eatmysteel')
 
     def test_a_pair_nobody_is_racing_is_reported(self):
         found = match_rows([row('Bogie', 'ISUMatt')], bracket())
@@ -102,6 +125,15 @@ class OrdinaryRowTests(unittest.TestCase):
 
 class FinalsTests(unittest.TestCase):
     """GF-1 and GF-2 are the same two people, so the pair cannot separate them."""
+
+    def test_final_and_conditional_reset_carry_canonical_racers(self):
+        found = match_rows([
+            row('BOGIE', 'SHATTY'),
+            row('shatty', 'bogie', at=TONIGHT + timedelta(hours=1)),
+        ], bracket())
+        self.assertEqual(
+            [(r.match_id, r.runner_one, r.runner_two) for r in found.resolved],
+            [('GF-1', 'Bogie', 'shatty'), ('GF-2', 'shatty', 'Bogie')])
 
     def test_two_rows_are_the_final_and_then_the_reset(self):
         found = match_rows([
