@@ -41,6 +41,8 @@ WEEK_STARTS = {
 #: more than the day itself to settle on an hour.
 THREAD_OPEN_TIME = time(17, 0)
 THREAD_OPEN_LEAD = timedelta(days=2)
+#: Council approved an earlier Week 7 opening after all Week 6 games finished.
+THREAD_OPEN_OVERRIDES = {7: datetime(2026, 10, 11, 12, 0, tzinfo=TIMEZONE)}
 
 #: How long after the opening time a missed week is still opened. A bot that
 #: was down at 5:00 PM should still open the threads that evening, or through
@@ -70,6 +72,8 @@ AUTO_ARCHIVE_MINUTES = 10080
 
 def open_at(week, starts=None):
     """When week `week`'s threads should be opened, or None if unknown."""
+    if starts is None and week in THREAD_OPEN_OVERRIDES:
+        return THREAD_OPEN_OVERRIDES[week]
     start = (starts or WEEK_STARTS).get(week)
     if start is None:
         return None

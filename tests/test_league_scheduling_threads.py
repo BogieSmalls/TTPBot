@@ -57,6 +57,14 @@ class FakeThreads:
 
 
 class WeekTimingTests(unittest.TestCase):
+    def test_week_seven_opens_at_noon_after_week_six_finishes(self):
+        noon = datetime(2026, 10, 11, 12, 0, tzinfo=TIMEZONE)
+        self.assertEqual(open_at(7), noon)
+        self.assertIsNone(week_due(noon - timedelta(seconds=1)))
+        self.assertEqual(week_due(noon), 7)
+        self.assertEqual(week_due(noon + timedelta(hours=5)), 7)
+        self.assertEqual(open_at(6), datetime(2026, 10, 4, 17, 0, tzinfo=TIMEZONE))
+
     def test_threads_open_two_evenings_before_the_week(self):
         # Week 4 starts Tuesday 22 September, so the threads go up at 5:00 PM
         # on the Sunday: an evening when people are reading Discord, with the
