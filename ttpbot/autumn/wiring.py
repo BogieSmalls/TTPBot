@@ -39,6 +39,7 @@ from .engine import engine_from_env
 from .rooms import create_autumn_room, room_title, recover_autumn_room
 from .scheduler import AutumnScheduler
 from .source import AutumnSource
+from .engine_source import EngineScheduleSource
 from .booths import AutumnBooths
 from ..league.crew import CrewDirectory, booth_token_from_env
 from ..paths import runtime_path
@@ -101,7 +102,13 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
     prefix = event.upper()
     default_url = ('https://docs.google.com/spreadsheets/d/1eZsfEjRi0ni9aE0GbQSDrEOL178jVd7h-P-StsNO_AQ/export?format=csv&gid=2033319762' if event == 'corto' else DEFAULT_SCHEDULE_URL)
     url = (env.get('Z1RR_{}_SCHEDULE_URL'.format(prefix)) or '').strip() or default_url
-    source = AutumnSource(url, logger)
+    authority = env.get('Z1RR_{}_SCHEDULE_AUTHORITY'.format(prefix), 'sheet')
+    if authority not in ('sheet', 'engine'):
+        raise ValueError('invalid {} schedule authority'.format(event))
+    source = (EngineScheduleSource(event=event, edition=engine.edition if engine else None,
+              url=env.get('COMPETITIONS_URL'), token=env.get('COMPETITIONS_READER_TOKEN'),
+              environment=env.get('COMPETITIONS_ENVIRONMENT'), logger=logger)
+              if authority == 'engine' else AutumnSource(url, logger))
     stores = stores or {}
 
     if engine is None:

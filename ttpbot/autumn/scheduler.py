@@ -226,7 +226,13 @@ class AutumnScheduler:
         matches = {match['id']: match for match in drawn.get('matches', [])}
         aliases = drawn.get('aliases') or {}
 
-        schedule = await self.source.rows(now)
+        engine_owned = self._workflow and self._workflow_document.get('scheduleAuthority') == 'engine'
+        direct_source = getattr(self.source, 'authority', 'sheet') == 'engine'
+        if engine_owned != direct_source:
+            self.logger.error('Autumn: schedule source and engine authority disagree; runner held')
+            return
+        schedule = (await self.source.rows(now, document=self._workflow_document, drawn=drawn)
+                    if direct_source else await self.source.rows(now))
         if not schedule.readable:
             # Said by the source already, once. Nothing is opened on a schedule
             # nobody can read -- including nothing *closed*, which is why this is
@@ -242,11 +248,11 @@ class AutumnScheduler:
             edition=self.engine.edition if self._workflow else None,
         )
 
-        if not self._remember(matching.bindings):
+        if not engine_owned and not self._remember(matching.bindings):
             return
         self._report(matching.unresolved, schedule)
         self._schedule_observed_at = schedule.observed_at or now
-        if self._workflow and not schedule.bad and not matching.unresolved:
+        if self._workflow and not engine_owned and not schedule.bad and not matching.unresolved:
             if not await self._cancel_missing(matching.resolved):
                 return
 
@@ -266,14 +272,17 @@ class AutumnScheduler:
             ) + '|{}'.format(row.game or 1): row
             for row in schedule.rows
         }
+        if engine_owned:
+            crew_for = {(row.match_id, row.game): row for row in schedule.rows}
 
         for race in matching.resolved:
             race.best_of = (matches[race.match_id].get('series') or {}).get('bestOf', 1)
             if self.stopped:
                 return
             try:
-                await self._handle(race, crew_for.get(
-                    row_key(race.at, race.runner_one, race.runner_two) + '|{}'.format(race.identity.game)), now)
+                key = ((race.match_id, race.identity.game) if engine_owned else
+                       row_key(race.at, race.runner_one, race.runner_two) + '|{}'.format(race.identity.game))
+                await self._handle(race, crew_for.get(key), now)
             except Exception:
                 self.logger.error(
                     'Error handling Autumn %s', race.match_id, exc_info=True)
@@ -281,7 +290,10 @@ class AutumnScheduler:
     async def _handle(self, race, row, now):
         """One resolved race, at whatever stage it is at."""
         race.channel = getattr(row, 'channel', None)
+        engine_owned = self._workflow and self._workflow_document.get('scheduleAuthority') == 'engine'
         if self._workflow and race.status == 'cancelled':
+            if engine_owned:
+                return
             await self.engine.cancel_time(race.match_id, race.identity.game, self.engine.edition, self._schedule_observed_at.isoformat())
             return
         if not self._workflow and race.identity.game != 1:
@@ -289,7 +301,7 @@ class AutumnScheduler:
             return
         # The mirror first, because the engine's answer to it is also the
         # engine's answer to "may this be raced at all".
-        if not await self._mirror(race, now):
+        if not engine_owned and not await self._mirror(race, now):
             return
 
         if race.conditional:

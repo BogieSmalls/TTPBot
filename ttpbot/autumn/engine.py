@@ -23,6 +23,7 @@ that knows whether asking twice is safe.
 import asyncio
 from dataclasses import dataclass
 import json as jsonlib
+from urllib.parse import urlencode
 from typing import Optional
 
 import aiohttp
@@ -143,7 +144,7 @@ class AutumnEngine:
         this would be the quieter one.
         """
         return await self._get(
-            '/tournament/public.json?event={}'.format(self._event))
+            '/tournament/public.json?' + urlencode({'event': self._event, 'edition': self.edition}))
 
     async def matches(self):
         """The draw's matches keyed by id, which is what the matcher takes."""
@@ -153,7 +154,7 @@ class AutumnEngine:
     async def state(self):
         """The whole document, through the writer's queue. Needs the token."""
         return await self._get(
-            '/tournament/state?event={}'.format(self._event), authorized=True)
+            '/tournament/state?' + urlencode({'event': self._event, 'edition': self.edition}), authorized=True)
 
     # -- telling -----------------------------------------------------------
 
@@ -166,6 +167,7 @@ class AutumnEngine:
         }
         body = dict(payload)
         body['event'] = self._event
+        body.setdefault('edition', self.edition)
         try:
             async with self._request(
                 'POST', '/tournament/{}'.format(operation),
