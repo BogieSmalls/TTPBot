@@ -74,6 +74,12 @@ class CortoWiringTests(unittest.IsolatedAsyncioTestCase):
    self.assertTrue(all('Autumn' not in title for title in titles))
 class CortoNightTests(unittest.IsolatedAsyncioTestCase):
  async def test_tc_schedule_room_invites_restart_and_council_result_use_the_real_engine(self):
+  await self._run_night(engine_owned=False)
+
+ async def test_database_schedule_room_invites_restart_and_result_without_google(self):
+  await self._run_night(engine_owned=True)
+
+ async def _run_night(self, engine_owned):
   import asyncio,json,os,subprocess
   from pathlib import Path
   from datetime import timedelta
@@ -98,17 +104,32 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
    if process.returncode is None:process.terminate();await asyncio.wait_for(process.wait(),5)
   self.addAsyncCleanup(stop);port=int(await asyncio.wait_for(process.stdout.readline(),10))
   env=dict(ENV,Z1RR_ENGINE_URL='http://127.0.0.1:{}'.format(port));bot=SimpleNamespace(provider=RacetimeProvider('https://racetime.gg','z1r'),access_token='scratch',state={})
+  if engine_owned:env.update(Z1RR_CORTO_SCHEDULE_AUTHORITY='engine',COMPETITIONS_URL='http://private',COMPETITIONS_READER_TOKEN='reader',COMPETITIONS_ENVIRONMENT='test')
   stores={kind:DestinationStateStore(kind.replace('autumn_','corto_')+'.json',bot.provider.destination_key,kind,data_dir=temp.name) for kind in ['autumn_bindings','autumn_created_races','autumn_mirrored_times','autumn_sent_webhooks','autumn_booth_notices','autumn_results']}
   runner=build_autumn_runner(env,bot,LOG,stores,event='corto');engine=runner.engine
   names=['BrewersFanJP','Bogie','cUstOm','Cfalcon','equations19','Eatmysteel','syscrusher','chessjerk']
   for op,body in [('draw',{'seeds':names,'format':'single'}),('racetime',{'racetimeIds':{'BrewersFanJP':'one','chessjerk':'two'}}),('migrate',{'edition':'33'})]:self.assertTrue((await engine._post(op,body)).ok)
-  source=FakeSource(HEADER+'\n'+row(START,'(1) BrewersFanJP','(8) chessjerk'))
+  async def set_time(when):
+   document=(await engine.state())['document']
+   answer=await engine._post('time',{'edition':'33','matchId':'W1-1','game':1,'at':when.isoformat(),'source':'discord','setBy':'123456789012345678','requestId':'schedule-'+when.isoformat(),'participants':['BrewersFanJP','chessjerk'],'expectedScheduleRevision':document.get('gameTimes',{}).get('W1-1',{}).get('1',{}).get('revision',0)})
+   self.assertTrue(answer.ok)
+  if engine_owned:
+   document=(await engine.state())['document']
+   answer=await engine._post('scheduleAuthority',{'edition':'33','authority':'engine','actor':'123456789012345678','requestId':'adopt','expectedRevision':document['revision']})
+   self.assertTrue(answer.ok)
+   source=runner.scheduler.source
+   self.assertEqual(source.authority,'engine')
+   source._fetch=AsyncMock(return_value={'environment':'test','games':[]})
+   await set_time(START)
+  else:source=FakeSource(HEADER+'\n'+row(START,'(1) BrewersFanJP','(8) chessjerk'))
   runner.scheduler.source=source
   room='https://racetime.gg/z1r/tc-scratch'
   with patch('ttpbot.autumn.wiring.create_autumn_room',new_callable=AsyncMock,return_value=room) as create:
    await runner.scheduler.tick(at(START,40))
    self.assertEqual((await engine.state())['document']['times']['W1-1']['at'],START.isoformat())
-   later=START+timedelta(minutes=10);source.csv_text=HEADER+'\n'+row(later,'(1) BrewersFanJP','(8) chessjerk')
+   later=START+timedelta(minutes=10)
+   if engine_owned:await set_time(later)
+   else:source.csv_text=HEADER+'\n'+row(later,'(1) BrewersFanJP','(8) chessjerk')
    clock.write_text(at(later,25).isoformat())
    await runner.scheduler.tick(at(later,25));create.assert_awaited_once()
    self.assertEqual(bot.state['z1r/tc-scratch']['autumn_race']['invite'],['one','two'])
