@@ -71,7 +71,7 @@ class AutumnScheduler:
                  created_store=None, mirrored_store=None, announced_store=None,
                  open_room=None, wake_booth=None, announce=None, invite=None,
                  event='autumn', request_booth=None, booth_notice_store=None,
-                 announce_continuation=None, recover_results=None, recover_room=None):
+                 announce_continuation=None, recover_results=None, recover_room=None, before_tick=None):
         self.source = source
         self.engine = engine
         self.logger = logger
@@ -96,6 +96,7 @@ class AutumnScheduler:
         self._invite = invite
         self._recover_results = recover_results
         self._recover_room = recover_room
+        self._before_tick = before_tick
         self._workflow = False
         self._workflow_document = None
 
@@ -201,6 +202,12 @@ class AutumnScheduler:
     async def tick(self, now):
         if not self.configured or self.stopped:
             return
+        if self._before_tick is not None:
+            try:
+                await self._before_tick()
+            except Exception:
+                self.logger.error('%s: current edition unavailable; runner held', self.event, exc_info=True)
+                return
 
         # The bracket first. Without it a row cannot be resolved, and a row
         # resolved against a bracket we could not read would be a guess.

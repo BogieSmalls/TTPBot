@@ -22,6 +22,23 @@ def tc_race():
  r=race();return replace(r,identity=RaceIdentity('corto','W1-1',1,'33'),runner_one='BrewersFanJP',runner_two='chessjerk')
 
 class CortoWiringTests(unittest.IsolatedAsyncioTestCase):
+ async def test_engine_owned_runner_follows_data_edition_before_reading_draw(self):
+  env=dict(ENV,Z1RR_CORTO_SCHEDULE_AUTHORITY='engine',COMPETITIONS_URL='http://private',COMPETITIONS_READER_TOKEN='reader',COMPETITIONS_ENVIRONMENT='test')
+  bot=SimpleNamespace(provider=RacetimeProvider('https://racetime.gg','z1r'),access_token='scratch')
+  runner=build_autumn_runner(env,bot,LOG,event='corto')
+  runner.scheduler.source._fetch=AsyncMock(return_value={'environment':'test','currentEditions':{'corto':'34'},'games':[]})
+  seen=[]
+  async def draw():
+   seen.append(runner.engine.edition)
+   return {'drawn':False}
+  runner.engine.draw=draw
+  await runner.scheduler.tick(runner.scheduler._now())
+  self.assertEqual(seen,['34'])
+  self.assertEqual(runner.scheduler.source.edition,'34')
+  runner.scheduler.source._fetch.side_effect=TimeoutError('owner down')
+  await runner.scheduler.tick(runner.scheduler._now())
+  self.assertEqual(seen,['34','34'],'an outage must retain the selected edition, never revert to 33')
+
  def test_own_edition_and_sheet_never_fall_back_to_autumn(self):
   env=dict(ENV,Z1RR_AUTUMN_EDITION='2026',Z1RR_AUTUMN_SCHEDULE_URL='https://autumn.invalid')
   bot=SimpleNamespace(provider=RacetimeProvider('https://racetime.gg','z1r'),access_token='scratch')

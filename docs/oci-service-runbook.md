@@ -26,6 +26,15 @@ entries from this host, and `ttpbot.service` is running. Once central identity w
 begin, code rollback must retain the central roster URL and current identity
 owner. TTPBot's announcement cache never owns identities or grants access.
 
+## Recurring Corto edition selection
+
+With engine schedule authority, the runner reads Data's selected edition before
+its next tick. Switching updates room/result/booth identity together, preserving
+all prior edition receipts. A network outage retains the last selected edition;
+crew and channel operations still require fresh Data. Invalid owner/edition data
+holds the tick. No service restart or environment edit is needed when Council
+confirms the next Corto through Discord.
+
 ## Install or Update Code
 
 For the Autumn/Corto competition cutover, see the site's

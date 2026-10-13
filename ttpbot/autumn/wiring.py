@@ -228,6 +228,23 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             roster_url=(env.get('Z1RR_ROSTER_URL') or '').strip() or None,
             roster_token=(env.get('Z1RR_ROSTER_TOKEN') or '').strip())
 
+    async def select_edition():
+        edition = await source.selected_edition()
+        if edition == engine.edition:
+            return
+        # Switch between scheduler ticks, and never while a room result is
+        # being recorded. Every persisted room/result key already includes edition.
+        if results:
+            async with results._lock:
+                engine.edition = source.edition = results.edition = edition
+                results.scope = '{}-{}'.format(event, edition)
+        else:
+            engine.edition = source.edition = edition
+        if booths:
+            booths.edition = edition
+        racetime_ids.clear()
+        logger.info('%s: selected database edition %s', event, edition)
+
     scheduler = AutumnScheduler(
         source=source,
         engine=engine,
@@ -246,6 +263,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         invite=seed_invites,
         event=event,
         recover_results=results.recover if results else None,
+        before_tick=select_edition if authority == 'engine' else None,
     )
     return AutumnRunner(scheduler, engine, logger, results)
 

@@ -1,6 +1,7 @@
 """Engine-owned tournament clocks joined to Data crew by edition/match/game."""
 
 from datetime import datetime
+import re
 import aiohttp
 
 from .schedule import Schedule, ScheduleRow, BadRow
@@ -13,6 +14,23 @@ class EngineScheduleSource:
         self.event, self.edition = event, edition
         self.url, self.token, self.environment = url, token, environment
         self.logger, self._fetch = logger, fetch
+        self.default_edition = edition
+        self._routing_snapshot = None
+
+    async def selected_edition(self):
+        try:
+            snapshot = await self._snapshot()
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            self._routing_snapshot = None
+            self.logger.warning('%s: edition refresh unavailable; retaining %s: %s', self.event, self.edition, exc)
+            return self.edition
+        if snapshot.get('environment') != self.environment or not isinstance(snapshot.get('games'), list):
+            raise ValueError('competition owner environment or snapshot mismatch')
+        edition = snapshot.get('currentEditions', {}).get(self.event, self.default_edition)
+        if not isinstance(edition, str) or not re.fullmatch(r'[a-z0-9-]{1,32}', edition):
+            raise ValueError('invalid current competition edition')
+        self._routing_snapshot = snapshot
+        return edition
 
     @property
     def configured(self):
@@ -34,7 +52,8 @@ class EngineScheduleSource:
             self.logger.error('%s: engine schedule authority/edition is not ready', self.event)
             return Schedule(readable=False)
         try:
-            snapshot = await self._snapshot()
+            snapshot = self._routing_snapshot if self._routing_snapshot is not None else await self._snapshot()
+            self._routing_snapshot = None
             if snapshot.get('environment') != self.environment or not isinstance(snapshot.get('games'), list):
                 raise ValueError('competition owner environment or snapshot mismatch')
         except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
