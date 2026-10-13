@@ -346,7 +346,7 @@ class AutumnScheduler:
         # announcement that failed once is a match nobody was told about, and
         # tying it to the creation meant it was never tried again.
         booth = None
-        if self._request_booth is not None:
+        if self._request_booth is not None and getattr(row, 'crew_available', True):
             try:
                 booth = await self._request_booth(race, row, url)
             except Exception:
@@ -409,7 +409,7 @@ class AutumnScheduler:
         transient failure became a permanent omission: the flag said it had been
         asked, and no later tick asked again.
         """
-        if self._wake_booth is None:
+        if self._wake_booth is None or not getattr(row, 'crew_available', True):
             return
         channel = getattr(row, 'channel', '') if row else ''
         signature = (channel, tuple(getattr(row, 'crew', ()) or ()))

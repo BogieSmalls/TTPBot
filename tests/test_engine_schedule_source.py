@@ -35,14 +35,57 @@ class EngineSourceTests(unittest.IsolatedAsyncioTestCase):
         finished = copy.deepcopy(moved); finished['results']['W1-1'] = 'A'
         self.assertEqual((await source.rows(NOW, document=finished, drawn=DRAW)).rows, [])
 
-    async def test_old_sheet_authority_wrong_edition_or_unavailable_owner_never_falls_back(self):
+    async def test_old_sheet_authority_or_wrong_edition_never_falls_back(self):
         source = self.source()
         for field, value in [('scheduleAuthority', 'sheet'), ('edition', '33')]:
             document = dict(DOCUMENT, **{field: value})
             self.assertFalse((await source.rows(NOW, document=document, drawn=DRAW)).readable)
         self.fetch.assert_not_awaited()
+
+    async def test_unavailable_crew_preserves_engine_schedule_without_reusing_booking(self):
+        source = self.source()
+        await source.rows(NOW, document=DOCUMENT, drawn=DRAW)
         self.fetch.side_effect = TimeoutError('no owner')
-        self.assertFalse((await source.rows(NOW, document=DOCUMENT, drawn=DRAW)).readable)
+        schedule = await source.rows(NOW, document=DOCUMENT, drawn=DRAW)
+        self.assertTrue(schedule.readable)
+        self.assertEqual(len(schedule.rows), 1)
+        row = schedule.rows[0]
+        self.assertEqual((row.match_id, row.game, row.runner_one, row.runner_two), ('W1-1', 1, 'A', 'B'))
+        self.assertFalse(row.crew_available)
+        self.assertEqual((row.channel, row.crew), ('', []))
+
+    async def test_bad_crew_binding_cannot_hide_a_valid_engine_schedule(self):
+        snapshot = copy.deepcopy(SNAPSHOT)
+        snapshot['games'][0]['participants'][0]['name'] = 'Someone else'
+        schedule = await self.source(snapshot).rows(NOW, document=DOCUMENT, drawn=DRAW)
+        self.assertEqual(len(schedule.rows), 1)
+        self.assertFalse(schedule.rows[0].crew_available)
+        self.assertEqual(schedule.rows[0].channel, '')
+        self.assertTrue(schedule.bad)
+
+    async def test_data_outage_allows_room_and_invites_holds_booth_then_recovers(self):
+        source = self.source()
+        self.fetch.side_effect = TimeoutError('no owner')
+        engine = type('Engine', (), {'edition': '34'})()
+        engine.draw = AsyncMock(return_value=DRAW)
+        engine.state = AsyncMock(return_value={'document': DOCUMENT})
+        booth = AsyncMock()
+        scheduler = AutumnScheduler(source, engine, logging.getLogger('test'), event='corto', request_booth=booth)
+        scheduler._room_work = AsyncMock(return_value={'mayOpen': True, 'mayWake': True})
+        scheduler._room_v2 = AsyncMock(return_value='https://racetime.gg/z1r/test-room')
+        scheduler._wake_booth = AsyncMock()
+        scheduler._let_in = AsyncMock()
+        scheduler._tell = AsyncMock()
+        await scheduler.tick(NOW)
+        scheduler._room_v2.assert_awaited_once()
+        scheduler._let_in.assert_awaited_once()
+        scheduler._wake_booth.assert_not_awaited()
+        booth.assert_not_awaited()
+        self.fetch.side_effect = None
+        await scheduler.tick(NOW)
+        scheduler._wake_booth.assert_awaited_once()
+        booth.assert_awaited_once()
+        self.assertEqual(booth.await_args.args[1].channel, 'Z1Rracing2')
 
     async def test_scheduler_opens_from_engine_without_mirroring_or_missing_row_cancellation(self):
         engine = type('Engine', (), {'edition': '34'})()

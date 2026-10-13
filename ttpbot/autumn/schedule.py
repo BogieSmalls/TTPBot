@@ -68,6 +68,9 @@ class ScheduleRow:
     match_id: Optional[str] = None
     game: Optional[int] = None
     status: str = 'scheduled'
+    # An engine clock remains usable when the separate crew owner is unavailable.
+    # Unknown bookings must never be interpreted as a verified booth update.
+    crew_available: bool = True
 
     @property
     def crew(self):

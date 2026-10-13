@@ -39,7 +39,7 @@ class EngineScheduleSource:
                 raise ValueError('competition owner environment or snapshot mismatch')
         except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
             self.logger.error('%s: competition crew unavailable: %s', self.event, exc)
-            return Schedule(readable=False)
+            snapshot = {'games': []}
         matches = {m['id']: m for m in drawn.get('matches', [])}
         edition_id = self.event + ':' + self.edition
         crew = {(g['matchId'], g['gameNumber']): g for g in snapshot['games'] if g['editionId'] == edition_id}
@@ -60,16 +60,24 @@ class EngineScheduleSource:
                     at = datetime.fromisoformat(clock['at'].replace('Z', '+00:00'))
                     if at.tzinfo is None or not pair.get('a') or not pair.get('b'):
                         raise ValueError('time or participants are not confirmed')
-                    booking = crew.get((match_id, game), {})
-                    if booking and sorted(p['name'] for p in booking['participants']) != sorted((pair['a'], pair['b'])):
-                        raise ValueError('crew reference participants disagree with bracket')
-                    channels = booking.get('bookings', [])
-                    if len(channels) > 1:
-                        raise ValueError('multiple tournament channel bookings need reconciliation')
-                    slots = booking.get('crew', {})
-                    result.rows.append(ScheduleRow(at=at, runner_one=pair['a'], runner_two=pair['b'], match_id=match_id, game=game,
-                        comms_one=slots.get('comms1', {}).get('name', ''), comms_two=slots.get('comms2', {}).get('name', ''),
-                        tracker=slots.get('tracker', {}).get('name', ''), channel=channels[0]['channel'] if channels else ''))
                 except (KeyError, TypeError, ValueError) as exc:
                     result.bad.append(BadRow(line=0, reason='{} Game {}: {}'.format(match_id, game, exc)))
+                    continue
+                booking = crew.get((match_id, game))
+                try:
+                    if booking and sorted(p['name'] for p in booking['participants']) != sorted((pair['a'], pair['b'])):
+                        raise ValueError('crew reference participants disagree with bracket')
+                    channels = (booking or {}).get('bookings', [])
+                    if len(channels) > 1:
+                        raise ValueError('multiple tournament channel bookings need reconciliation')
+                    slots = (booking or {}).get('crew', {})
+                    row = ScheduleRow(at=at, runner_one=pair['a'], runner_two=pair['b'], match_id=match_id, game=game,
+                        comms_one=slots.get('comms1', {}).get('name', ''), comms_two=slots.get('comms2', {}).get('name', ''),
+                        tracker=slots.get('tracker', {}).get('name', ''), channel=channels[0]['channel'] if channels else '',
+                        crew_available=booking is not None)
+                except (KeyError, TypeError, ValueError) as exc:
+                    result.bad.append(BadRow(line=0, reason='{} Game {}: {}'.format(match_id, game, exc)))
+                    row = ScheduleRow(at=at, runner_one=pair['a'], runner_two=pair['b'], match_id=match_id, game=game,
+                                      crew_available=False)
+                result.rows.append(row)
         return result
