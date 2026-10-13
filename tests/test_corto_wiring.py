@@ -79,7 +79,10 @@ class CortoNightTests(unittest.IsolatedAsyncioTestCase):
  async def test_database_schedule_room_invites_restart_and_result_without_google(self):
   await self._run_night(engine_owned=True)
 
- async def _run_night(self, engine_owned):
+ async def test_existing_sheet_room_is_not_reopened_when_authority_changes_and_bot_restarts(self):
+  await self._run_night(engine_owned=False, cutover=True)
+
+ async def _run_night(self, engine_owned, cutover=False):
   import asyncio,json,os,subprocess
   from pathlib import Path
   from datetime import timedelta
@@ -134,7 +137,16 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
    clock.write_text(at(later,25).isoformat())
    await runner.scheduler.tick(at(later,25));create.assert_awaited_once()
    self.assertEqual(bot.state['z1r/tc-scratch']['autumn_race']['invite'],['one','two'])
-   again=build_autumn_runner(env,bot,LOG,stores,event='corto');again.scheduler.source=source
+   if cutover:
+    before=(await engine.state())['document']
+    answer=await engine._post('scheduleAuthority',{'edition':edition,'authority':'engine','actor':'123456789012345678','requestId':'cutover-existing-room','expectedRevision':before['revision']})
+    self.assertTrue(answer.ok)
+    env.update(Z1RR_CORTO_SCHEDULE_AUTHORITY='engine',COMPETITIONS_URL='http://private',COMPETITIONS_READER_TOKEN='reader',COMPETITIONS_ENVIRONMENT='test')
+    after=(await engine.state())['document']
+    for key in ['gameTimes','rooms','actions','results']:self.assertEqual(after[key],before[key])
+   again=build_autumn_runner(env,bot,LOG,stores,event='corto')
+   if cutover:again.scheduler.source._fetch=AsyncMock(return_value={'environment':'test','games':[]})
+   else:again.scheduler.source=source
    await again.scheduler.tick(at(later,24));create.assert_awaited_once()
   saved=(await engine.state())['document'];self.assertEqual(len(saved['rooms']),1)
   self.assertEqual(len([a for a in saved['actions'].values() if a['kind']=='room-announcement']),1)
