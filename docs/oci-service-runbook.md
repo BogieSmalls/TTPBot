@@ -28,6 +28,18 @@ owner. TTPBot's announcement cache never owns identities or grants access.
 
 ## Install or Update Code
 
+For the Autumn/Corto competition cutover, see the site's
+`docs/competition-cutover.md`. Deploy compatible code first with Sheet
+authority unchanged. At the paused morning switch, set explicit editions,
+`Z1RR_AUTUMN_SCHEDULE_AUTHORITY=engine` and
+`Z1RR_CORTO_SCHEDULE_AUTHORITY=engine`, plus `COMPETITIONS_URL`,
+`COMPETITIONS_READER_TOKEN` and `COMPETITIONS_ENVIRONMENT=production`.
+Keep all existing `/var/lib/ttpbot/*.json` receipts and bindings. There is no
+Sheet fallback in engine mode. If crew Data is temporarily unavailable,
+engine-authorized room/invite work continues but wake/booth changes wait for
+current bookings. Tests in `test_corto_wiring.py` exercise the next edition's
+schedule, reschedule, room, restart and Council result against the real engine.
+
 ```bash
 sudo useradd -r -s /usr/sbin/nologin ttpbot || true
 sudo install -d -o ttpbot -g ttpbot /opt/ttpbot /var/lib/ttpbot

@@ -93,7 +93,7 @@ import {readFileSync} from 'node:fs';
 import {createEngineService} from SERVICE;
 import {createTournamentWriter} from WRITER;
 import {createTournamentStore} from STORE;
-const storeFor=event=>createTournamentStore({event,dir:DIR});
+const storeFor=(event,edition)=>createTournamentStore({event,edition,dir:DIR});
 const writer=createTournamentWriter({storeFor,now:()=>new Date(readFileSync(CLOCK,'utf8'))});
 const server=createEngineService({token:'scratch',storeFor,writer});
 server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
@@ -103,19 +103,20 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
   async def stop():
    if process.returncode is None:process.terminate();await asyncio.wait_for(process.wait(),5)
   self.addAsyncCleanup(stop);port=int(await asyncio.wait_for(process.stdout.readline(),10))
-  env=dict(ENV,Z1RR_ENGINE_URL='http://127.0.0.1:{}'.format(port));bot=SimpleNamespace(provider=RacetimeProvider('https://racetime.gg','z1r'),access_token='scratch',state={})
+  edition='34' if engine_owned else '33'
+  env=dict(ENV,Z1RR_CORTO_EDITION=edition,Z1RR_ENGINE_URL='http://127.0.0.1:{}'.format(port));bot=SimpleNamespace(provider=RacetimeProvider('https://racetime.gg','z1r'),access_token='scratch',state={})
   if engine_owned:env.update(Z1RR_CORTO_SCHEDULE_AUTHORITY='engine',COMPETITIONS_URL='http://private',COMPETITIONS_READER_TOKEN='reader',COMPETITIONS_ENVIRONMENT='test')
   stores={kind:DestinationStateStore(kind.replace('autumn_','corto_')+'.json',bot.provider.destination_key,kind,data_dir=temp.name) for kind in ['autumn_bindings','autumn_created_races','autumn_mirrored_times','autumn_sent_webhooks','autumn_booth_notices','autumn_results']}
   runner=build_autumn_runner(env,bot,LOG,stores,event='corto');engine=runner.engine
   names=['BrewersFanJP','Bogie','cUstOm','Cfalcon','equations19','Eatmysteel','syscrusher','chessjerk']
-  for op,body in [('draw',{'seeds':names,'format':'single'}),('racetime',{'racetimeIds':{'BrewersFanJP':'one','chessjerk':'two'}}),('migrate',{'edition':'33'})]:self.assertTrue((await engine._post(op,body)).ok)
+  for op,body in [('draw',{'edition':edition,'seeds':names,'format':'single'}),('racetime',{'racetimeIds':{'BrewersFanJP':'one','chessjerk':'two'}}),('migrate',{'edition':edition})]:self.assertTrue((await engine._post(op,body)).ok)
   async def set_time(when):
    document=(await engine.state())['document']
-   answer=await engine._post('time',{'edition':'33','matchId':'W1-1','game':1,'at':when.isoformat(),'source':'discord','setBy':'123456789012345678','requestId':'schedule-'+when.isoformat(),'participants':['BrewersFanJP','chessjerk'],'expectedScheduleRevision':document.get('gameTimes',{}).get('W1-1',{}).get('1',{}).get('revision',0)})
+   answer=await engine._post('time',{'edition':edition,'matchId':'W1-1','game':1,'at':when.isoformat(),'source':'discord','setBy':'123456789012345678','requestId':'schedule-'+when.isoformat(),'participants':['BrewersFanJP','chessjerk'],'expectedScheduleRevision':document.get('gameTimes',{}).get('W1-1',{}).get('1',{}).get('revision',0)})
    self.assertTrue(answer.ok)
   if engine_owned:
    document=(await engine.state())['document']
-   answer=await engine._post('scheduleAuthority',{'edition':'33','authority':'engine','actor':'123456789012345678','requestId':'adopt','expectedRevision':document['revision']})
+   answer=await engine._post('scheduleAuthority',{'edition':edition,'authority':'engine','actor':'123456789012345678','requestId':'adopt','expectedRevision':document['revision']})
    self.assertTrue(answer.ok)
    source=runner.scheduler.source
    self.assertEqual(source.authority,'engine')
@@ -141,6 +142,6 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
   handler.data={'name':'z1r/tc-scratch','status':{'value':'finished'},'entrants':[{'user':{'id':'one','name':'BrewersFanJP'},'status':{'value':'done'},'finish_time':'PT1H'},{'user':{'id':'two','name':'chessjerk'},'status':{'value':'dnf'},'finish_time':None}]}
   await handler.end();saved=(await engine.state())['document'];self.assertEqual(saved['results'],{})
   proposal=next(iter(saved['proposals'].values()));self.assertEqual(proposal['status'],'pending');self.assertEqual(proposal['facts']['winner'],'BrewersFanJP')
-  self.assertTrue((await engine._post('decideResult',{'edition':'33','proposalId':proposal['id'],'proposalRevision':proposal['revision'],'decision':'confirm','decisionId':'tc-council','actor':'council'})).ok)
+  self.assertTrue((await engine._post('decideResult',{'edition':edition,'proposalId':proposal['id'],'proposalRevision':proposal['revision'],'decision':'confirm','decisionId':'tc-council','actor':'council'})).ok)
   draw=await engine.draw();self.assertEqual(next(m for m in draw['matches'] if m['id']=='W2-1')['a'],'BrewersFanJP')
   self.assertEqual((await engine.state())['document']['autonomy']['level'],'hold-results')
