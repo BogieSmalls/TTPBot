@@ -178,6 +178,21 @@ request — each of which is skipped when its variables are unset.
   or `staging`. Set it to `staging` for a rehearsal.
 - `Z1RR_CONTROL_PLANE_URL` — control plane base URL for the booth request
 
+### Always-on Z1RRbot room context (pending bot cutover)
+
+Optional `Z1RR_CHAT_CONTEXT_URL`, `Z1RR_CHAT_CONTEXT_TOKEN` and
+`Z1RR_CHAT_CONTEXT_ENVIRONMENT=production|staging` publish the exact League room
+format after creation or recovery. The token is dedicated to format publication;
+do not reuse the Crew, booth or Discord credentials. Leave these unset until the
+always-on bot owner is deployed. The URL is its internal base, including an edge
+prefix such as `/z1rrbot` when applicable.
+
+Publication times out after five seconds. A failure never prevents room creation,
+booth requests or announcements, and retries on the next normal scheduler tick.
+Only confirmed successes are cached. Co-op stays silent for `!matchup`; unknown
+League format also stays silent until publication succeeds. Racers and flags
+remain available. This integration neither sends chat nor wakes a CP.
+
 ## License
 
 MIT

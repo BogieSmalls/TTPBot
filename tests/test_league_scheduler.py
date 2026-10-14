@@ -112,6 +112,29 @@ class LeagueSchedulerTests(unittest.IsolatedAsyncioTestCase):
         create.assert_awaited_once()
         self.assertEqual(self.created.load()[RACE.key], ROOM)
 
+    async def test_chat_format_failure_never_blocks_room_booth_or_announcement_and_retries(self):
+        scheduler = self.scheduler()
+        scheduler.chat_context = Mock(publish=AsyncMock(side_effect=[RuntimeError('unavailable'), True]))
+        scheduler._request_booths = AsyncMock(return_value=BoothOutcome())
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)) as create, \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)) as announce:
+            await scheduler.tick(START - timedelta(minutes=30))
+            await scheduler.tick(START - timedelta(minutes=29))
+        create.assert_awaited_once()
+        announce.assert_awaited_once()
+        self.assertEqual(scheduler._request_booths.await_count, 2)
+        self.assertEqual(scheduler.chat_context.publish.await_count, 2)
+        scheduler.chat_context.publish.assert_awaited_with(ROOM, RACE.slug, False)
+
+    async def test_recovered_coop_room_publishes_exact_format(self):
+        coop = CoopMatch(rows=tuple(coop_rows()))
+        self.created.save({coop.key: ROOM})
+        scheduler = self.scheduler(coop.rows)
+        scheduler.chat_context = Mock(publish=AsyncMock(return_value=True))
+        with patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)):
+            await scheduler.tick(coop.start - timedelta(minutes=30))
+        scheduler.chat_context.publish.assert_awaited_once_with(ROOM, coop.slug, True)
+
     async def test_a_race_postponed_overnight_keeps_its_room_across_a_restart(self):
         """The duplicate-room case that testing _room_for directly cannot see.
 

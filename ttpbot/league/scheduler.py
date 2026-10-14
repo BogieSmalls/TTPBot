@@ -190,12 +190,14 @@ class LeagueScheduler:
                  webhook_url, logger, crew=None, roster_url=None,
                  roster_token=None, relay_wake_url=None, relay_wake_token=None,
                  wake_target='production', booth_url=None, booth_token=None,
-                 threads=None, thread_store=None, result_context_store=None, results_recorder=None):
+                 threads=None, thread_store=None, result_context_store=None, results_recorder=None,
+                 chat_context=None):
         self.bot = bot
         self.source = source
         self.created_store = created_store
         self.result_context_store = result_context_store
         self.results_recorder = results_recorder
+        self.chat_context = chat_context
         self.webhook_store = webhook_store
         self.webhook_url = webhook_url
         self.logger = logger
@@ -498,6 +500,13 @@ class LeagueScheduler:
             return
 
         bind_room(self.result_context_store, race, room_url)
+
+        if self.chat_context is not None:
+            try:
+                await self.chat_context.publish(room_url, race.slug, race.coop)
+            except Exception:
+                # Optional chat enrichment must never cost a room or booth.
+                self.logger.warning('Chat room-format publisher unavailable; retrying next tick')
 
         # Every tick, not only at creation. Handler state does not survive a
         # restart, and for a co-op match the title is the only other record of

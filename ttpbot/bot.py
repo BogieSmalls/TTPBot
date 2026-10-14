@@ -196,6 +196,7 @@ class TTPBot(Bot):
     def _build_league_scheduler(self):
         """Construct the League scheduler, or None if it cannot start."""
         try:
+            from .chat_context import ChatContextPublisher
             from .league.crew import CrewDirectory, booth_token_from_env
             from .league.roster import load_roster
             from .league.scheduler import LeagueScheduler, ScheduleSource
@@ -237,6 +238,7 @@ class TTPBot(Bot):
                 result_context_store=DestinationStateStore('league_room_context.json', self.provider.destination_key,
                     'league_room_context', data_dir=root),
                 results_recorder=TTPRaceHandler.results_recorder,
+                chat_context=ChatContextPublisher.from_env(os.environ, self.logger),
 
                 roster_url=os.environ.get('Z1RR_ROSTER_URL', '').strip(),
                 roster_token=os.environ.get('Z1RR_ROSTER_TOKEN', '').strip(),
