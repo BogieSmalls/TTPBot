@@ -155,6 +155,8 @@ class TTPBot(Bot):
             from .config import DEFAULT_ARCHIVES_URL
             from .league.results import ResultsRecorder
             from .league.roster import load_roster
+            from .league.database_source import configured_source
+            database_source = configured_source(os.environ, load_roster(), self.logger)
 
             store = DestinationStateStore(
                 'league_results.json', self.provider.destination_key,
@@ -182,6 +184,7 @@ class TTPBot(Bot):
                 logger=self.logger,
                 archives_url=DEFAULT_ARCHIVES_URL,
                 schedule_url=self.league_schedule_url,
+                fetcher=database_source.rows_for_url if database_source else None,
                 # Long enough for a racer to undo a finish and forfeit, as
                 # Antlerz44 did on 2026-10-08, before anything is filed.
                 settle_seconds=120,
@@ -219,6 +222,8 @@ class TTPBot(Bot):
             source = ScheduleSource(
                 self.league_schedule_url, roster, self.logger,
                 matchups_url=self.league_matchups_url)
+            from .league.database_source import configured_source
+            source = configured_source(os.environ, roster, self.logger) or source
             # Crew identity comes from the configured always-on owner.
             # Unconfigured is fine - the announcement falls back to names.
             crew = CrewDirectory(

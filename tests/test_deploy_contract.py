@@ -43,6 +43,8 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_AUTUMN_DISCORD_WEBHOOK_URL",
             "Z1RR_ROSTER_URL", "Z1RR_ROSTER_TOKEN",
             "Z1RR_ROSTER_ENVIRONMENT", "Z1RR_BOOTH_TOKEN",
+            "Z1RR_CHAT_CONTEXT_URL", "Z1RR_CHAT_CONTEXT_TOKEN", "Z1RR_CHAT_CONTEXT_ENVIRONMENT",
+            "LEAGUE_READ_MODEL_URL", "LEAGUE_READ_MODEL_TOKEN", "LEAGUE_READ_MODEL_ENVIRONMENT",
         }
         variables = {
             line.split("=", 1)[0]
@@ -59,6 +61,7 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL",
             "TTPBOT_LEAGUE_DISCORD_BOT_TOKEN",
             "Z1RR_ROSTER_TOKEN", "Z1RR_BOOTH_TOKEN",
+            "LEAGUE_READ_MODEL_TOKEN",
         ):
             line = next(line for line in self.env.splitlines() if line.startswith(secret + "="))
             self.assertEqual(line, secret + "=")
