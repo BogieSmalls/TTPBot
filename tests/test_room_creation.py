@@ -116,6 +116,33 @@ class AnnouncementTests(unittest.IsolatedAsyncioTestCase):
             call["json"]["content"],
         )
 
+    async def test_announcement_drops_the_link_preview_and_offers_the_race_viewer(self):
+        # Bogie, 2026-10-23: racetime's preview card cluttered #ttp-racing; the
+        # links are named instead, with the Race Viewer for watching live or
+        # replaying afterward.
+        scheduled = datetime(2026, 10, 22, 20, 0, tzinfo=TIMEZONE)
+        recorder = RequestRecorder([FakeResponse(204)])
+        bot = bot_for("https://racetime.gg", webhook="https://discord.com/api/webhooks/1/t", role="12345")
+        bot.provider = RacetimeProvider("https://racetime.gg", "z1r")  # production's category
+        with patch("ttpbot.bot.aiohttp.request", recorder):
+            await bot._send_webhook(scheduled, "https://racetime.gg/z1r/daring-lastlocation-8429")
+        body = recorder.calls[0]["json"]
+        self.assertEqual(body["flags"], 4, "SUPPRESS_EMBEDS: no racetime preview card")
+        self.assertEqual(
+            body["content"],
+            "<@&12345> Thursday TTP1: [Join on racetime.gg](https://racetime.gg/z1r/daring-lastlocation-8429)"
+            " · [Watch or replay](https://z1rracing.com/watch/z1r/daring-lastlocation-8429/)",
+        )
+
+    async def test_a_room_the_viewer_cannot_show_gets_no_watch_link(self):
+        recorder = RequestRecorder([FakeResponse(204)])
+        bot = bot_for("https://raceroom.z1rracing.com", webhook="https://discord.com/api/webhooks/1/t", role="12345")
+        with patch("ttpbot.bot.aiohttp.request", recorder):
+            await bot._send_webhook(datetime(2026, 10, 22, 20, 0, tzinfo=TIMEZONE), "https://raceroom.z1rracing.com/z1rr/example-room")
+        content = recorder.calls[0]["json"]["content"]
+        self.assertIn("(https://raceroom.z1rracing.com/z1rr/example-room)", content)
+        self.assertNotIn("z1rracing.com/watch", content)
+
     async def test_saturday_slate_is_announced_as_saturday_ttp0_to_3(self):
         # Saturday adds a 6 PM TTP0 ahead of the weekday 8 PM / 10 PM / 12 AM
         # slate. TTP0 guards the race-number check: 0 is falsy but valid.
