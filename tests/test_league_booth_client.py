@@ -87,6 +87,7 @@ class RequestBoothTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(result.outcome)
+        self.assertEqual(result.refusal, 'x')
         self.assertTrue(logger.warning.called)
 
     async def test_survives_the_control_plane_being_unreachable(self):

@@ -254,7 +254,10 @@ class TTPBot(Bot):
                 wake_target=(os.environ.get('Z1RR_WAKE_TARGET', '').strip()
                              or 'production'),
                 booth_url=os.environ.get('Z1RR_CONTROL_PLANE_URL', '').strip(),
-                booth_token=booth_token_from_env(os.environ))
+                booth_token=booth_token_from_env(os.environ),
+                coop_four_racer_booth=(
+                    os.environ.get('LEAGUE_COOP_FOUR_RACER_BOOTH', '').strip().lower()
+                    in ('1', 'true', 'yes', 'on')))
         except Exception:
             self.logger.error(
                 'League scheduling is off (roster or state is unusable); '

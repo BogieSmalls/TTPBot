@@ -33,6 +33,8 @@ class BoothOutcome:
 
     outcome: Optional[str] = None
     broadcast_id: Optional[str] = None
+    #: Why the control plane refused, when it said (a 409's `reason`).
+    refusal: Optional[str] = None
 
     @property
     def is_continuation(self) -> bool:
@@ -82,7 +84,8 @@ async def request_booth(payload, base_url, token, logger, requester=None, *,
                 logger.warning(
                     '%s booth request refused (HTTP %s): %s', label, response.status, body,
                 )
-                return BoothOutcome()
+                reason = body.get('reason') if isinstance(body, dict) else None
+                return BoothOutcome(refusal=reason if isinstance(reason, str) else None)
             return _unwrap(await response.json())
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, TypeError) as exc:
         logger.warning(

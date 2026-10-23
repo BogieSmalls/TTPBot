@@ -122,3 +122,67 @@ def build_broadcast_request(race, race_slug, crew, logger, coop=False):
         # banner off for this race room.
         payload['coop'] = True
     return payload
+
+
+#: The booth's crew limits: the control plane refuses a request naming more.
+MAX_COMMENTATORS = 2
+
+
+def build_coop_broadcast_request(match, race_slug, crew, logger):
+    """One four-racer booth for a whole co-op match, or None.
+
+    Both teams on one canvas: the away pair in slots 1-2 and the home pair in
+    3-4, each carrying its team, and the control plane lays them out as team
+    columns (blue left, pink right). It goes out on the first featured row's
+    channel under that row's key, so it is the same booth a per-row request
+    would have made there: switching modes mid-week replays that booth rather
+    than staging a second one on the channel.
+
+    None means "no four-racer booth", and the caller falls back to the per-row
+    two-racer booths.
+    """
+    featured = match.featured_rows
+    if not featured or not race_slug:
+        return None
+    primary = featured[0]
+    runners = match.away_runners + match.home_runners
+    channels = [(racer.twitch_channel or '').strip().casefold() for racer in runners]
+    if not all(channels) or len(set(channels)) != 4:
+        # The canvas needs four distinct streams; the control plane would
+        # refuse anything else, so say why here instead.
+        logger.warning(
+            'League co-op %s: the four runners do not have four distinct Twitch '
+            'channels; using per-row booths', match.slug,
+        )
+        return None
+    names = list(match.comms)
+    if len(names) > MAX_COMMENTATORS:
+        logger.warning('League co-op %s names %d commentators; the booth takes the first %d (%s)',
+                       match.slug, len(names), MAX_COMMENTATORS, ', '.join(names[:MAX_COMMENTATORS]))
+    trackers = list(match.trackers)
+    if len(trackers) > 1:
+        logger.warning('League co-op %s names %d trackers; the booth takes %s',
+                       match.slug, len(trackers), trackers[0])
+    commentators = [
+        user_id for user_id in (
+            _crew_user_id(crew, name, logger) for name in names[:MAX_COMMENTATORS]
+        ) if user_id
+    ]
+    away_team = primary.away_racer.team
+    home_team = primary.home_racer.team
+    racers = []
+    for index, racer in enumerate(match.away_runners):
+        racers.append(dict(_racer_slot(racer, index + 1), team=away_team))
+    for index, racer in enumerate(match.home_runners):
+        racers.append(dict(_racer_slot(racer, index + 3), team=home_team))
+    return {
+        'leagueKey': primary.key,
+        'twitchChannel': primary.channel,
+        'raceSlug': race_slug,
+        'scheduledAt': match.start.astimezone(timezone.utc).isoformat(),
+        'title': _title(primary),
+        'racers': racers,
+        'commentatorUserIds': commentators,
+        'trackerUserId': _crew_user_id(crew, trackers[0] if trackers else None, logger),
+        'coop': True,
+    }

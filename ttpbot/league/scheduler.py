@@ -15,7 +15,10 @@ from ..config import DEFAULT_SCHEDULE_URL
 from ..state import UNCERTAIN_RACE
 from .announce import send_league_announcement, send_league_continuation_notice
 from .booth import BoothOutcome, request_booth
-from .broadcast_request import build_broadcast_request
+from .broadcast_request import build_broadcast_request, build_coop_broadcast_request
+
+#: The control plane's refusal for a booth too large for the channel's lane.
+LARGE_LANE_REFUSAL = 'large_encoder_requires_ondemand_lane'
 from .wake import wake_control_plane
 from .rooms import create_league_room
 from .coop import group_coop_matches
@@ -191,8 +194,15 @@ class LeagueScheduler:
                  roster_token=None, relay_wake_url=None, relay_wake_token=None,
                  wake_target='production', booth_url=None, booth_token=None,
                  threads=None, thread_store=None, result_context_store=None, results_recorder=None,
-                 chat_context=None):
+                 chat_context=None, coop_four_racer_booth=False):
         self.bot = bot
+        #: One four-racer booth per co-op match instead of a two-racer booth
+        #: per featured row. Off by default: a four-racer booth needs a lane
+        #: that can host a large encoder.
+        self.coop_four_racer_booth = coop_four_racer_booth
+        #: Co-op matches whose four-racer booth the control plane refused for
+        #: want of a large-encoder lane: they use per-row booths from then on.
+        self._coop_lane_refused = set()
         self.source = source
         self.created_store = created_store
         self.result_context_store = result_context_store
@@ -412,7 +422,7 @@ class LeagueScheduler:
         self._crew_refreshed_at = None
         self._prepared[race.key] = signature
 
-    async def _request_booth(self, race, room_url, coop=False):
+    async def _request_booth(self, race, room_url, coop=False, payload=None):
         """Ask the control plane for a booth. Never raises.
 
         The answer decides what the announcement says, which is why this runs
@@ -420,8 +430,9 @@ class LeagueScheduler:
         """
         if not race.channel or not self.booth_url or not self.booth_token:
             return BoothOutcome()
-        payload = build_broadcast_request(
-            race, _room_slug(room_url), self.crew, self.logger, coop=coop)
+        if payload is None:
+            payload = build_broadcast_request(
+                race, _room_slug(room_url), self.crew, self.logger, coop=coop)
         if payload is None:
             return BoothOutcome()
         signature = json.dumps(payload, sort_keys=True)
@@ -449,6 +460,21 @@ class LeagueScheduler:
         """
         if not race.coop:
             return await self._request_booth(race, room_url)
+        if self.coop_four_racer_booth and race.featured_rows and race.key not in self._coop_lane_refused:
+            payload = build_coop_broadcast_request(
+                race, _room_slug(room_url), self.crew, self.logger)
+            if payload is not None:
+                # Keyed by the primary row, like the booth it stands in for.
+                outcome = await self._request_booth(
+                    race.featured_rows[0], room_url, payload=payload)
+                if outcome.refusal != LARGE_LANE_REFUSAL:
+                    return outcome
+                # Refused before anything was drafted, so the same key can
+                # take the two-racer booths this match had before.
+                self.logger.warning(
+                    'League co-op %s: %s cannot host a four-racer booth; using per-row booths',
+                    race.slug, race.featured_rows[0].channel)
+                self._coop_lane_refused.add(race.key)
         outcomes = [
             await self._request_booth(row, room_url, coop=True)
             for row in race.featured_rows

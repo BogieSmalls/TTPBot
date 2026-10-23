@@ -1330,6 +1330,76 @@ class CoopSchedulerTests(unittest.IsolatedAsyncioTestCase):
         create.assert_not_awaited()
         self.assertEqual(len(self.bot.state['z1r/clever-slug-1234']['league_race']['invite']), 4)
 
+class CoopFourRacerBoothTests(CoopSchedulerTests):
+    """LEAGUE_COOP_FOUR_RACER_BOOTH: the whole match on one canvas."""
+
+    def scheduler(self, races):
+        scheduler = super().scheduler(races)
+        scheduler.coop_four_racer_booth = True
+        return scheduler
+
+    async def test_asks_for_one_coop_booth_for_the_featured_row(self):
+        rows = _coop_rows()
+        _, booth, _ = await self.tick(self.scheduler(rows))
+
+        booth.assert_awaited_once()
+        payload = booth.await_args.args[0]
+        self.assertEqual(payload['leagueKey'], rows[0].key)
+        self.assertEqual(payload['twitchChannel'], 'Z1Rracing')
+        self.assertIs(payload['coop'], True)
+        self.assertEqual([(r['slot'], r['racetimeId']) for r in payload['racers']],
+                         [(1, 'rt-wind'), (2, 'rt-sean'), (3, 'rt-sir'), (4, 'rt-stags')])
+        teams = [r['team'] for r in payload['racers']]
+        self.assertEqual(teams[0], teams[1])
+        self.assertEqual(teams[2], teams[3])
+        self.assertNotEqual(teams[0], teams[2])
+
+    async def test_two_channels_ask_for_two_booths_and_report_a_continuation(self):
+        # One canvas holds the whole match, so the second channel gets nothing.
+        booth = AsyncMock(return_value=BoothOutcome('staged', 'b1'))
+        _, booth, _ = await self.tick(
+            self.scheduler(_coop_rows(channel_two='Z1Rracing2')), booth=booth)
+
+        booth.assert_awaited_once()
+        self.assertEqual(booth.await_args.args[0]['twitchChannel'], 'Z1Rracing')
+
+    async def test_a_settled_booth_is_not_asked_for_again(self):
+        scheduler = self.scheduler(_coop_rows())
+        _, booth, _ = await self.tick(scheduler)
+        await self.tick(scheduler, booth=booth, minutes=29)
+
+        booth.assert_awaited_once()
+
+    async def test_an_unanswered_booth_is_retried_on_the_next_tick(self):
+        scheduler = self.scheduler(_coop_rows())
+        booth = AsyncMock(side_effect=[BoothOutcome(), BoothOutcome('staged', 'b1')])
+        await self.tick(scheduler, booth=booth)
+        await self.tick(scheduler, booth=booth, minutes=29)
+
+        self.assertEqual(booth.await_count, 2)
+        self.assertEqual(booth.await_args_list[0].args[0], booth.await_args_list[1].args[0])
+
+    async def test_a_lane_that_cannot_host_four_racers_gets_the_row_booths_instead(self):
+        scheduler = self.scheduler(_coop_rows(channel_two='Z1Rracing2'))
+        booth = AsyncMock(side_effect=[
+            BoothOutcome(refusal='large_encoder_requires_ondemand_lane'),
+            BoothOutcome('staged', 'b1'), BoothOutcome('staged', 'b2'),
+        ])
+        await self.tick(scheduler, booth=booth)
+        await self.tick(scheduler, booth=booth, minutes=29)
+
+        sizes = [len(call.args[0]['racers']) for call in booth.await_args_list]
+        self.assertEqual(sizes, [4, 2, 2])
+
+    async def test_a_runner_without_a_channel_falls_back_to_the_row_booth(self):
+        rows = _coop_rows()
+        rows[1] = replace(rows[1], runner_one=replace(rows[1].runner_one, twitch_channel=''))
+        _, booth, _ = await self.tick(self.scheduler(rows))
+
+        booth.assert_awaited_once()
+        self.assertEqual(len(booth.await_args.args[0]['racers']), 2)
+
+
 class RescheduleKeepsOneRoomTests(unittest.IsolatedAsyncioTestCase):
     """A race that moves keeps the room it already has.
 

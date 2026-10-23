@@ -210,3 +210,40 @@ class CoopFlagTests(unittest.TestCase):
     def test_a_1v1_booth_carries_no_coop_key(self):
         payload = build_broadcast_request(race(), 'z1r/adequate-link-4500', CREW, QUIET)
         self.assertNotIn('coop', payload)
+
+
+from ttpbot.league.broadcast_request import build_coop_broadcast_request
+from ttpbot.league.coop import CoopMatch
+from tests.test_league_coop import rows as coop_rows
+
+
+class BuildCoopBroadcastRequestTests(unittest.TestCase):
+    def build(self, **overrides):
+        return build_coop_broadcast_request(
+            CoopMatch(rows=tuple(coop_rows(**overrides))), 'z1r/coop-room-1234', CREW, QUIET)
+
+    def test_four_racers_away_pair_then_home_pair_with_their_teams(self):
+        payload = self.build()
+        self.assertEqual(
+            [(r['slot'], r['displayName'], r['team']) for r in payload['racers']],
+            [(1, 'Windfox470', 'BM'), (2, 'seanfreston', 'BM'), (3, 'SirLinkalot', 'SC'), (4, 'Stags28', 'SC')])
+        self.assertIs(payload['coop'], True)
+        self.assertEqual(payload['raceSlug'], 'z1r/coop-room-1234')
+        self.assertEqual(payload['title'], 'Z1RR League Week 3\nBM vs. SC Game 1')
+
+    def test_keyed_and_routed_like_the_primary_rows_booth(self):
+        rows = coop_rows()
+        payload = self.build()
+        self.assertEqual(payload['leagueKey'], rows[0].key)
+        self.assertEqual(payload['twitchChannel'], 'Z1Rracing')
+
+    def test_crew_within_the_booth_limits(self):
+        payload = self.build(tracker_two='YmustUhateME')
+        # Bogie appears in both rows; ISUMatt is not on the crew roster.
+        self.assertEqual(payload['commentatorUserIds'], ['u-a'])
+        self.assertEqual(payload['trackerUserId'], 'u-c')
+
+    def test_declines_without_a_room_or_a_featured_row(self):
+        match = CoopMatch(rows=tuple(coop_rows()))
+        self.assertIsNone(build_coop_broadcast_request(match, None, CREW, QUIET))
+        self.assertIsNone(self.build(channel_one=None))

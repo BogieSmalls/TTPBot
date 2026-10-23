@@ -57,7 +57,12 @@ start time and game become one match: one unranked "Beat the game" room titled
 `League: A & C vs. B & D` (away team first), all four runners invited, and one
 Discord post crediting every Comms and Tracker either row names. Only rows with
 a Channel get a booth, one per channel, sent with `coop: true` so the restream
-keeps the winner banner off for that race. A co-op match with one row, rows at
+keeps the winner banner off for that race. With
+`LEAGUE_COOP_FOUR_RACER_BOOTH=true` the match gets one four-racer booth instead,
+on the first featured row's channel and under that row's key, with both teams
+as columns (at most two commentators and one tracker). A channel whose lane
+cannot host the large encoder refuses it, and the match falls back to the
+per-row booths. A co-op match with one row, rows at
 different times or games, a repeated racer, or a row that does not line up with
 the fixture opens **no** room; it is logged as `League co-op match ... held`
 from 35 minutes before its start.
