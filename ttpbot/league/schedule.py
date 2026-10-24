@@ -24,6 +24,7 @@ from ..schedule_sheet import (
     resolve_columns as _resolve_columns,
 )
 from .roster import Racer, UnknownRacerError
+from .series import series_fixture_for
 
 NON_SLUG = re.compile(r'[^a-z0-9]+')
 NON_ALNUM = re.compile(r'[^a-z0-9]+')
@@ -92,6 +93,11 @@ class LeagueRace:
     @property
     def coop(self):
         """Always False: a co-op match is a CoopMatch, built from two rows."""
+        return False
+
+    @property
+    def series(self):
+        """Always False: a series game is a CoopMatch too."""
         return False
 
     @property
@@ -214,8 +220,10 @@ def parse_schedule(csv_text, roster, logger, matchups=None):
         game_text = _cell(row, columns, 'game')
         channel = _cell(row, columns, 'channel') or None
 
-        fixture = None
-        if matchups is not None:
+        # The finalists met in the regular season too; in Championship Week
+        # their pairing is the series, not that week's fixture.
+        fixture = series_fixture_for(one.team_full, two.team_full, start)
+        if fixture is None and matchups is not None:
             fixture = matchups.fixture_for(one.team_full, two.team_full)
             if fixture is None and channel:
                 # Only worth saying for a race somebody meant to restream. An

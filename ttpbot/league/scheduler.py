@@ -422,7 +422,7 @@ class LeagueScheduler:
         self._crew_refreshed_at = None
         self._prepared[race.key] = signature
 
-    async def _request_booth(self, race, room_url, coop=False):
+    async def _request_booth(self, race, room_url, coop=False, series=False):
         """Ask the control plane for a booth. Never raises.
 
         The answer decides what the announcement says, which is why this runs
@@ -431,7 +431,7 @@ class LeagueScheduler:
         if not race.channel or not self.booth_url or not self.booth_token:
             return BoothOutcome()
         payload = build_broadcast_request(
-            race, _room_slug(room_url), self.crew, self.logger, coop=coop)
+            race, _room_slug(room_url), self.crew, self.logger, coop=coop, series=series)
         if payload is None:
             return BoothOutcome()
         signature = json.dumps(payload, sort_keys=True)
@@ -457,6 +457,9 @@ class LeagueScheduler:
         retry repeats only the booth that has not answered. Any continuation
         wins: the announcement must warn that a channel is already on air.
         """
+        if getattr(race, 'series', False):
+            # A series game is four racers in one race: one booth shows them all.
+            return await self._request_booth(race, room_url, series=True)
         if not race.coop:
             return await self._request_booth(race, room_url)
         outcomes = [

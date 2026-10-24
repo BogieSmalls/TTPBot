@@ -60,6 +60,9 @@ class Fixture:
     #: The week header's text before its first ':' - the preset name, never
     #: the flag string that follows it.
     label: str = ''
+    #: A Championship Week series game (series.py): two rows, four racers in
+    #: one race, one broadcast.
+    series: bool = False
 
     @property
     def coop(self) -> bool:

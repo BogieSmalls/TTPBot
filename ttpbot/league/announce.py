@@ -78,14 +78,18 @@ def build_announcement(race, race_url, crew=None, continuation=False, matchup_ur
         racers = (race.runner_one, race.runner_two)
         matchup = '{} vs {}'.format(_mention(race.runner_one), _mention(race.runner_two))
     allowed = [r.discord_id for r in racers if r.discord_id]
+    series = getattr(race, 'series', False)
     title = 'League Season 1'
-    if race.fixture:
+    if series:
+        # The series is the headline; each game's flagset is a team's pick.
+        title += ' · {}'.format(race.fixture.label)
+    elif race.fixture:
         title += ' · Week {}'.format(race.fixture.week)
     if race.game:
         title += ' · Game {}'.format(race.game)
-    if race.coop:
+    if race.coop and not series:
         title += ' · Co-op'
-    flagset = re.sub(r'^Week\s+\d+\s*[-–]?\s*', '', race.fixture.label).split(':', 1)[0].strip() if race.fixture else ''
+    flagset = '' if series else re.sub(r'^Week\s+\d+\s*[-–]?\s*', '', race.fixture.label).split(':', 1)[0].strip() if race.fixture else ''
     description = NEWLINE.join(part for part in (
         '**{}**'.format(matchup), flagset,
         '**Starts:** <t:{}:F>'.format(int(race.start.timestamp())),
