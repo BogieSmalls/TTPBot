@@ -45,6 +45,7 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "Z1RR_ROSTER_ENVIRONMENT", "Z1RR_BOOTH_TOKEN",
             "Z1RR_CHAT_CONTEXT_URL", "Z1RR_CHAT_CONTEXT_TOKEN", "Z1RR_CHAT_CONTEXT_ENVIRONMENT",
             "LEAGUE_READ_MODEL_URL", "LEAGUE_READ_MODEL_TOKEN", "LEAGUE_READ_MODEL_ENVIRONMENT",
+            "LEAGUE_COOP_FOUR_RACER_BOOTH",
         }
         variables = {
             line.split("=", 1)[0]

@@ -82,6 +82,11 @@ class SeriesMatchTests(unittest.TestCase):
                          'lower seed in 1 and 3, higher seed in 2 and 4: each row a pairing')
         self.assertTrue(payload['series'])
         self.assertNotIn('coop', payload)
+        # Each racer carries their team, so the booth colors the two columns by team.
+        teams = [r['team'] for r in payload['racers']]
+        self.assertEqual(teams[0], teams[2])
+        self.assertEqual(teams[1], teams[3])
+        self.assertNotEqual(teams[0], teams[1])
         self.assertEqual(payload['title'], 'Z1RR League Championship Series\nTek vs. LKU Game 3')
         self.assertEqual(payload['twitchChannel'], 'Z1Rracing')
         self.assertEqual(payload['commentatorUserIds'], ['u-Shatty'])

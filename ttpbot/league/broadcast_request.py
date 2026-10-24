@@ -86,7 +86,9 @@ def _series_request(race, race_slug, crew, logger):
         'raceSlug': race_slug,
         'scheduledAt': race.start.astimezone(timezone.utc).isoformat(),
         'title': 'Z1RR League {}\n{}'.format(race.fixture.label, matchup),
-        'racers': [_racer_slot(racer, slot) for slot, racer in
+        # Each racer carries their team, so the control plane gives the two
+        # columns their team colors, as it does for a co-op booth.
+        'racers': [dict(_racer_slot(racer, slot), team=racer.team) for slot, racer in
                    enumerate((lower[0], higher[0], lower[1], higher[1]), start=1)],
         'commentatorUserIds': [u for u in (_crew_user_id(crew, n, logger) for n in race.comms) if u],
         'trackerUserId': _crew_user_id(crew, trackers[0] if trackers else None, logger),
