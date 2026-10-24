@@ -49,6 +49,11 @@ class CoopMatch:
         return True
 
     @property
+    def series(self):
+        """A Championship Week series game: the same two rows, but one race of four on one booth."""
+        return bool(getattr(self.rows[0].fixture, 'series', False))
+
+    @property
     def start(self):
         return self.rows[0].start
 
@@ -113,8 +118,8 @@ class CoopMatch:
 
     @property
     def slug(self):
-        return 'coop-week-{}-game-{}-{}-vs-{}'.format(
-            self.fixture.week, self.game,
+        return '{}-week-{}-game-{}-{}-vs-{}'.format(
+            'series' if self.series else 'coop', self.fixture.week, self.game,
             _slugify(self.fixture.away), _slugify(self.fixture.home))
 
     @property
@@ -168,7 +173,7 @@ def group_coop_matches(races, logger, now=None):
     order = []
     for race in races:
         fixture = race.fixture
-        if fixture is None or not fixture.coop:
+        if fixture is None or not (fixture.coop or getattr(fixture, 'series', False)):
             order.append(race)
             continue
         group_key = (race.start, fixture)
