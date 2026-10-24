@@ -198,8 +198,10 @@ def build_series_post(week, series, roster):
         'Game 5: {} pick the flagset; each team\'s 2 eligible players race.'.format(high),
         'A tied race is re-raced by the same runners on the same flagset.',
         '',
-        'Agree each game\'s date and time here, and the League Team will put them on '
-        'the schedule. If you cannot reach your opponent, tell the League Team.',
+        'Agree each game\'s date and time here, then use **`/schedule league`** in this '
+        'thread: one racer from each team, the game number (**Game 1 to Game 5**) and the '
+        'agreed time. Each game has two pairings, so schedule both. If you cannot reach '
+        'your opponent, tell the League Team.',
     ]
     return ThreadPost(content='\n'.join(lines), allowed_user_ids=high_ids + low_ids)
 
