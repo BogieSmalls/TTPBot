@@ -362,11 +362,13 @@ class TTPBot(Bot):
         self.loop.create_task(self.reauthorize())
         self.loop.create_task(self.refresh_races())
         self.loop.create_task(self.race_scheduler())
+        scheduler = None
         if self.league_enabled:
             scheduler = self._build_league_scheduler()
             if scheduler is not None:
                 self.logger.info('League scheduling is enabled')
                 self.loop.create_task(scheduler.run())
+        self.nightly = self._build_nightly_booths(getattr(scheduler, 'crew', None))
         autumn = self._build_autumn_runner()
         if autumn is not None:
             self.logger.info('Autumn tournament scheduling is enabled')
@@ -377,6 +379,39 @@ class TTPBot(Bot):
             self.loop.create_task(corto.run())
         self.loop.set_exception_handler(self.handle_exception)
         self.loop.run_forever()
+
+    def _build_nightly_booths(self, crew):
+        """TTP Nightly booths for the races Council staffs, or None when off (the default)."""
+        env = os.environ
+        if env.get('TTPBOT_NIGHTLY_BOOTHS_ENABLED', '').strip().lower() not in ('1', 'true', 'yes', 'on'):
+            return None
+        try:
+            from .league.crew import CrewDirectory, booth_token_from_env
+            from .nightly import NightlyBooths
+            if crew is None:
+                crew = CrewDirectory(cache_path=runtime_path('league_crew.json', env=env), logger=self.logger,
+                                     environment=env.get('Z1RR_ROSTER_ENVIRONMENT', '').strip())
+            nightly = NightlyBooths(
+                owner_url=env.get('COMPETITIONS_URL', '').strip(),
+                owner_environment=env.get('COMPETITIONS_ENVIRONMENT', '').strip(),
+                edition=env.get('TTPBOT_NIGHTLY_EDITION', '').strip(),
+                actor=env.get('TTPBOT_NIGHTLY_ACTOR', '').strip(),
+                reader_token=env.get('COMPETITIONS_READER_TOKEN', '').strip(),
+                writer_token=env.get('COMPETITIONS_BOT_TOKEN', '').strip(),
+                booth_url=env.get('Z1RR_CONTROL_PLANE_URL', '').strip(),
+                booth_token=booth_token_from_env(env),
+                crew=crew, logger=self.logger,
+                relay_wake_url=env.get('Z1RR_RELAY_URL', '').strip(),
+                relay_wake_token=env.get('Z1RR_WAKE_TOKEN', '').strip(),
+                wake_target=env.get('Z1RR_WAKE_TARGET', '').strip() or 'production')
+            if not nightly.configured or not env.get('TTPBOT_NIGHTLY_EDITION', '').strip():
+                self.logger.warning('TTP Nightly booths are enabled but not configured; staying off')
+                return None
+            self.logger.info('TTP Nightly booths are enabled')
+            return nightly
+        except Exception:
+            self.logger.error('TTP Nightly booths are off (configuration unusable); TTP scheduling is unaffected', exc_info=True)
+            return None
 
     async def race_scheduler(self):
         """Check every 60 seconds if a race room needs to be opened."""
@@ -431,6 +466,16 @@ class TTPBot(Bot):
                 self.loop.create_task(self._send_webhook(race_time, race_url))
                 self.sent_webhooks.add(race_key)
                 self._save_sent_webhooks()
+
+            # A nightly Council staffed gets its booth with the reminder (and its room once it exists).
+            nightly = getattr(self, 'nightly', None)
+            if nightly is not None:
+                room = race_url if race_url and race_url != UNCERTAIN_RACE else None
+                await nightly.maybe_open_booth(race_time, room, now)
+
+        nightly = getattr(self, 'nightly', None)
+        if nightly is not None:
+            await nightly.register_upcoming(now)
 
     async def _create_race_room(self, scheduled_time):
         """Create a room through the configured Racetime provider."""
