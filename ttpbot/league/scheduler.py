@@ -21,7 +21,7 @@ from .rooms import create_league_room
 from .coop import group_coop_matches
 from .matchups import parse_matchups
 from .schedule import parse_schedule, schedule_is_readable
-from .scheduling_threads import open_week_threads, week_due
+from .scheduling_threads import open_week_threads, series_fixtures, week_due
 from .result_context import bind_room
 
 LEAGUE_ROOM_OPEN_MINUTES_BEFORE = 30
@@ -302,6 +302,16 @@ class LeagueScheduler:
             return
         week = week_due(now)
         if week is None:
+            return
+        # Championship Week's series come from the final standings, not the
+        # Matchups tab, which lists them as TBD.
+        series = series_fixtures(week)
+        if series:
+            created = await open_week_threads(
+                week, series, self.source.roster, self.threads, self.opened_threads, self.logger)
+            if created:
+                self.opened_threads.update(created)
+                self.thread_store.save({key: True for key in self.opened_threads})
             return
         matchups = await self.source.matchups()
         if matchups is None:

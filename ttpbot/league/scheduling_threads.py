@@ -18,6 +18,7 @@ import re
 import aiohttp
 
 from ..config import TIMEZONE
+from .matchups import Fixture
 
 NON_ALNUM = re.compile(r'[^a-z0-9]+')
 
@@ -32,6 +33,8 @@ WEEK_STARTS = {
     5: date(2026, 9, 29),
     6: date(2026, 10, 6),
     7: date(2026, 10, 13),
+    # Championship Week starts on Mondays, per the rules doc.
+    8: date(2026, 10, 26),
 }
 
 #: 5:00 PM ET, two days before the week begins -- so the threads are up on the
@@ -42,7 +45,42 @@ WEEK_STARTS = {
 THREAD_OPEN_TIME = time(17, 0)
 THREAD_OPEN_LEAD = timedelta(days=2)
 #: Council approved an earlier Week 7 opening after all Week 6 games finished.
-THREAD_OPEN_OVERRIDES = {7: datetime(2026, 10, 11, 12, 0, tzinfo=TIMEZONE)}
+THREAD_OPEN_OVERRIDES = {
+    7: datetime(2026, 10, 11, 12, 0, tzinfo=TIMEZONE),
+    # Bogie, 2026-10-24: the two series' threads at noon, two days before
+    # Championship Week starts.
+    8: datetime(2026, 10, 24, 12, 0, tzinfo=TIMEZONE),
+}
+
+
+@dataclass(frozen=True)
+class Series:
+    name: str
+    division: str
+    higher: str
+    lower: str
+
+
+#: Championship Week. The Matchups tab says TBD; the rules seed the top two of
+#: each division by record, and the final standings decide it: Hyrule, The
+#: Missing Links (11-3) over TekTITANS (9-5); Lorule, Bow Mode over The Last
+#: Resorts, both 9-5, Bow Mode on tiebreaker 1b (the faster winning time in
+#: their head-to-head week).
+SERIES = {
+    8: (
+        Series('Championship Series', 'Hyrule Division', 'The Missing Links', 'TekTITANS'),
+        Series('Division Series', 'Lorule Division', 'Bow Mode', 'The Last Resorts'),
+    ),
+}
+
+
+def series_fixtures(week):
+    """A series week's matchups, lower seed as `away` so threads read `lower @ higher`."""
+    return [Fixture(week=week, away=s.lower, home=s.higher, label=s.name) for s in SERIES.get(week, ())]
+
+
+def _series_for(week, fixture):
+    return next((s for s in SERIES.get(week, ()) if s.higher == fixture.home and s.lower == fixture.away), None)
 
 #: How long after the opening time a missed week is still opened. A bot that
 #: was down at 5:00 PM should still open the threads that evening, or through
@@ -137,8 +175,40 @@ def _team_line(label, team, roster):
     return '**{}** ({}): {}'.format(team, label, ' '.join(mentions)), ids
 
 
+def build_series_post(week, series, roster):
+    """A Best of 5 series' opening message, from the rules doc's series section."""
+    high_line, high_ids = _team_line('higher seed', series.higher, roster)
+    low_line, low_ids = _team_line('lower seed', series.lower, roster)
+    high, low = '**{}**'.format(series.higher), '**{}**'.format(series.lower)
+    lines = [
+        '**Week {} - {} ({}) - Best of 5**'.format(week, series.name, series.division),
+        '',
+        high_line,
+        low_line,
+        '',
+        'Each game is two racers per team, their times added together. Not co-op: '
+        'no assistance during the race. Asyncs are not allowed in the series.',
+        '',
+        'Game 1: {} pick the flagset and their 2 racers, then {} pick 2.'.format(high, low),
+        'Game 2: {} pick a flagset not yet played and their 2 racers, then {} pick 2. '
+        'Each team uses a different pair than in Game 1.'.format(low, high),
+        'Game 3: {} pick the flagset; the racers are the players who have not raced '
+        'in both Games 1 and 2.'.format(high),
+        'Game 4: {} pick the flagset and their 2 racers, then {} pick 2.'.format(low, high),
+        'Game 5: {} pick the flagset; each team\'s 2 eligible players race.'.format(high),
+        'A tied race is re-raced by the same runners on the same flagset.',
+        '',
+        'Agree each game\'s date and time here, and the League Team will put them on '
+        'the schedule. If you cannot reach your opponent, tell the League Team.',
+    ]
+    return ThreadPost(content='\n'.join(lines), allowed_user_ids=high_ids + low_ids)
+
+
 def build_thread_post(week, fixture, roster, week_label=None):
     """The opening message: who is who, who declares first, and the format."""
+    series = _series_for(week, fixture)
+    if series:
+        return build_series_post(week, series, roster)
     away_line, away_ids = _team_line('away for game 1', fixture.away, roster)
     home_line, home_ids = _team_line('home for game 1', fixture.home, roster)
     heading = 'Week {}'.format(week)
