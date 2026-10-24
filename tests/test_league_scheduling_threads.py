@@ -14,6 +14,7 @@ from ttpbot.league.scheduling_threads import (
     open_week_threads,
     thread_name,
     week_due,
+    series_fixtures,
 )
 
 STARTS = {3: date(2026, 9, 15), 4: date(2026, 9, 22)}
@@ -245,3 +246,46 @@ class MatchupLinkTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ChampionshipWeekTests(unittest.IsolatedAsyncioTestCase):
+    """Week 8, 2026-10-24: Bogie asked for the two series' threads at noon.
+
+    The Matchups tab says TBD; the final standings decide the teams and seeds
+    (Hyrule: The Missing Links 11-3 over TekTITANS 9-5; Lorule: Bow Mode over
+    The Last Resorts, both 9-5, Bow Mode on tiebreaker 1b).
+    """
+
+    def test_week_eight_opens_at_noon_on_the_saturday_before_it_starts(self):
+        noon = datetime(2026, 10, 24, 12, 0, tzinfo=TIMEZONE)
+        self.assertEqual(open_at(8), noon)
+        self.assertEqual(week_due(noon), 8)
+        self.assertIsNone(week_due(noon - timedelta(seconds=1)))
+        self.assertLess(noon + OPEN_WINDOW, datetime(2026, 10, 26, 0, 0, tzinfo=TIMEZONE), 'closes before Monday')
+
+    def test_the_series_come_from_the_standings_with_seeds(self):
+        fixtures = series_fixtures(8)
+        self.assertEqual([(f.home, f.away) for f in fixtures],
+                         [('The Missing Links', 'TekTITANS'), ('Bow Mode', 'The Last Resorts')])
+        self.assertEqual(series_fixtures(7), [])
+        self.assertEqual(thread_name(8, fixtures[0]), 'Week 8 - TekTITANS @ The Missing Links')
+
+    def test_the_series_post_explains_the_best_of_five(self):
+        roster = Roster([
+            _racer('Merks', 'The Missing Links', 'LKU', '11'), _racer('Thomjay', 'The Missing Links', 'LKU', '12'),
+            _racer('Iceblue', 'The Missing Links', 'LKU', '13'), _racer('Bogie', 'TekTITANS', 'Tek', '21'),
+            _racer('ThePirateSheep', 'TekTITANS', 'Tek', '22'), _racer('ramrodius', 'TekTITANS', 'Tek', None),
+        ])
+        post = build_thread_post(8, series_fixtures(8)[0], roster)
+        text = post.content
+        self.assertTrue(text.startswith('**Week 8 - Championship Series (Hyrule Division) - Best of 5**'))
+        self.assertIn('**The Missing Links** (higher seed): <@11> <@12> <@13>', text)
+        self.assertIn('**TekTITANS** (lower seed): <@21> <@22> ramrodius', text)
+        self.assertIn('Game 1: **The Missing Links** pick the flagset and their 2 racers, then **TekTITANS** pick 2.', text)
+        self.assertIn('Game 3: **The Missing Links** pick the flagset;', text)
+        self.assertIn('Asyncs are not allowed', text)
+        self.assertIn('**`/schedule league`**', text)
+        self.assertIn('**Game 1 to Game 5**', text)
+        self.assertIn('Each game has two pairings', text)
+        self.assertEqual(post.allowed_user_ids, ['11', '12', '13', '21', '22'])
+        self.assertIn('Division Series (Lorule Division)', build_thread_post(8, series_fixtures(8)[1], roster).content)

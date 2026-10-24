@@ -1,6 +1,8 @@
 import asyncio
 from datetime import datetime, timedelta
 import os
+import re
+from urllib.parse import urlsplit
 
 import aiohttp
 import websockets.exceptions
@@ -20,6 +22,12 @@ from .room_policy import is_corto_room, is_autumn_room, is_league_room, is_ttp_s
 from .state import DestinationStateStore, UNCERTAIN_RACE
 
 from .provider import ProviderConfigurationError
+
+# A racetime.gg room the Race Viewer on z1rracing.com can show: live while it
+# runs, replayed from the racers' recordings afterward.
+VIEWER_ROOM = re.compile(r'^https://racetime\.gg/(z1r/[a-z0-9]+(?:-[a-z0-9]+)*)/?$')
+# Discord's SUPPRESS_EMBEDS: the room's preview card only cluttered the post.
+SUPPRESS_EMBEDS = 4
 
 def build_state_stores(provider, data_directory=None):
     if provider is None:
@@ -524,9 +532,16 @@ class TTPBot(Bot):
         else:
             day_name = scheduled_time.strftime('%A')
 
+        # Named links rather than bare URLs, and no preview card (Bogie,
+        # 2026-10-23): racetime's embed was clutter, and the Race Viewer link
+        # works before, during and after the race.
+        links = [f'[Join on {urlsplit(race_url).hostname or "the race room"}]({race_url})']
+        viewer = VIEWER_ROOM.match(race_url)
+        if viewer:
+            links.append(f'[Watch or replay](https://z1rracing.com/watch/{viewer[1]}/)')
         message = (
             f'<@&{self.race_seekers_role_id}> '
-            f'{day_name} TTP{number}: {race_url}'
+            f'{day_name} TTP{number}: ' + ' · '.join(links)
         )
         self.logger.info('Sending webhook: %s', message)
 
@@ -536,6 +551,7 @@ class TTPBot(Bot):
                 url=self.discord_webhook_url,
                 json={
                     'content': message,
+                    'flags': SUPPRESS_EMBEDS,
                     'allowed_mentions': {
                         'parse': [],
                         'roles': [self.race_seekers_role_id],

@@ -64,7 +64,40 @@ def _crew_user_id(crew, name, logger):
     return user_id
 
 
-def build_broadcast_request(race, race_slug, crew, logger, coop=False):
+def _series_request(race, race_slug, crew, logger):
+    """One booth for a series game: four racers, each row a pairing.
+
+    Slots run row by row, lower seed then higher (1-2 the first pairing, 3-4
+    the second), so a quad layout reads as two head-to-heads.
+    """
+    if not race.channel or not race_slug:
+        return None
+    lower, higher = race.away_runners, race.home_runners
+    if len(lower) != 2 or len(higher) != 2 or None in lower + higher:
+        logger.warning('League series game %s is not two pairings; skipping the booth', race.slug)
+        return None
+    matchup = '{} vs. {}'.format(lower[0].team, higher[0].team)
+    if race.game is not None:
+        matchup += ' Game {}'.format(race.game)
+    trackers = getattr(race, 'trackers', ())
+    return {
+        'leagueKey': race.key,
+        'twitchChannel': race.channel,
+        'raceSlug': race_slug,
+        'scheduledAt': race.start.astimezone(timezone.utc).isoformat(),
+        'title': 'Z1RR League {}\n{}'.format(race.fixture.label, matchup),
+        'racers': [_racer_slot(racer, slot) for slot, racer in
+                   enumerate((lower[0], higher[0], lower[1], higher[1]), start=1)],
+        'commentatorUserIds': [u for u in (_crew_user_id(crew, n, logger) for n in race.comms) if u],
+        'trackerUserId': _crew_user_id(crew, trackers[0] if trackers else None, logger),
+        # Team-scored by summed times: the finishing order is not the result.
+        'series': True,
+    }
+
+
+def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=False):
+    if series:
+        return _series_request(race, race_slug, crew, logger)
     """The booth request body, or None when this race must not get a booth.
 
     `crew` resolves a schedule name to a managed-user id - not a Discord id.

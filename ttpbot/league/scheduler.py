@@ -24,7 +24,7 @@ from .rooms import create_league_room
 from .coop import group_coop_matches
 from .matchups import parse_matchups
 from .schedule import parse_schedule, schedule_is_readable
-from .scheduling_threads import open_week_threads, week_due
+from .scheduling_threads import open_week_threads, series_fixtures, week_due
 from .result_context import bind_room
 
 LEAGUE_ROOM_OPEN_MINUTES_BEFORE = 30
@@ -313,6 +313,16 @@ class LeagueScheduler:
         week = week_due(now)
         if week is None:
             return
+        # Championship Week's series come from the final standings, not the
+        # Matchups tab, which lists them as TBD.
+        series = series_fixtures(week)
+        if series:
+            created = await open_week_threads(
+                week, series, self.source.roster, self.threads, self.opened_threads, self.logger)
+            if created:
+                self.opened_threads.update(created)
+                self.thread_store.save({key: True for key in self.opened_threads})
+            return
         matchups = await self.source.matchups()
         if matchups is None:
             return
@@ -422,7 +432,7 @@ class LeagueScheduler:
         self._crew_refreshed_at = None
         self._prepared[race.key] = signature
 
-    async def _request_booth(self, race, room_url, coop=False, payload=None):
+    async def _request_booth(self, race, room_url, coop=False, payload=None, series=False):
         """Ask the control plane for a booth. Never raises.
 
         The answer decides what the announcement says, which is why this runs
@@ -432,7 +442,7 @@ class LeagueScheduler:
             return BoothOutcome()
         if payload is None:
             payload = build_broadcast_request(
-                race, _room_slug(room_url), self.crew, self.logger, coop=coop)
+                race, _room_slug(room_url), self.crew, self.logger, coop=coop, series=series)
         if payload is None:
             return BoothOutcome()
         signature = json.dumps(payload, sort_keys=True)
@@ -458,6 +468,9 @@ class LeagueScheduler:
         retry repeats only the booth that has not answered. Any continuation
         wins: the announcement must warn that a channel is already on air.
         """
+        if getattr(race, 'series', False):
+            # A series game is four racers in one race: one booth shows them all.
+            return await self._request_booth(race, room_url, series=True)
         if not race.coop:
             return await self._request_booth(race, room_url)
         if self.coop_four_racer_booth and race.featured_rows and race.key not in self._coop_lane_refused:
