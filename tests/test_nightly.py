@@ -115,6 +115,27 @@ class NightlyBoothsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(booth_calls), 2)
         self.assertEqual(booth_calls[1]['json']['raceSlug'], 'z1r/brave-goriya-1234')
 
+    async def test_a_late_booking_still_opens_the_booth_after_the_start(self):
+        # Council books the channel after the reminder; the race is already running.
+        game = 'ttp-nightly:2026:N20261106T010000Z:1'
+        requests = _Requests({'/games/' + game: _Response(200, staffed()),
+                              '/internal/relay/ttp/broadcast': _Response(200, {'outcome': 'staged', 'broadcastId': 'b1'})})
+        nightly = booths(requests)
+        outcome = await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT + timedelta(minutes=45))
+        self.assertEqual(outcome.outcome, 'staged')
+        self.assertEqual([c['json']['raceSlug'] for c in requests.calls if 'ttp/broadcast' in c['url']], ['z1r/brave-goriya-1234'])
+        # Three hours after the start the race is over; no booth.
+        self.assertIsNone(await booths(requests).maybe_open_booth(EIGHT, ROOM, EIGHT + timedelta(hours=3)))
+
+    def test_the_booth_window_runs_from_the_reminder_to_three_hours_after_the_start(self):
+        from ttpbot.nightly import booth_window_open, races_in_booth_window
+        self.assertFalse(booth_window_open(EIGHT, EIGHT - timedelta(minutes=21)))
+        self.assertTrue(booth_window_open(EIGHT, EIGHT - timedelta(minutes=20)))
+        self.assertTrue(booth_window_open(EIGHT, EIGHT + timedelta(hours=2, minutes=59)))
+        self.assertFalse(booth_window_open(EIGHT, EIGHT + timedelta(hours=3)))
+        # Just after midnight the 10 PM race (yesterday's date) is still in its window.
+        self.assertIn(TEN, races_in_booth_window(TEN + timedelta(hours=2, minutes=30)))
+
     async def test_an_unstaffed_nightly_gets_no_booth(self):
         requests = _Requests({'/games/': _Response(200, {'crew': {}, 'bookings': []})})
         self.assertIsNone(await booths(requests).maybe_open_booth(TEN, ROOM, TEN - timedelta(minutes=20)))

@@ -31,7 +31,25 @@ REGISTER_DAYS = 7
 REGISTER_EVERY = timedelta(days=1)
 #: A staffed nightly's booth opens with the race's reminder.
 BOOTH_MINUTES_BEFORE = 20
+#: ...and can still be opened after the race starts, if Council books a channel late:
+#: a race can go on stream last minute, like any other (Bogie, 2026-10-25). Three hours
+#: is how long the Council page keeps a started nightly listed.
+BOOTH_HOURS_AFTER_START = 3
 OWNER_TIMEOUT_SECONDS = 8
+
+
+def booth_window_open(race_time, now):
+    """From the reminder until three hours after the start: when a staffed nightly may get its booth."""
+    return (race_time - timedelta(minutes=BOOTH_MINUTES_BEFORE) <= now
+            < race_time + timedelta(hours=BOOTH_HOURS_AFTER_START))
+
+
+def races_in_booth_window(now):
+    """Today's and yesterday's nightly races whose booth window is open (a 10 PM race runs past midnight)."""
+    races = []
+    for day in (now - timedelta(days=1), now):
+        races.extend(race for race in get_races_for_date(day.date()) if booth_window_open(race, now))
+    return races
 
 
 def occurrence_match_id(race_time):
@@ -159,7 +177,7 @@ class NightlyBooths:
         """At the reminder, a staffed nightly's booth; the room attaches when it exists. Never raises."""
         if not self.configured or not self.booth_url or not self.booth_token:
             return None
-        if (race_time - now) > timedelta(minutes=BOOTH_MINUTES_BEFORE) or now >= race_time:
+        if not booth_window_open(race_time, now):
             return None
         game_id = '{}:{}:1'.format(self.edition_id, occurrence_match_id(race_time))
         try:

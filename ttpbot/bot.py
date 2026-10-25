@@ -467,14 +467,15 @@ class TTPBot(Bot):
                 self.sent_webhooks.add(race_key)
                 self._save_sent_webhooks()
 
-            # A nightly Council staffed gets its booth with the reminder (and its room once it exists).
-            nightly = getattr(self, 'nightly', None)
-            if nightly is not None:
-                room = race_url if race_url and race_url != UNCERTAIN_RACE else None
-                await nightly.maybe_open_booth(race_time, room, now)
-
+        # A nightly Council staffed gets its booth from the reminder until three hours after
+        # its start (a late booking still goes on stream), and its room once it exists.
         nightly = getattr(self, 'nightly', None)
         if nightly is not None:
+            from .nightly import races_in_booth_window
+            for race_time in races_in_booth_window(now):
+                race_url = self.created_races.get(race_time.isoformat(), '')
+                room = race_url if race_url and race_url != UNCERTAIN_RACE else None
+                await nightly.maybe_open_booth(race_time, room, now)
             await nightly.register_upcoming(now)
 
     async def _create_race_room(self, scheduled_time):
