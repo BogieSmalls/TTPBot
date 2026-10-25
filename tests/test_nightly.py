@@ -85,7 +85,7 @@ class BoothRequestTests(unittest.TestCase):
 
 
 class NightlyBoothsTests(unittest.IsolatedAsyncioTestCase):
-    async def test_registers_the_coming_week_once_an_hour_with_one_request_id_per_race(self):
+    async def test_registers_the_coming_week_once_a_day_with_one_request_id_per_race(self):
         requests = _Requests({'/nightlies': _Response(200, {})})
         nightly = booths(requests)
         now = datetime(2026, 11, 2, 12, 0, tzinfo=TIMEZONE)  # a Monday
@@ -94,7 +94,8 @@ class NightlyBoothsTests(unittest.IsolatedAsyncioTestCase):
         bodies = [call['json'] for call in requests.calls]
         self.assertTrue(all(b['editionId'] == 'ttp-nightly:2026' and b['requestId'] == 'nightly-register:' + b['startsAt'] for b in bodies))
         self.assertEqual(len({b['startsAt'] for b in bodies}), len(bodies), 'each occurrence once')
-        self.assertEqual(await nightly.register_upcoming(now + timedelta(minutes=10)), 0, 'not again within the hour')
+        self.assertEqual(await nightly.register_upcoming(now + timedelta(hours=23)), 0, 'not again within the day')
+        self.assertGreater(await nightly.register_upcoming(now + timedelta(days=1)), 0, 'again the next day')
 
     async def test_opens_a_staffed_booth_at_the_reminder_and_again_only_when_the_room_arrives(self):
         game = 'ttp-nightly:2026:N20261106T010000Z:1'

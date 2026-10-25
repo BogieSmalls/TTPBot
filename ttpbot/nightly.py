@@ -26,8 +26,9 @@ from .schedule import get_races_for_date
 
 #: How far ahead nightly races are registered for Council to staff.
 REGISTER_DAYS = 7
-#: Registration is cheap and idempotent, but there is no reason to repeat it every tick.
-REGISTER_EVERY = timedelta(hours=1)
+#: The 7-day window moves a day at a time, so once a day picks up each new race (Bogie, 2026-10-25).
+#: Registering again is harmless; a restart registers on its first tick.
+REGISTER_EVERY = timedelta(days=1)
 #: A staffed nightly's booth opens with the race's reminder.
 BOOTH_MINUTES_BEFORE = 20
 OWNER_TIMEOUT_SECONDS = 8
@@ -131,7 +132,7 @@ class NightlyBooths:
             return await response.json()
 
     async def register_upcoming(self, now):
-        """Registers the coming week's nightly races (hourly at most). Never raises."""
+        """Registers the coming week's nightly races (daily at most). Never raises."""
         if not self.configured or not self.writer_token:
             return 0
         if self._registered_at and now - self._registered_at < REGISTER_EVERY:
