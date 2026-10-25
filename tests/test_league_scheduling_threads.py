@@ -286,6 +286,19 @@ class ChampionshipWeekTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('Asyncs are not allowed', text)
         self.assertIn('**`/schedule league`**', text)
         self.assertIn('**Game 1 to Game 5**', text)
-        self.assertIn('Each game has two pairings', text)
+        self.assertIn('all four racers (racer1 to racer4, in any order)', text)
+        self.assertIn('Both pairings are scheduled together', text)
         self.assertEqual(post.allowed_user_ids, ['11', '12', '13', '21', '22'])
         self.assertIn('Division Series (Lorule Division)', build_thread_post(8, series_fixtures(8)[1], roster).content)
+
+
+class TwoVsTwoWeekPostTests(unittest.TestCase):
+    """A 2v2 week asks for all four racers in one /schedule league (Bogie, 2026-10-25)."""
+
+    def test_a_2v2_week_asks_for_all_four_racers_and_a_1v1_week_for_two(self):
+        roster = Roster([])
+        coop = build_thread_post(5, Fixture(5, 'TekTITANS', 'Shadow Cartel', label='Week 5 - Co-op - Various Flags'), roster)
+        single = build_thread_post(4, Fixture(4, 'TekTITANS', 'Shadow Cartel', label='Week 4 - Various Flags'), roster)
+        self.assertIn('all four racers of the 2v2 game', coop.content)
+        self.assertNotIn('all four racers', single.content)
+        self.assertIn('Select both racers', single.content)

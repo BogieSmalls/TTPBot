@@ -199,9 +199,10 @@ def build_series_post(week, series, roster):
         'A tied race is re-raced by the same runners on the same flagset.',
         '',
         'Agree each game\'s date and time here, then use **`/schedule league`** in this '
-        'thread: one racer from each team, the game number (**Game 1 to Game 5**) and the '
-        'agreed time. Each game has two pairings, so schedule both. If you cannot reach '
-        'your opponent, tell the League Team.',
+        'thread once per game: all four racers (racer1 to racer4, in any order), the game '
+        'number (**Game 1 to Game 5**) and the agreed time. Both pairings are scheduled '
+        'together. To move a game, run it again with two of its racers and the new time. '
+        'If you cannot reach your opponent, tell the League Team.',
     ]
     return ThreadPost(content='\n'.join(lines), allowed_user_ids=high_ids + low_ids)
 
@@ -232,7 +233,9 @@ def build_thread_post(week, fixture, roster, week_label=None):
         'tell the League Team.',
         '',
         'Agree a date and time here, then use **`/schedule league`** in this thread. '
-        'Select both racers, **Game 1 or Game 2**, and the agreed date and time. '
+        + ('Select all four racers of the 2v2 game (racer1 to racer4, in any order), '
+           if getattr(fixture, 'coop', False) else 'Select both racers, ')
+        + '**Game 1 or Game 2**, and the agreed date and time. '
         'The game number identifies the matchup’s game, not the order you play it. '
         'Use the same command and game number to update an agreed time.',
     ]
