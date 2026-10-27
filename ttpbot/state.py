@@ -15,6 +15,13 @@ class StateStoreError(ValueError):
     """Persistent scheduler state is unsafe, corrupt, or belongs elsewhere."""
 
 
+# The League season: seven regular weeks, then Week 8's championship series,
+# best of five. A room bound outside these is refused, and that refusal stopped
+# Week 8 Game 1's booth and announcement on 2026-10-26 when weeks ended at 7.
+LEAGUE_WEEKS = range(1, 9)
+LEAGUE_GAMES = range(1, 6)
+
+
 LEAGUE_ENTRY_KINDS = {
     "league_created_races", "league_sent_webhooks",
     "league_scheduling_threads", "league_results",
@@ -245,8 +252,8 @@ class DestinationStateStore:
             self._validate_key(key)
             if self.entry_kind == 'league_room_context':
                 if (not isinstance(value, dict) or set(value) != {'week', 'game', 'scheduledAt', 'pairs'}
-                        or type(value['week']) is not int or not 1 <= value['week'] <= 7
-                        or value['game'] not in (1, 2)
+                        or type(value['week']) is not int or value['week'] not in LEAGUE_WEEKS
+                        or type(value['game']) is not int or value['game'] not in LEAGUE_GAMES
                         or not isinstance(value['pairs'], list) or not 1 <= len(value['pairs']) <= 2
                         or any(not isinstance(pair, list) or len(pair) != 2
                                or any(not isinstance(name, str) or not 0 < len(name) <= 120 for name in pair)
