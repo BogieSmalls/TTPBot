@@ -81,3 +81,21 @@ class OfficialResultsTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError,'identity changed'):
             bind_room(restarted,race,'https://racetime.gg/z1r/test-room-1234')
         self.assertEqual(restarted.load()['test-room-1234']['game'],2)
+
+    def test_championship_series_games_bind_through_game_five(self):
+        # 2026-10-26: Week 8 Game 1 opened its room, then failed to bind it on
+        # every tick (weeks stopped at 7), so no booth and no announcement.
+        # The final is a best-of-five: Games 3-5 must bind as well.
+        self.contexts.save({})
+        rows = (SimpleNamespace(runner_one=ROSTER.resolve('ISUMatt'), runner_two=ROSTER.resolve('Merks')),
+                SimpleNamespace(runner_one=ROSTER.resolve('Sigil'), runner_two=ROSTER.resolve('Thomjay')))
+        for game in range(1, 6):
+            race = SimpleNamespace(fixture=SimpleNamespace(week=8), game=game, rows=rows,
+                start=datetime(2026,10,27,2,tzinfo=timezone.utc))
+            bind_room(self.contexts, race, 'https://racetime.gg/z1r/series-room-%d' % game)
+        saved = self.contexts.load()
+        self.assertEqual([saved['series-room-%d' % g]['game'] for g in range(1, 6)], [1, 2, 3, 4, 5])
+        self.assertEqual(saved['series-room-5']['week'], 8)
+        race.game = 6
+        with self.assertRaisesRegex(ValueError, 'Game 1 to 5'):
+            bind_room(self.contexts, race, 'https://racetime.gg/z1r/series-room-6')

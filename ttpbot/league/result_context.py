@@ -1,12 +1,14 @@
 """Preserve the scheduled game when a room opens, across later sheet edits."""
 from urllib.parse import urlsplit
 
+from ..state import LEAGUE_GAMES
+
 
 def bind_room(store, race, room):
     if store is None:
         return
-    if not race.fixture or race.game not in (1, 2):
-        raise ValueError('League room needs a fixture and Game 1 or 2')
+    if not race.fixture or race.game not in LEAGUE_GAMES:
+        raise ValueError('League room needs a fixture and Game 1 to 5')
     slug = urlsplit(room).path.rstrip('/').split('/')[-1]
     context = {
         'week': race.fixture.week,
