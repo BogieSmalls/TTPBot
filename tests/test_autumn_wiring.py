@@ -196,7 +196,8 @@ class CanonicalRacerFlow(unittest.IsolatedAsyncioTestCase):
         self.runner.engine.bind_result_room = AsyncMock(return_value=Written(RECORDED))
         self.race = match_rows([row('eatmysteel', 'SHATTY')], {'W2-3': match},
             edition='2026').resolved[0]
-        self.row = ScheduleRow(TONIGHT, 'eatmysteel', 'SHATTY', channel='Z1Rracing')
+        self.row = ScheduleRow(TONIGHT, 'eatmysteel', 'SHATTY', channel='Z1Rracing', tracker2='Trainee')
+        self.runner.scheduler._request_booth.__self__.crew.user_id_for = lambda name: 'tracker-two' if name == 'Trainee' else None
         self.room = 'https://racetime.gg/z1r/canonical-test'
 
     async def test_case_variant_gets_both_racer_invites(self):

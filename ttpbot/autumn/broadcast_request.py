@@ -53,7 +53,7 @@ def build_broadcast_request(race, row, room_url, document, crew, logger, *, edit
         label = {0: 'Final', 1: 'Semifinals', 2: 'Quarterfinals'}.get(remaining, 'Round {}'.format(round_match.group(2)))
     if getattr(race, 'best_of', 1) > 1 or game > 1:
         label += ' - Game {}'.format(game)
-    return {
+    payload = {
         'requestKey': 'tournament:{}:{}:{}:game:{}'.format(event, edition, race.match_id, game),
         'competition': event, 'edition': edition, 'matchId': race.match_id, 'game': game,
         'twitchChannel': row.channel, 'raceSlug': slug,
@@ -62,4 +62,7 @@ def build_broadcast_request(race, row, room_url, document, crew, logger, *, edit
         'racers': racers,
         'commentatorUserIds': [who for who in (crew_id(row.comms_one), crew_id(row.comms_two)) if who],
         'trackerUserId': crew_id(row.tracker),
+        'tracker2UserId': crew_id(row.tracker2),
     }
+
+    return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None

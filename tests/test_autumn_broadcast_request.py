@@ -8,6 +8,13 @@ from ttpbot.autumn.schedule import ScheduleRow
 from ttpbot.autumn.matching import RaceIdentity
 
 class AutumnBroadcastRequestTests(unittest.TestCase):
+    def test_both_trackers_and_tracker_two_only_are_supported_for_tournaments(self):
+        row = replace(self.row, comms_one='', tracker='Tracker', tracker2='Bogie')
+        body = self.build_request(row=row)
+        self.assertEqual((body['trackerUserId'], body['tracker2UserId']), ('managed-2', 'managed-1'))
+        self.assertEqual(self.build_request(row=replace(row, tracker=''))['tracker2UserId'], 'managed-1')
+        self.assertIsNone(self.build_request(row=replace(row, tracker='', tracker2='')))
+
     def setUp(self):
         self.assertIsNotNone(importlib.util.find_spec('ttpbot.autumn.broadcast_request'))
         self.build = importlib.import_module('ttpbot.autumn.broadcast_request').build_broadcast_request

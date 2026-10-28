@@ -80,7 +80,7 @@ def _series_request(race, race_slug, crew, logger):
     if race.game is not None:
         matchup += ' Game {}'.format(race.game)
     trackers = getattr(race, 'trackers', ())
-    return {
+    payload = {
         'leagueKey': race.key,
         'twitchChannel': race.channel,
         'raceSlug': race_slug,
@@ -92,9 +92,11 @@ def _series_request(race, race_slug, crew, logger):
                    enumerate((lower[0], higher[0], lower[1], higher[1]), start=1)],
         'commentatorUserIds': [u for u in (_crew_user_id(crew, n, logger) for n in race.comms) if u],
         'trackerUserId': _crew_user_id(crew, trackers[0] if trackers else None, logger),
+        'tracker2UserId': _crew_user_id(crew, trackers[1] if len(trackers) > 1 else None, logger),
         # Team-scored by summed times: the finishing order is not the result.
         'series': True,
     }
+    return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None
 
 
 def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=False):
@@ -150,13 +152,14 @@ def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=Fa
         ],
         'commentatorUserIds': commentators,
         'trackerUserId': _crew_user_id(crew, race.tracker, logger),
+        'tracker2UserId': _crew_user_id(crew, race.tracker2, logger),
     }
     if coop:
         # One runner from each team is on this booth; their finishing order
         # is not the match result, so the control plane keeps the winner
         # banner off for this race room.
         payload['coop'] = True
-    return payload
+    return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None
 
 
 #: The booth's crew limits: the control plane refuses a request naming more.
@@ -195,9 +198,9 @@ def build_coop_broadcast_request(match, race_slug, crew, logger):
         logger.warning('League co-op %s names %d commentators; the booth takes the first %d (%s)',
                        match.slug, len(names), MAX_COMMENTATORS, ', '.join(names[:MAX_COMMENTATORS]))
     trackers = list(match.trackers)
-    if len(trackers) > 1:
-        logger.warning('League co-op %s names %d trackers; the booth takes %s',
-                       match.slug, len(trackers), trackers[0])
+    if len(trackers) > 2:
+        logger.warning('League co-op %s names %d trackers; the booth takes the first two (%s)',
+                       match.slug, len(trackers), ', '.join(trackers[:2]))
     commentators = [
         user_id for user_id in (
             _crew_user_id(crew, name, logger) for name in names[:MAX_COMMENTATORS]
@@ -210,7 +213,7 @@ def build_coop_broadcast_request(match, race_slug, crew, logger):
         racers.append(dict(_racer_slot(racer, index + 1), team=away_team))
     for index, racer in enumerate(match.home_runners):
         racers.append(dict(_racer_slot(racer, index + 3), team=home_team))
-    return {
+    payload = {
         'leagueKey': primary.key,
         'twitchChannel': primary.channel,
         'raceSlug': race_slug,
@@ -219,5 +222,7 @@ def build_coop_broadcast_request(match, race_slug, crew, logger):
         'racers': racers,
         'commentatorUserIds': commentators,
         'trackerUserId': _crew_user_id(crew, trackers[0] if trackers else None, logger),
+        'tracker2UserId': _crew_user_id(crew, trackers[1] if len(trackers) > 1 else None, logger),
         'coop': True,
     }
+    return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None

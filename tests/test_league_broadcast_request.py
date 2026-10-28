@@ -53,6 +53,12 @@ def race(**overrides):
 
 
 class BuildBroadcastRequestTests(unittest.TestCase):
+    def test_both_trackers_are_sent_without_commentators(self):
+        payload = build_broadcast_request(race(comms=(), tracker='droois', tracker2='Bogie'), 'z1r/test', CREW, QUIET)
+        self.assertEqual(payload['commentatorUserIds'], [])
+        self.assertEqual(payload['trackerUserId'], 'u-c')
+        self.assertEqual(payload['tracker2UserId'], 'u-a')
+
     def setUp(self):
         self.payload = build_broadcast_request(
             race(), 'z1r/adequate-link-4500', CREW, QUIET,
@@ -242,6 +248,7 @@ class BuildCoopBroadcastRequestTests(unittest.TestCase):
         # Bogie appears in both rows; ISUMatt is not on the crew roster.
         self.assertEqual(payload['commentatorUserIds'], ['u-a'])
         self.assertEqual(payload['trackerUserId'], 'u-c')
+        self.assertEqual(payload['tracker2UserId'], 'u-b')
 
     def test_declines_without_a_room_or_a_featured_row(self):
         match = CoopMatch(rows=tuple(coop_rows()))

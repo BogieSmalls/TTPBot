@@ -97,7 +97,10 @@ def booth_request(race_time, occurrence, room_url, crew, logger):
         'racers': [],
         'commentatorUserIds': [who for who in (user_id('comms1'), user_id('comms2')) if who],
         'trackerUserId': user_id('tracker'),
+        'tracker2UserId': user_id('tracker2'),
     }
+    if not (payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId']):
+        return None
     slug = _room_slug(room_url)
     if slug:
         payload['raceSlug'] = slug

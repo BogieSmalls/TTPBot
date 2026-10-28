@@ -55,9 +55,9 @@ class CortoWiringTests(unittest.IsolatedAsyncioTestCase):
   self.assertEqual(title,'Torneo Corto #33 \u2014 BrewersFanJP vs chessjerk [W1-1]')
   self.assertTrue(room_policy.is_corto_room({'goal':{'name':'Beat the game'},'info_user':title}))
   self.assertFalse(room_policy.is_autumn_room({'goal':{'name':'Beat the game'},'info_user':title}))
-  row=ScheduleRow(r.at,'BrewersFanJP','chessjerk','','','','Z1Rracing')
+  row=ScheduleRow(r.at,'BrewersFanJP','chessjerk','','','Tracker','Z1Rracing')
   doc={'event':'corto','format':'single','seeds':list(range(8)),'ranks':{'BrewersFanJP':1,'chessjerk':8},'racetimeIds':{'BrewersFanJP':'one','chessjerk':'two'},'twitchChannels':{'BrewersFanJP':'brewersfanjp','chessjerk':'chessjerk'}}
-  payload=build_broadcast_request(r,row,'https://racetime.gg/z1r/tc-room',doc,None,LOG,edition='33')
+  payload=build_broadcast_request(r,row,'https://racetime.gg/z1r/tc-room',doc,SimpleNamespace(user_id_for=lambda name:'tracker'),LOG,edition='33')
   self.assertEqual(payload['title'],'Torneo Corto #33\nQuarterfinals')
   self.assertEqual(payload['requestKey'],'tournament:corto:33:W1-1:game:1')
   self.assertEqual([p['tournamentSeed'] for p in payload['racers']],['#1','#8'])

@@ -114,7 +114,7 @@ class CoopMatch:
     def trackers(self):
         """Every tracker either row names. Both are credited: silently
         picking one would drop a volunteer from the announcement."""
-        return _unique(row.tracker for row in self.rows)
+        return _unique(name for row in self.rows for name in row.trackers)
 
     @property
     def slug(self):

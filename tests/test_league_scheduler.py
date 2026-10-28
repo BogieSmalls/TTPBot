@@ -1233,7 +1233,7 @@ def _coop_rows(channel_one='Z1Rracing', channel_two=None):
                    channel=channel_one, comms=('SirLinkalot',), game=1, fixture=COOP_FIXTURE),
         LeagueRace(start=START, runner_one=_rival('seanfreston', 'rt-sean', '333'),
                    runner_two=_racer('Stags28', 'rt-stags', '444'),
-                   channel=channel_two, game=1, fixture=COOP_FIXTURE),
+                   channel=channel_two, tracker2='SirLinkalot', game=1, fixture=COOP_FIXTURE),
     ]
 
 

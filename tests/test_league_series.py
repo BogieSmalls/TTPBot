@@ -74,7 +74,10 @@ class SeriesMatchTests(unittest.TestCase):
         self.assertNotIn('Championship Series\n', embed['description'], 'no week flagset line: teams pick per game')
 
     def test_one_booth_shows_all_four_racers(self):
-        [match] = group_coop_matches(series_rows(), Mock(), now=START)
+        from dataclasses import replace
+        rows = series_rows()
+        rows[0] = replace(rows[0], tracker2='Trainee')
+        [match] = group_coop_matches(rows, Mock(), now=START)
         crew = Mock(user_id_for=lambda name: 'u-' + name)
         payload = build_broadcast_request(match, 'example-room-1234', crew, Mock(), series=True)
         self.assertEqual([(r['slot'], r['displayName']) for r in payload['racers']],
@@ -91,3 +94,4 @@ class SeriesMatchTests(unittest.TestCase):
         self.assertEqual(payload['twitchChannel'], 'Z1Rracing')
         self.assertEqual(payload['commentatorUserIds'], ['u-Shatty'])
         self.assertEqual(payload['trackerUserId'], 'u-droois')
+        self.assertEqual(payload['tracker2UserId'], 'u-Trainee')

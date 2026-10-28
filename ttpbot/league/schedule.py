@@ -64,6 +64,7 @@ class LeagueRace:
     #: title, and no way to tell which team is away. Room creation, racer
     #: invites and the Discord post are unaffected - Phase 1 never needed it.
     fixture: Optional[object] = None
+    tracker2: Optional[str] = None
 
     @property
     def away_racer(self):
@@ -106,7 +107,7 @@ class LeagueRace:
 
     @property
     def trackers(self):
-        return (self.tracker,) if self.tracker else ()
+        return tuple(name for name in (self.tracker, self.tracker2) if name)
 
     @property
     def orchestratable(self):
@@ -240,6 +241,7 @@ def parse_schedule(csv_text, roster, logger, matchups=None):
             channel=channel,
             comms=comms,
             tracker=_cell(row, columns, 'tracker') or None,
+            tracker2=_cell(row, columns, 'tracker2') or None,
             game=int(game_text) if game_text.isdigit() else None,
             fixture=fixture,
         ))

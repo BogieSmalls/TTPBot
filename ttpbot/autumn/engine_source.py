@@ -92,7 +92,7 @@ class EngineScheduleSource:
                     slots = (booking or {}).get('crew', {})
                     row = ScheduleRow(at=at, runner_one=pair['a'], runner_two=pair['b'], match_id=match_id, game=game,
                         comms_one=slots.get('comms1', {}).get('name', ''), comms_two=slots.get('comms2', {}).get('name', ''),
-                        tracker=slots.get('tracker', {}).get('name', ''), channel=channels[0]['channel'] if channels else '',
+                        tracker=slots.get('tracker', {}).get('name', ''), tracker2=slots.get('tracker2', {}).get('name', ''), channel=channels[0]['channel'] if channels else '',
                         crew_available=booking is not None)
                 except (KeyError, TypeError, ValueError) as exc:
                     result.bad.append(BadRow(line=0, reason='{} Game {}: {}'.format(match_id, game, exc)))

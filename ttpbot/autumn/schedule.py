@@ -71,11 +71,12 @@ class ScheduleRow:
     # An engine clock remains usable when the separate crew owner is unavailable.
     # Unknown bookings must never be interpreted as a verified booth update.
     crew_available: bool = True
+    tracker2: str = ''
 
     @property
     def crew(self):
         """Whoever is on the restream, in the order the sheet lists them."""
-        return [name for name in (self.comms_one, self.comms_two, self.tracker) if name]
+        return [name for name in (self.comms_one, self.comms_two, self.tracker, self.tracker2) if name]
 
     def as_row(self):
         """The shape `matching.match_rows` takes."""
@@ -188,6 +189,7 @@ def parse_schedule(csv_text, logger=None):
             comms_one=cell(row, columns, 'comms_one'),
             comms_two=cell(row, columns, 'comms_two'),
             tracker=cell(row, columns, 'tracker'),
+            tracker2=cell(row, columns, 'tracker2'),
             channel=cell(row, columns, 'channel'),
             line=line, match_id=match_id, game=int(game_text) if game_text else None, status=status,
         ))

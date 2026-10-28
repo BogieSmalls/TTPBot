@@ -68,12 +68,22 @@ class IdentityTests(unittest.TestCase):
 
 
 class BoothRequestTests(unittest.TestCase):
+    def test_a_booked_channel_without_assigned_crew_does_not_open_a_booth(self):
+        self.assertIsNone(booth_request(EIGHT, {'crew': {}, 'bookings': [{'channel': 'TriforceTriplePlay'}]}, ROOM, None, QUIET))
+
+    def test_tracker_two_alone_is_staffed_and_keeps_its_slot(self):
+        occurrence = {'crew': {'tracker2': {'name': 'Trainee'}}, 'bookings': [{'channel': 'TriforceTriplePlay'}]}
+        payload = booth_request(EIGHT, occurrence, ROOM, Mock(user_id_for=lambda n: 'u-' + n), QUIET)
+        self.assertEqual(payload['commentatorUserIds'], [])
+        self.assertIsNone(payload['trackerUserId'])
+        self.assertEqual(payload['tracker2UserId'], 'u-Trainee')
+
     def test_a_staffed_nightly_asks_for_its_booth_with_crew_channel_and_room(self):
         payload = booth_request(EIGHT, staffed(qualifier=True), ROOM, Mock(user_id_for=lambda n: 'u-' + n), QUIET)
         self.assertEqual(payload, {
             'requestKey': 'ttp:2026-11-06T01:00:00.000Z', 'twitchChannel': 'Z1Rracing5',
             'scheduledAt': '2026-11-06T01:00:00+00:00', 'title': 'TTP Nightly · Torneo Corto qualifier',
-            'racers': [], 'commentatorUserIds': ['u-Alice'], 'trackerUserId': 'u-Bob',
+            'racers': [], 'commentatorUserIds': ['u-Alice'], 'trackerUserId': 'u-Bob', 'tracker2UserId': None,
             'raceSlug': 'z1r/brave-goriya-1234',
         })
 

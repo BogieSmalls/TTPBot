@@ -23,12 +23,12 @@ class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(importlib.util.find_spec('ttpbot.autumn.booths'))
         cls = importlib.import_module('ttpbot.autumn.booths').AutumnBooths
         self.race = race()
-        self.row = ScheduleRow(self.race.at, 'ISUMatt', 'chessjerk', channel='Z1Rracing')
+        self.row = ScheduleRow(self.race.at, 'ISUMatt', 'chessjerk', channel='Z1Rracing', tracker2='Trainee')
         self.engine = SimpleNamespace(
             state=AsyncMock(return_value={'document': {'twitchChannels': {'ISUMatt': 'isumatt', 'chessjerk': 'chessjerk'},
                    'racetimeIds': {'ISUMatt': 'id-one', 'chessjerk': 'id-two'}}}),
             draw=AsyncMock(return_value={'matches': [{'id': 'W1-1', 'number': 1, 'a': 'ISUMatt', 'b': 'chessjerk', 'state': 'ready'}]}))
-        self.crew = SimpleNamespace(refresh=AsyncMock(return_value=True), user_id_for=lambda name: None)
+        self.crew = SimpleNamespace(refresh=AsyncMock(return_value=True), user_id_for=lambda name: 'tracker-two' if name == 'Trainee' else None)
         self.wake = AsyncMock()
         self.booths = cls(engine=self.engine, crew=self.crew, logger=Log(), base_url='https://cp.example', token='secret',
                           edition='2026', wake=self.wake, roster_url='https://cp.example/internal/relay/league/roster')
