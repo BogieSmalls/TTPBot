@@ -6,6 +6,23 @@ from ttpbot.league.database_source import LeagueDatabaseSource
 from ttpbot.league.roster import load_roster
 
 class LeagueDatabaseSourceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_central_staffing_keeps_second_tracker_and_refuses_raw_sheet_fallback(self):
+        now=datetime(2026,10,28,22,20,tzinfo=timezone.utc)
+        source=LeagueDatabaseSource('http://db/league','test','test',load_roster(),logging.getLogger('test'),require_central_staffing=True)
+        book={'environment':'test','sourceId':'1MEyO03Wib6iyH7-75e-orh2K75AATwEoJB9HlTe9VgM','fetchedAt':now.isoformat(),'staffing':{'authority':'data','races':[]},'tables':[
+            {'id':2033319762,'rows':[['Date','Time','Game','Runner 1','Runner 2','Tracker','Tracker 2','Channel'],['10/28/2026','8:00:00 PM','1','(BM) Flipheal','(TLR) Hyo24','','Buddy','Z1Rracing']]},
+            {'id':264392304,'rows':[['Week 8'],['Division','TBD','TBD']]},
+        ]}
+        source._read=AsyncMock(return_value=book)
+        races=await source.races(now)
+        self.assertEqual(len(races),1)
+        self.assertEqual(races[0].tracker2,'Buddy')
+        self.assertIsNone(races[0].tracker)
+        source._snapshot=None
+        source._read_at=None
+        del book['staffing']
+        self.assertEqual(await source.races(now),[])
+
     async def test_snapshot_has_both_tonight_races_and_stale_copy_cannot_open_rooms(self):
         now=datetime(2026,10,16,22,20,tzinfo=timezone.utc)
         source=LeagueDatabaseSource('http://db/league','test','test',load_roster(),logging.getLogger('test'))

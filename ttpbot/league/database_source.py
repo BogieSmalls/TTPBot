@@ -17,11 +17,12 @@ def csv_text(rows):
     return out.getvalue()
 
 class LeagueDatabaseSource:
-    def __init__(self, url, token, environment, roster, logger):
+    def __init__(self, url, token, environment, roster, logger, require_central_staffing=False):
         if not url or not token or environment not in ('production', 'staging', 'test'):
             raise ValueError('League database URL, reader token and environment required')
         self.url, self.token, self.environment = url, token, environment
         self.roster, self.logger = roster, logger
+        self.require_central_staffing = require_central_staffing
         self._snapshot = None
         self._read_at = None
 
@@ -40,6 +41,8 @@ class LeagueDatabaseSource:
                 book = await self._read()
                 if book.get('environment') != self.environment or book.get('sourceId') != SOURCE_ID:
                     raise ValueError('League database source mismatch')
+                if self.require_central_staffing and book.get('staffing', {}).get('authority') != 'data':
+                    raise ValueError('Central League staffing has not synced')
                 ids = {t['id'] for t in book['tables']}
                 if not {2033319762, 264392304}.issubset(ids):
                     raise ValueError('League database tabs missing')
@@ -88,6 +91,9 @@ class LeagueDatabaseSource:
 def configured_source(env, roster, logger):
     url = env.get('LEAGUE_READ_MODEL_URL', '').strip()
     if not url:
+        if env.get('LEAGUE_CENTRAL_STAFFING') == '1':
+            raise ValueError('Central League staffing requires the database source')
         return None
     return LeagueDatabaseSource(url, env.get('LEAGUE_READ_MODEL_TOKEN', ''),
-                                env.get('LEAGUE_READ_MODEL_ENVIRONMENT', ''), roster, logger)
+                                env.get('LEAGUE_READ_MODEL_ENVIRONMENT', ''), roster, logger,
+                                require_central_staffing=env.get('LEAGUE_CENTRAL_STAFFING') == '1')

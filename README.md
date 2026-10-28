@@ -201,3 +201,7 @@ remain available. This integration neither sends chat nor wakes a CP.
 ## License
 
 MIT
+
+## Central League staffing
+
+Set `LEAGUE_CENTRAL_STAFFING=1` alongside the League database read-model configuration after the Data/relay cutover. Week 8 onward receives both trackers and the channel from Data's central staffing projection; schedules, runners and flags still originate in the League sheet. The bot refuses a raw-sheet snapshot in this mode. No Tracker 2 sheet column is needed. The four-racer co-op/Championship builders deduplicate the shared crew from both paired rows. Earlier League weeks retain their original assignments.
