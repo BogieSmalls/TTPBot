@@ -2,7 +2,8 @@
 import logging
 import unittest
 from datetime import datetime, timedelta
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from ttpbot.config import TIMEZONE
 from ttpbot.nightly import NightlyBooths, booth_request, occurrence_key, occurrence_match_id
@@ -107,23 +108,19 @@ class NightlyBoothsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await nightly.register_upcoming(now + timedelta(hours=23)), 0, 'not again within the day')
         self.assertGreater(await nightly.register_upcoming(now + timedelta(days=1)), 0, 'again the next day')
 
-    async def test_opens_a_staffed_booth_at_the_reminder_and_again_only_when_the_room_arrives(self):
-        game = 'ttp-nightly:2026:N20261106T010000Z:1'
-        requests = _Requests({'/games/' + game: _Response(200, staffed()),
+    async def test_no_booth_before_the_room_exists(self):
+        requests = _Requests({'/games/': _Response(200, staffed()),
+                              '/internal/relay/ttp/broadcast': _Response(200, {'outcome': 'staged', 'broadcastId': 'b1'})})
+        self.assertIsNone(await booths(requests).maybe_open_booth(EIGHT, None, EIGHT - timedelta(minutes=20)))
+        self.assertFalse(any('ttp/broadcast' in c['url'] for c in requests.calls))
+
+    async def test_the_same_request_is_not_resent(self):
+        requests = _Requests({'/games/': _Response(200, staffed()),
                               '/internal/relay/ttp/broadcast': _Response(200, {'outcome': 'staged', 'broadcastId': 'b1'})})
         nightly = booths(requests)
-        self.assertIsNone(await nightly.maybe_open_booth(EIGHT, None, EIGHT - timedelta(minutes=25)), 'not before the reminder')
-        outcome = await nightly.maybe_open_booth(EIGHT, None, EIGHT - timedelta(minutes=20))
-        self.assertEqual(outcome.outcome, 'staged')
-        booth_calls = [c for c in requests.calls if 'ttp/broadcast' in c['url']]
-        self.assertEqual(len(booth_calls), 1)
-        self.assertNotIn('raceSlug', booth_calls[0]['json'])
-        # The same request again is not resent; the room arriving is.
-        await nightly.maybe_open_booth(EIGHT, None, EIGHT - timedelta(minutes=19))
-        await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=18))
-        booth_calls = [c for c in requests.calls if 'ttp/broadcast' in c['url']]
-        self.assertEqual(len(booth_calls), 2)
-        self.assertEqual(booth_calls[1]['json']['raceSlug'], 'z1r/brave-goriya-1234')
+        await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=30))
+        await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=29))
+        self.assertEqual(len([c for c in requests.calls if 'ttp/broadcast' in c['url']]), 1)
 
     async def test_a_late_booking_still_opens_the_booth_after_the_start(self):
         # Council books the channel after the reminder; the race is already running.
@@ -137,16 +134,70 @@ class NightlyBoothsTests(unittest.IsolatedAsyncioTestCase):
         # Three hours after the start the race is over; no booth.
         self.assertIsNone(await booths(requests).maybe_open_booth(EIGHT, ROOM, EIGHT + timedelta(hours=3)))
 
-    def test_the_booth_window_runs_from_the_reminder_to_three_hours_after_the_start(self):
+    def test_the_booth_window_runs_from_the_room_to_three_hours_after_the_start(self):
         from ttpbot.nightly import booth_window_open, races_in_booth_window
-        self.assertFalse(booth_window_open(EIGHT, EIGHT - timedelta(minutes=21)))
-        self.assertTrue(booth_window_open(EIGHT, EIGHT - timedelta(minutes=20)))
+        self.assertFalse(booth_window_open(EIGHT, EIGHT - timedelta(minutes=31)))
+        self.assertTrue(booth_window_open(EIGHT, EIGHT - timedelta(minutes=30)))
         self.assertTrue(booth_window_open(EIGHT, EIGHT + timedelta(hours=2, minutes=59)))
         self.assertFalse(booth_window_open(EIGHT, EIGHT + timedelta(hours=3)))
         # Just after midnight the 10 PM race (yesterday's date) is still in its window.
         self.assertIn(TEN, races_in_booth_window(TEN + timedelta(hours=2, minutes=30)))
 
+    async def test_unfeatured_nightly_gets_no_booth(self):
+        requests = _Requests({'/games/': _Response(200, {'crew': {'comms1': {'name': 'Alice'}}, 'bookings': []})})
+        self.assertIsNone(await booths(requests).maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=30)))
+        self.assertFalse(any('ttp/broadcast' in c['url'] for c in requests.calls))
+
     async def test_an_unstaffed_nightly_gets_no_booth(self):
         requests = _Requests({'/games/': _Response(200, {'crew': {}, 'bookings': []})})
         self.assertIsNone(await booths(requests).maybe_open_booth(TEN, ROOM, TEN - timedelta(minutes=20)))
         self.assertFalse(any('ttp/broadcast' in c['url'] for c in requests.calls))
+
+
+class SchedulerBoothTests(unittest.IsolatedAsyncioTestCase):
+    """The scheduler opens a featured nightly's booth in the tick that creates its room (Bogie, 2026-10-29)."""
+
+    def bot(self, booth_status=200):
+        self.requests = _Requests({'/games/ttp-nightly:2026:N20261106T010000Z:1': _Response(200, staffed()),
+                                   '/internal/relay/ttp/broadcast': _Response(booth_status, {'outcome': 'staged', 'broadcastId': 'b1'})})
+        nightly = booths(self.requests)
+        nightly.register_upcoming = _done
+        rooms = []
+
+        async def create(race_time):
+            rooms.append(race_time)
+            return ROOM
+        fake = SimpleNamespace(created_races={}, sent_webhooks=set(), _save_created_races=lambda: None,
+                               _save_sent_webhooks=lambda: None, _create_race_room=create, nightly=nightly,
+                               loop=SimpleNamespace(create_task=lambda coro: coro.close()), _send_webhook=_done)
+        fake.rooms = rooms
+        return fake
+
+    def booth_calls(self):
+        return [c for c in self.requests.calls if 'ttp/broadcast' in c['url']]
+
+    async def test_booth_opens_with_its_room(self):
+        bot = self.bot()
+        await _tick(bot, EIGHT - timedelta(minutes=30))
+        self.assertEqual(bot.rooms, [EIGHT])
+        self.assertEqual([c['json']['raceSlug'] for c in self.booth_calls()], ['z1r/brave-goriya-1234'])
+
+    async def test_late_retry_keeps_its_room(self):
+        bot = self.bot(booth_status=500)
+        await _tick(bot, EIGHT - timedelta(minutes=30))
+        self.requests.answers['/internal/relay/ttp/broadcast'] = _Response(200, {'outcome': 'staged', 'broadcastId': 'b1'})
+        await _tick(bot, EIGHT + timedelta(hours=2, minutes=30))
+        self.assertEqual([c['json'].get('raceSlug') for c in self.booth_calls()], ['z1r/brave-goriya-1234'] * 2)
+
+
+async def _done(*_):
+    return 0
+
+
+async def _tick(fake, at):
+    from ttpbot.bot import TTPBot
+    clock = Mock(wraps=datetime)
+    clock.now = lambda tz=None: at
+    clock.fromisoformat = datetime.fromisoformat
+    with patch('ttpbot.bot.datetime', clock):
+        await TTPBot._check_and_create_races(fake)

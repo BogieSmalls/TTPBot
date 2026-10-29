@@ -428,9 +428,12 @@ class TTPBot(Bot):
     async def _check_and_create_races(self):
         now = datetime.now(TIMEZONE)
 
-        # Clean up stale tracking entries (older than 2 hours)
+        # Clean up stale tracking entries. A room is remembered for as long as its
+        # nightly may still get a booth (three hours), so a late retry carries it.
+        from .nightly import BOOTH_HOURS_AFTER_START
+        room_cutoff = now - timedelta(hours=BOOTH_HOURS_AFTER_START)
         cutoff = now - timedelta(hours=2)
-        stale = [k for k in self.created_races if datetime.fromisoformat(k) <= cutoff]
+        stale = [k for k in self.created_races if datetime.fromisoformat(k) <= room_cutoff]
         if stale:
             for key in stale:
                 del self.created_races[key]
@@ -467,8 +470,8 @@ class TTPBot(Bot):
                 self.sent_webhooks.add(race_key)
                 self._save_sent_webhooks()
 
-        # A nightly Council staffed gets its booth from the reminder until three hours after
-        # its start (a late booking still goes on stream), and its room once it exists.
+        # A nightly Council featured gets its booth in the tick that creates its room (T-30),
+        # and is retried until three hours after its start (a late booking still goes on stream).
         nightly = getattr(self, 'nightly', None)
         if nightly is not None:
             from .nightly import races_in_booth_window
