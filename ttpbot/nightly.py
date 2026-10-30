@@ -22,6 +22,7 @@ import aiohttp
 
 from .league.booth import request_booth
 from .league.wake import wake_control_plane
+from .config import ROOM_OPEN_MINUTES_BEFORE
 from .schedule import get_races_for_date
 
 #: How far ahead nightly races are registered for Council to staff.
@@ -29,8 +30,9 @@ REGISTER_DAYS = 7
 #: The 7-day window moves a day at a time, so once a day picks up each new race (Bogie, 2026-10-25).
 #: Registering again is harmless; a restart registers on its first tick.
 REGISTER_EVERY = timedelta(days=1)
-#: A staffed nightly's booth opens with the race's reminder.
-BOOTH_MINUTES_BEFORE = 20
+#: A featured nightly's booth opens with its room, at T-30 (Bogie, 2026-10-29); the
+#: T-20 Discord reminder is a separate thing.
+BOOTH_MINUTES_BEFORE = ROOM_OPEN_MINUTES_BEFORE
 #: ...and can still be opened after the race starts, if Council books a channel late:
 #: a race can go on stream last minute, like any other (Bogie, 2026-10-25). Three hours
 #: is how long the Council page keeps a started nightly listed.
@@ -39,7 +41,7 @@ OWNER_TIMEOUT_SECONDS = 8
 
 
 def booth_window_open(race_time, now):
-    """From the reminder until three hours after the start: when a staffed nightly may get its booth."""
+    """From the room until three hours after the start: when a staffed nightly may get its booth."""
     return (race_time - timedelta(minutes=BOOTH_MINUTES_BEFORE) <= now
             < race_time + timedelta(hours=BOOTH_HOURS_AFTER_START))
 
@@ -177,8 +179,8 @@ class NightlyBooths:
         return count
 
     async def maybe_open_booth(self, race_time, room_url, now):
-        """At the reminder, a staffed nightly's booth; the room attaches when it exists. Never raises."""
-        if not self.configured or not self.booth_url or not self.booth_token:
+        """A staffed nightly's booth, once its room exists; never without it. Never raises."""
+        if not self.configured or not self.booth_url or not self.booth_token or not room_url:
             return None
         if not booth_window_open(race_time, now):
             return None
