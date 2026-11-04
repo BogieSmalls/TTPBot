@@ -1,5 +1,10 @@
 # TTPBot OCI Service Runbook
 
+Cancelled-room recovery uses the engine's saved recovery receipts to enforce
+one automatic replacement per scheduled time, including after a bot restart.
+Failed Live Ops notices stay queued for the next running scheduler tick even
+after the retired room has been replaced. The notice retry queue is in memory.
+
 ## Layout
 
 - App: `/opt/ttpbot`

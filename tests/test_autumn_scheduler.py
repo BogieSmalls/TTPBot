@@ -935,7 +935,7 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
         await runner.tick(at(START, 21))
         await runner.tick(at(START, 20))
         self.assertEqual(opened, [ROOM, ROOM2])
-        self.assertEqual((await engine.state())['document']['rooms']['W1-1|1']['room'], ROOM2)
+        self.assertEqual((await engine.state())['document']['rooms'].get('W1-1|1', {}).get('room'), ROOM2)
         self.assertTrue(any('already replaced' in e for e in log.errors))
         self.assertEqual(len(told), 2, 'one notice per problem, not one per tick')
         self.assertIn(ROOM2, told[1]); self.assertIn('Council', told[1]); self.assertIn('/tournament room action:replace', told[1])
@@ -953,6 +953,42 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
             await runner.tick(at(START, 24))
         self.assertEqual(opened, [ROOM])
         self.assertEqual((await engine.state())['document']['rooms']['W1-1|1']['room'], ROOM)
+
+    async def test_retired_notice_retries_after_the_room_has_been_replaced(self):
+        engine = await self._engine()
+        rooms = {'next': [ROOM, ROOM2], 'facts': {ROOM: {'status': 'open', 'startedAt': None, 'entrantIds': []}}}
+        opened, handed, attempts = [], [], []
+        runner = self._scheduler(engine, rooms, opened, handed)
+        async def notify(message):
+            attempts.append(message)
+            return len(attempts) > 1
+        runner._notify_live_ops = notify
+        await runner.tick(at(START, 25))
+        rooms['facts'][ROOM] = {'status': 'cancelled', 'startedAt': None, 'entrantIds': []}
+        await runner.tick(at(START, 24))
+        rooms['facts'][ROOM2] = {'status': 'open', 'startedAt': None, 'entrantIds': []}
+        await runner.tick(at(START, 23))
+        await runner.tick(at(START, 22))
+        self.assertEqual(opened, [ROOM, ROOM2])
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[0], attempts[1])
+
+    async def test_restart_does_not_allow_a_second_replacement_at_the_same_time(self):
+        engine = await self._engine()
+        cancelled = {'status': 'cancelled', 'startedAt': None, 'entrantIds': []}
+        rooms = {'next': [ROOM, ROOM2], 'facts': {ROOM: {'status': 'open', 'startedAt': None, 'entrantIds': []}}}
+        opened, handed, told = [], [], []
+        runner = self._scheduler(engine, rooms, opened, handed)
+        await runner.tick(at(START, 25))
+        rooms['facts'][ROOM] = cancelled
+        await runner.tick(at(START, 24))
+        rooms['facts'][ROOM2] = cancelled
+        await runner.tick(at(START, 23))
+        restarted = self._scheduler(engine, rooms, opened, handed, told=told)
+        await restarted.tick(at(START, 22))
+        self.assertEqual((await engine.state())['document']['rooms']['W1-1|1']['room'], ROOM2)
+        self.assertEqual(len(told), 1)
+        self.assertIn('second canceled room', told[0])
 
 
 class CancelledRoomFailureTests(unittest.IsolatedAsyncioTestCase):

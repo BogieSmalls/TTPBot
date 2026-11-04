@@ -106,6 +106,8 @@ class AutumnScheduler:
         # Posts a plain-text notice to the Live Ops thread; True when it went.
         self._notify_live_ops = notify_live_ops
         self._live_ops_told = set()
+        self._pending_live_ops = {}
+        self._live_ops_retried = set()
         self._before_tick = before_tick
         self._workflow = False
         self._workflow_document = None
@@ -212,6 +214,10 @@ class AutumnScheduler:
     async def tick(self, now):
         if not self.configured or self.stopped:
             return
+        self._live_ops_retried.clear()
+        for signature, message in list(self._pending_live_ops.items()):
+            await self._tell_live_ops(signature, message)
+            self._live_ops_retried.add(signature)
         if self._before_tick is not None:
             try:
                 await self._before_tick()
@@ -597,7 +603,17 @@ class AutumnScheduler:
 
         key = self._match_key(race.match_id, race.identity.game)
         when = race.at.isoformat()
-        if self._auto_replaced.get(key) == when:
+        actions = (self._workflow_document or {}).get('actions', {})
+        # The engine retains recovery receipts across bot restarts. Its current
+        # edition scopes these actions; the decision also binds the race time.
+        already_replaced = any(
+            recovery.get('actor') == 'ttpbot' and recovery.get('decision') == 'replace'
+            and recovery.get('decisionId') == 'ttpbot-replace:{}:{}'.format(recovery.get('room'), when)
+            for action in actions.values()
+            if action.get('kind') == 'race-room' and action.get('matchId') == race.match_id
+            and action.get('game') == race.identity.game
+            for recovery in action.get('recoveries', []))
+        if self._auto_replaced.get(key) == when or already_replaced:
             self.logger.error(
                 'Autumn: %s game %s room %s was cancelled before it started, and this '
                 'scheduled time was already replaced once; leaving it to the Council '
@@ -606,7 +622,6 @@ class AutumnScheduler:
                 race, url, 'this is the second canceled room for this race time, so TTPBot '
                 'will not open another one on its own'))
             return True
-        actions = (self._workflow_document or {}).get('actions', {})
         action = actions.get(room.get('actionId')) or next(
             (a for a in actions.values() if a.get('kind') == 'race-room' and a.get('room') == url
              and a.get('matchId') == race.match_id and a.get('game') == race.identity.game
@@ -667,8 +682,9 @@ class AutumnScheduler:
 
     async def _tell_live_ops(self, signature, message):
         """Once per problem, not once per tick; a notice Discord did not take is tried again."""
-        if self._notify_live_ops is None or signature in self._live_ops_told:
+        if self._notify_live_ops is None or signature in self._live_ops_told or signature in self._live_ops_retried:
             return
+        self._pending_live_ops[signature] = message
         try:
             told = await self._notify_live_ops(message)
         except Exception:
@@ -676,6 +692,7 @@ class AutumnScheduler:
             return
         if told:
             self._live_ops_told.add(signature)
+            self._pending_live_ops.pop(signature, None)
 
     async def _room(self, race, row):
         """The room for this match, making it if there is not one yet.
