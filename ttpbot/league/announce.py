@@ -97,7 +97,7 @@ def build_announcement(race, race_url, crew=None, continuation=False, matchup_ur
     segments = [
         _crew_line('Comms', getattr(race, 'comms', ()), crew, allowed),
         _crew_line('Tracker', race.trackers, crew, allowed),
-    ]
+    ] if _channel_line(race) else []
     staffed = NEWLINE.join(segment for segment in segments if segment)
     if continuation:
         description = BLANK_LINE.join((description, ALREADY_ON_AIR))
@@ -138,7 +138,7 @@ def build_continuation_notice(race, race_url, crew=None):
         _channel_line(race),
         _crew_line('Comms', getattr(race, 'comms', ()), crew, allowed),
         _crew_line('Tracker', race.trackers, crew, allowed),
-    ]
+    ] if _channel_line(race) else []
     staffed = NEWLINE.join(segment for segment in segments if segment)
     content = 'Correction for <{}> — {}'.format(race_url, ALREADY_ON_AIR)
     if staffed:

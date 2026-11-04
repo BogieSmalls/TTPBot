@@ -98,6 +98,16 @@ def _staffed_race(comms=(), tracker=None):
 
 
 class CrewTaggingTests(unittest.TestCase):
+    def test_assigned_crew_without_a_channel_are_not_notified(self):
+        from ttpbot.league.announce import build_continuation_notice
+        for channel in (None,'','   '):
+            race=replace(_staffed_race(comms=('SpecialK',),tracker='GrandpaSzabo'),channel=channel)
+            body=build_announcement(race,ROOM,crew=CREW)
+            self.assertEqual(body['allowed_mentions']['users'],['111','222'])
+            self.assertEqual(body['embeds'][0]['fields'],[])
+            self.assertIn(ROOM,body['embeds'][0]['description'])
+            self.assertEqual(build_continuation_notice(race,ROOM,crew=CREW)['allowed_mentions']['users'],[])
+
     def test_tags_comms_and_tracker_alongside_the_racers(self):
         body = build_announcement(
             _staffed_race(comms=('SpecialK',), tracker='GrandpaSzabo'), ROOM, crew=CREW,
@@ -216,7 +226,9 @@ class CoopAnnouncementTests(unittest.TestCase):
         self.assertEqual(body['allowed_mentions'], {'parse': [], 'users': ['111', '222', '333', '444']})
 
     def test_credits_both_trackers_when_the_rows_differ(self):
-        body = build_announcement(_coop_match('droois', 'ISUMatt'), ROOM)
+        match = _coop_match('droois', 'ISUMatt')
+        match = replace(match, rows=tuple(replace(row, channel='Z1Rracing') for row in match.rows))
+        body = build_announcement(match, ROOM)
         self.assertIn('Tracker: droois, ISUMatt', body['embeds'][0]['fields'][0]['value'])
 
     def test_the_1v1_post_uses_the_same_layout(self):

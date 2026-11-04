@@ -8,6 +8,16 @@ from ttpbot.autumn.schedule import ScheduleRow
 from ttpbot.league.booth import BoothOutcome
 
 class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
+    async def test_assigned_crew_without_channel_do_not_wake_or_request_booth(self):
+        from dataclasses import replace
+        unbroadcast=replace(self.row,channel='',comms_one='Shatty',tracker='Lime')
+        with patch('ttpbot.autumn.booths.request_booth',new_callable=AsyncMock) as request:
+            await self.booths.prepare(self.race,'')
+            await self.booths.request(self.race,unbroadcast,ROOM_URL)
+            request.assert_not_awaited()
+        self.wake.assert_not_awaited()
+        self.crew.refresh.assert_not_awaited()
+
     async def test_roster_and_booth_requests_use_different_credentials(self):
         from ttpbot.autumn.booths import AutumnBooths
         booths = AutumnBooths(engine=self.engine, crew=self.crew, logger=Log(), base_url='https://cp.example',

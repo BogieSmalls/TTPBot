@@ -353,7 +353,8 @@ class AutumnScheduler:
         # announcement that failed once is a match nobody was told about, and
         # tying it to the creation meant it was never tried again.
         booth = None
-        if self._request_booth is not None and getattr(row, 'crew_available', True):
+        if (self._request_booth is not None and getattr(row, 'crew_available', True)
+                and (getattr(row, 'channel', '') or '').strip()):
             try:
                 booth = await self._request_booth(race, row, url)
             except Exception:
@@ -418,7 +419,7 @@ class AutumnScheduler:
         """
         if self._wake_booth is None or not getattr(row, 'crew_available', True):
             return
-        channel = getattr(row, 'channel', '') if row else ''
+        channel = (getattr(row, 'channel', '') or '').strip()
         signature = (channel, tuple(getattr(row, 'crew', ()) or ()))
         key = self._match_key(race.match_id, race.identity.game)
         if self._woken.get(key) == signature:
@@ -685,12 +686,13 @@ class AutumnScheduler:
             phase = 'continuation'
         else:
             phase = 'room'
+        channel = (getattr(row, 'channel', '') or '').strip()
         try:
             answer = await self.engine.queue_announcement(dict(
                 edition=self.engine.edition, matchId=race.match_id, game=race.identity.game,
                 room=url, phase=phase, continuation=continuation,
-                restreamChannel=getattr(row, 'channel', '') or '',
-                crew=list(getattr(row, 'crew', ()) or ())))
+                restreamChannel=channel,
+                crew=list(getattr(row, 'crew', ()) or ()) if channel else []))
             if not answer.ok:
                 self.logger.error('Autumn: announcement queue unconfirmed for %s; no Discord post attempted', race.match_id)
                 return

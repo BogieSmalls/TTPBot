@@ -203,7 +203,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             or getattr(bot, event + '_webhook_url', None), logger,
             ids=ids, label=_round_label(race.match_id),
             continuation=bool(booth and booth.is_continuation), correction=correction,
-            crew=tuple(getattr(row, 'crew', ()) or ()),
+            crew=tuple(getattr(row, 'crew', ()) or ()) if (getattr(row, 'channel', '') or '').strip() else (),
             channel_id=(env.get('TTPBOT_{}_DISCORD_CHANNEL_ID'.format(prefix)) or '').strip(),
             bot_token=(env.get('TTPBOT_{}_DISCORD_BOT_TOKEN'.format(prefix))
                        or env.get('TTPBOT_LEAGUE_DISCORD_BOT_TOKEN') or '').strip())

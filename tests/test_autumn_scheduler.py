@@ -762,6 +762,33 @@ class RetiredRoomTests(unittest.IsolatedAsyncioTestCase):
         await runner._handle(race,None,at(START,45));runner._room_work.assert_awaited_once()
 
 class AnnouncementChannelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_room_and_racer_invites_continue_without_channel_but_booth_does_not(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        runner=AutumnScheduler(FakeSource(''),SimpleNamespace(edition='2026'),Log())
+        runner._workflow=True;runner._workflow_document={}
+        runner._mirror=AsyncMock(return_value=True)
+        runner._room_work=AsyncMock(return_value={'mayWake':True,'mayOpen':True})
+        runner._room_v2=AsyncMock(return_value=ROOM)
+        runner._wake_booth=AsyncMock();runner._request_booth=AsyncMock()
+        runner._let_in=AsyncMock();runner._tell=AsyncMock()
+        race=SimpleNamespace(match_id='W1-1',identity=SimpleNamespace(game=1),at=START,status='scheduled',conditional=False)
+        await runner._handle(race,SimpleNamespace(channel='',crew=('Lime','Shatty')),at(START,30))
+        runner._room_v2.assert_awaited_once();runner._let_in.assert_awaited_once_with(race,ROOM)
+        runner._tell.assert_awaited_once();runner._wake_booth.assert_not_awaited();runner._request_booth.assert_not_awaited()
+
+    async def test_assigned_crew_without_a_channel_are_not_queued_for_notification(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        engine=SimpleNamespace(edition='2026',queue_announcement=AsyncMock(return_value=Written(RECORDED)))
+        runner=AutumnScheduler(FakeSource(''),engine,Log())
+        runner._workflow=True
+        race=SimpleNamespace(match_id='W1-1',identity=SimpleNamespace(game=1))
+        await runner._tell(race,SimpleNamespace(channel='',crew=('Lime','Shatty')),ROOM)
+        request=engine.queue_announcement.call_args.args[0]
+        self.assertEqual(request['room'],ROOM)
+        self.assertEqual(request['crew'],[])
+
     async def test_queued_notice_carries_the_assigned_channel_and_crew(self):
         from types import SimpleNamespace
         from unittest.mock import AsyncMock

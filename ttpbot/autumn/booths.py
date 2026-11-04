@@ -18,13 +18,15 @@ class AutumnBooths:
         self._outcomes = {}
 
     async def prepare(self, race, channel):
+        if not (channel or '').strip():
+            return
         if self.wake is not None:
             await self.wake(race, channel)
         if not await self.crew.refresh(self.roster_url, self.roster_token):
             raise RuntimeError('the crew roster has not refreshed yet')
 
     async def request(self, race, row, room_url):
-        if row is None or not row.channel:
+        if row is None or not (row.channel or '').strip():
             return BoothOutcome()
         try:
             drawn = await self.engine.draw()
