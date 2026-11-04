@@ -319,6 +319,11 @@ class AutumnEngine:
     async def room_work(self, payload):
         return await self._post('roomWork', payload)
 
+    async def recover_room(self, payload):
+        """Retire or attach a room. TTPBot uses it only to retire a bound room
+        racetime cancelled before it started; the Council does the rest."""
+        return await self._post('recoverRoom', payload)
+
     async def import_room(self, payload):
         if payload.get('room'):
             return await self.bind_result_room(payload)

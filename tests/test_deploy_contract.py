@@ -28,6 +28,8 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL",
             "TTPBOT_LEAGUE_DISCORD_BOT_TOKEN",
             "TTPBOT_LEAGUE_SCHEDULING_CHANNEL_ID",
+            "TTPBOT_LIVEOPS_THREAD_ID",
+            "TTPBOT_PORTAL_URL", "Z1RR_TC_CHAT_TOKEN",
             "TTPBOT_LEAGUE_RESULTS_ENABLED",
             "TTPBOT_GRACE_ENABLED",
             "TTPBOT_GRACE_ENFORCED",

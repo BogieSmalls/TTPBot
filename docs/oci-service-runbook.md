@@ -1,5 +1,10 @@
 # TTPBot OCI Service Runbook
 
+Cancelled-room recovery uses the engine's saved recovery receipts to enforce
+one automatic replacement per scheduled time, including after a bot restart.
+Failed Live Ops notices stay queued for the next running scheduler tick even
+after the retired room has been replaced. The notice retry queue is in memory.
+
 ## Layout
 
 - App: `/opt/ttpbot`
@@ -67,6 +72,24 @@ Sheet fallback in engine mode. If crew Data is temporarily unavailable,
 engine-authorized room/invite work continues but wake/booth changes wait for
 current bookings. Tests in `test_corto_wiring.py` exercise the next edition's
 schedule, reschedule, room, restart and Council result against the real engine.
+
+A bound Autumn/Corto room that racetime cancelled before it started is never
+handed out again (since 2026-11-04; L3-2 on 11-03 was handed a room cancelled on
+10-30). From the wake lead onward, TTPBot reads the bound room. If it is
+`cancelled` with no start, TTPBot retires it with the same engine recovery as the
+Council's `/tournament room action:replace` (actor `ttpbot`), and the next tick
+opens a fresh room. That happens once per match and scheduled time. A second
+cancellation, a room with no engine action, or a refused retirement is logged as
+an error, and the room is not used. Those need the Council. Look for
+`was cancelled before it started` in `journalctl -u ttpbot`.
+
+Each case also posts one notice to the private Live Ops thread, where anyone
+watching on race night can see it, not only the Council. The notice says what
+happened, what TTPBot did, what anyone can do, and the exact Council command when
+one is needed. Set `TTPBOT_LIVEOPS_THREAD_ID=1519186063590035518` in
+`/etc/ttpbot.env`. The bot behind `TTPBOT_LEAGUE_DISCORD_BOT_TOKEN` (the same bot
+the relay posts Live Ops alerts as) must be a member of that private thread.
+Unset, it only logs. A notice Discord does not accept is tried again next tick.
 
 ```bash
 sudo useradd -r -s /usr/sbin/nologin ttpbot || true

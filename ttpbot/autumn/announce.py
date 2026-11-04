@@ -69,6 +69,32 @@ def build_announcement(race, race_url, ids=None, label=None, crew=(),
     }
 
 
+async def post_live_ops(content, thread_id, bot_token, logger, requester=None):
+    """Post plain text to the private Live Ops thread. True only when Discord took it.
+
+    The thread is where the relay's encoder and League alerts already go, read
+    by whoever is watching on race night, Council or not. Nothing here pings.
+    """
+    if not bot_token or not str(thread_id or '').isdigit():
+        logger.warning('Autumn: Live Ops notices are not configured; logged only')
+        return False
+    request = requester if requester is not None else aiohttp.request
+    try:
+        async with request(
+            method='post',
+            url='https://discord.com/api/v10/channels/{}/messages'.format(thread_id),
+            headers={'Authorization': 'Bot ' + bot_token},
+            json={'content': content[:1900], 'allowed_mentions': {'parse': []}},
+            timeout=aiohttp.ClientTimeout(total=WEBHOOK_TIMEOUT_SECONDS),
+        ) as response:
+            if response.status in (200, 201):
+                return True
+            logger.error('Autumn: Discord refused the Live Ops notice (HTTP %d)', response.status)
+    except (aiohttp.ClientError, asyncio.TimeoutError, TypeError) as exc:
+        logger.error('Autumn: Live Ops notice failed (%s)', type(exc).__name__)
+    return False
+
+
 async def send_autumn_announcement(race, race_url, webhook_url, logger, ids=None,
                                    label=None, crew=(), requester=None,
                                    bot_token=None, channel_id=None,
