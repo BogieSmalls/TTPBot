@@ -36,7 +36,7 @@ from urllib.parse import urlsplit
 from ..config import TIMEZONE
 from .announce import send_autumn_announcement
 from .engine import engine_from_env
-from .rooms import create_autumn_room, room_title, recover_autumn_room
+from .rooms import create_autumn_room, room_title, recover_autumn_room, read_autumn_room
 from .scheduler import AutumnScheduler
 from .source import AutumnSource
 from .engine_source import EngineScheduleSource
@@ -136,6 +136,9 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         return await create_autumn_room(
             race, bot.provider, getattr(bot, 'access_token', None), logger,
             label=_round_label(race.match_id))
+
+    async def read_room(url):
+        return await read_autumn_room(url, logger)
 
     async def recover_room(race, action):
         return await recover_autumn_room(race, bot.provider, getattr(bot, 'access_token', None), logger,
@@ -257,6 +260,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         announce_continuation=announce_continuation,
         open_room=open_room,
         recover_room=recover_room,
+        read_room=read_room,
         wake_booth=booths.prepare if booths else wake,
         request_booth=booths.request if booths else None,
         announce=announce,

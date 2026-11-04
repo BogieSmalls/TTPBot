@@ -465,5 +465,34 @@ class OneMatchThroughTheRealAdapters(unittest.TestCase):
         self.assertTrue(restarted.announced['autumn|W1-1'])
 
 
+class ReadingABoundRoom(unittest.TestCase):
+    """What racetime says about a room the engine bound (L3-2, 2026-11-03)."""
+
+    def setUp(self):
+        self.log = Log()
+
+    def read(self, *answers):
+        from ttpbot.autumn.rooms import read_autumn_room
+        endpoint = Endpoint(*answers)
+        return run(read_autumn_room(ROOM_URL, self.log, requester=endpoint)), endpoint
+
+    def test_reports_a_cancelled_room_that_never_started(self):
+        facts, endpoint = self.read(Response(200, json={
+            'name': 'z1r/fancy-mario-1234', 'status': {'value': 'cancelled'}, 'started_at': None,
+            'entrants': [{'user': {'id': 'a'}}]}))
+        self.assertEqual(facts, {'status': 'cancelled', 'startedAt': None, 'entrantIds': ['a']})
+        self.assertEqual(endpoint.calls[0]['url'], ROOM_URL + '/data')
+        self.assertEqual(endpoint.calls[0]['method'], 'get')
+
+    def test_no_news_when_it_cannot_be_read_or_is_another_room(self):
+        for answer in (Response(404), Response(500), aiohttp.ClientError('down'), asyncio.TimeoutError(),
+                       Response(200, json={'name': 'z1r/other-room-0000', 'status': {'value': 'cancelled'},
+                                           'started_at': None, 'entrants': []}),
+                       Response(200, json={'name': 'z1r/fancy-mario-1234', 'status': {'value': 'cancelled'}, 'entrants': []}),
+                       Response(200, json_raises=ValueError('not json'))):
+            facts, _ = self.read(answer)
+            self.assertIsNone(facts, answer)
+
+
 if __name__ == '__main__':
     unittest.main()

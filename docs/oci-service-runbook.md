@@ -68,6 +68,16 @@ engine-authorized room/invite work continues but wake/booth changes wait for
 current bookings. Tests in `test_corto_wiring.py` exercise the next edition's
 schedule, reschedule, room, restart and Council result against the real engine.
 
+A bound Autumn/Corto room that racetime cancelled before it started is never
+handed out again (since 2026-11-04; L3-2 on 11-03 was handed a room cancelled on
+10-30). From the wake lead onward, TTPBot reads the bound room. If it is
+`cancelled` with no start, TTPBot retires it with the same engine recovery as the
+Council's `/tournament room action:replace` (actor `ttpbot`), and the next tick
+opens a fresh room. That happens once per match and scheduled time. A second
+cancellation, a room with no engine action, or a refused retirement is logged as
+an error, and the room is not used. Those need the Council. Look for
+`was cancelled before it started` in `journalctl -u ttpbot`.
+
 ```bash
 sudo useradd -r -s /usr/sbin/nologin ttpbot || true
 sudo install -d -o ttpbot -g ttpbot /opt/ttpbot /var/lib/ttpbot

@@ -206,6 +206,38 @@ async def _recover(provider, access_token, logger, title, requester=None):
         return None
 
 
+async def read_autumn_room(url, logger, requester=None):
+    """What racetime says about a bound room: status, start and entrants.
+
+    None when it cannot be read or does not identify as the room asked about,
+    which callers treat as "no news": the room stays as it was.
+    """
+    request = requester if requester is not None else aiohttp.request
+    try:
+        async with request(
+            method='get',
+            url='{}/data'.format(url.rstrip('/')),
+            timeout=aiohttp.ClientTimeout(total=RECOVER_TIMEOUT_SECONDS),
+        ) as response:
+            if response.status != 200:
+                return None
+            data = await response.json(content_type=None)
+        if not isinstance(data, dict) or '/' + str(data.get('name') or '') != '/' + url.rstrip('/').split('/', 3)[-1]:
+            return None
+        status = data.get('status')
+        entrants = data.get('entrants')
+        if not isinstance(status, dict) or not isinstance(entrants, list) or 'started_at' not in data:
+            return None
+        return {
+            'status': status.get('value'),
+            'startedAt': data.get('started_at'),
+            'entrantIds': [(e.get('user') or {}).get('id') for e in entrants if isinstance(e, dict)],
+        }
+    except (aiohttp.ClientError, asyncio.TimeoutError, TypeError, ValueError):
+        logger.warning('Autumn: could not read %s', url, exc_info=True)
+        return None
+
+
 async def recover_autumn_room(race, provider, access_token, logger, label=None):
     if not getattr(race, 'room_marker', None):
         return None

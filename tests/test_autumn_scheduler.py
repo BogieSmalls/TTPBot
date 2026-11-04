@@ -820,3 +820,163 @@ class LateBroadcastTests(unittest.IsolatedAsyncioTestCase):
         race=SimpleNamespace(match_id='W1-1',identity=SimpleNamespace(game=1),at=START,status='scheduled',conditional=False)
         await runner._handle(race,SimpleNamespace(channel='Z1Rracing'),START+timedelta(minutes=10))
         runner._wake.assert_awaited_once()
+
+
+ROOM2 = 'https://racetime.gg/z1r/clever-gohma-5678'
+
+
+class CancelledRoomTests(unittest.IsolatedAsyncioTestCase):
+    """A bound room cancelled before it started is retired, never handed out.
+
+    2026-11-03, L3-2: its room was cancelled on 10-30 with neither racer in it,
+    stayed bound to the match, and was handed out again for the rescheduled
+    game. The booth was staged for a dead room and stopped, and the real room
+    was not opened until someone noticed. Nothing had said a word since 10-30.
+    """
+
+    async def _engine(self):
+        import json
+        import os
+        import subprocess
+        from ttpbot.autumn.engine import AutumnEngine
+        engine_root = os.environ.get('Z1RR_ENGINE_DIR')
+        if not engine_root:
+            self.skipTest('set Z1RR_ENGINE_DIR for real engine room tests')
+        temp = TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        root = Path(engine_root).resolve()
+        clock = Path(temp.name) / 'clock.txt'; clock.write_text(at(START, 25).isoformat())
+        code = '''
+import {readFileSync} from 'node:fs';
+import {createEngineService} from SERVICE;
+import {createTournamentStore} from STORE;
+import {createTournamentWriter} from WRITER;
+const storeFor=event=>createTournamentStore({event,dir:DIR});
+const writer=createTournamentWriter({storeFor,now:()=>new Date(readFileSync(CLOCK,'utf8'))});
+const server=createEngineService({token:'scratch',storeFor,writer});
+server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
+'''
+        for key, value in {'SERVICE': (root / 'src/service.mjs').as_uri(), 'STORE': (root / 'src/store.mjs').as_uri(),
+                           'WRITER': (root / 'src/writer.mjs').as_uri(), 'DIR': str(Path(temp.name) / 'engine'), 'CLOCK': str(clock)}.items():
+            code = code.replace(key, json.dumps(value))
+        process = await asyncio.create_subprocess_exec(
+            'node', '--input-type=module', '--eval', code, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+
+        async def stop():
+            if process.returncode is None:
+                process.terminate(); await asyncio.wait_for(process.wait(), 5)
+        self.addAsyncCleanup(stop)
+        port = int(await asyncio.wait_for(process.stdout.readline(), 10))
+        engine = AutumnEngine(url='http://127.0.0.1:{}'.format(port), token='scratch')
+        for operation, payload in [('draw', {'seeds': ['Alice'] + ['R{}'.format(i) for i in range(2, 16)] + ['Bob']}),
+                                   ('racetime', {'racetimeIds': {'Alice': 'a', 'Bob': 'b'}}), ('migrate', {'edition': '2026'})]:
+            self.assertTrue((await engine._post(operation, payload)).ok)
+        document = (await engine.state())['document']
+        self.assertTrue((await engine._post('autonomy', dict(
+            edition='2026', level='auto-run', applyPending=False, expectedRevision=document['revision'],
+            policyRevision=document['autonomy']['revision'], actor='council', decisionId='auto'))).ok)
+        return engine
+
+    def _scheduler(self, engine, rooms, opened, handed, log=None):
+        async def opener(race, row):
+            room = rooms['next'].pop(0)
+            opened.append(room)
+            return room
+
+        async def read_room(url):
+            return rooms['facts'][url]
+
+        async def let_in(race, url):
+            handed.append(url)
+
+        async def announce(race, row, url):
+            pass
+
+        source = FakeSource(HEADER + ',Match,Game\n' + row(START, 'Alice', 'Bob') + ',W1-1,1')
+        return AutumnScheduler(source, engine, log or Log(), open_room=opener, read_room=read_room,
+                               invite=let_in, announce=announce)
+
+    async def test_a_cancelled_unstarted_room_is_replaced_once_and_never_handed_out(self):
+        engine = await self._engine()
+        cancelled = {'status': 'cancelled', 'startedAt': None, 'entrantIds': []}
+        rooms = {'next': [ROOM, ROOM2], 'facts': {ROOM: {'status': 'open', 'startedAt': None, 'entrantIds': []}}}
+        opened, handed, log = [], [], Log()
+        runner = self._scheduler(engine, rooms, opened, handed, log)
+
+        await runner.tick(at(START, 25))
+        self.assertEqual(opened, [ROOM])
+        rooms['facts'][ROOM] = cancelled
+        handed.clear()
+
+        await runner.tick(at(START, 24))
+        self.assertEqual(handed, [], 'a dead room is never handed to racers, the booth or the announcement')
+        document = (await engine.state())['document']
+        self.assertIn(ROOM, document.get('retiredRooms', []))
+        self.assertNotIn('W1-1|1', document['rooms'])
+        self.assertTrue(any('was cancelled before it started' in w for w in log.warnings))
+
+        rooms['facts'][ROOM2] = {'status': 'open', 'startedAt': None, 'entrantIds': []}
+        await runner.tick(at(START, 23))
+        self.assertEqual(opened, [ROOM, ROOM2], 'the next tick opens a fresh room')
+        await runner.tick(at(START, 22))
+        self.assertEqual(handed[-1], ROOM2)
+
+        # A second cancellation for the same scheduled time is a human's call.
+        rooms['facts'][ROOM2] = cancelled
+        await runner.tick(at(START, 21))
+        await runner.tick(at(START, 20))
+        self.assertEqual(opened, [ROOM, ROOM2])
+        self.assertEqual((await engine.state())['document']['rooms']['W1-1|1']['room'], ROOM2)
+        self.assertTrue(any('already replaced' in e for e in log.errors))
+
+    async def test_a_started_or_live_room_is_left_alone(self):
+        engine = await self._engine()
+        rooms = {'next': [ROOM], 'facts': {ROOM: {'status': 'open', 'startedAt': None, 'entrantIds': []}}}
+        opened, handed = [], []
+        runner = self._scheduler(engine, rooms, opened, handed)
+        await runner.tick(at(START, 25))
+        for facts in ({'status': 'in_progress', 'startedAt': '2026-10-02T22:00:00Z', 'entrantIds': ['a', 'b']},
+                      {'status': 'cancelled', 'startedAt': '2026-10-02T22:00:00Z', 'entrantIds': ['a', 'b']}):
+            rooms['facts'][ROOM] = facts
+            await runner.tick(at(START, 24))
+        self.assertEqual(opened, [ROOM])
+        self.assertEqual((await engine.state())['document']['rooms']['W1-1|1']['room'], ROOM)
+
+
+class CancelledRoomFailureTests(unittest.IsolatedAsyncioTestCase):
+    """What happens when the room cannot be read, or the engine will not retire it."""
+
+    def _runner(self, read_room, recover):
+        from types import SimpleNamespace
+        engine = SimpleNamespace(edition='2026', recover_room=recover)
+        runner = AutumnScheduler(FakeSource(''), engine, Log(), read_room=read_room)
+        runner._workflow = True
+        runner._workflow_document = {'actions': {'act': {'id': 'act', 'kind': 'race-room', 'matchId': 'W1-1', 'game': 1, 'room': ROOM, 'marker': 'm1'}}}
+        race = SimpleNamespace(match_id='W1-1', identity=SimpleNamespace(game=1), at=START, runner_one='Alice', runner_two='Bob')
+        return runner, race
+
+    async def test_an_unreadable_room_is_handed_out_as_before(self):
+        async def read_room(url):
+            raise RuntimeError('racetime down')
+
+        async def recover(payload):
+            raise AssertionError('nothing to retire')
+        runner, race = self._runner(read_room, recover)
+        self.assertEqual(await runner._room_v2(race, None, {'room': {'room': ROOM, 'actionId': 'act'}}), ROOM)
+
+    async def test_a_refused_retirement_still_never_hands_out_the_dead_room(self):
+        calls = []
+
+        async def read_room(url):
+            return {'status': 'cancelled', 'startedAt': None, 'entrantIds': []}
+
+        async def recover(payload):
+            calls.append(payload)
+            return Written(NOT_RECORDED, detail='resolve this room result review before replacing it')
+        runner, race = self._runner(read_room, recover)
+        self.assertIsNone(await runner._room_v2(race, None, {'room': {'room': ROOM, 'actionId': 'act'}}))
+        self.assertEqual(calls[0]['decision'], 'replace')
+        self.assertEqual(calls[0]['proof'], {'room': ROOM, 'marker': 'm1', 'status': 'cancelled', 'startedAt': None, 'entrantIds': []})
+        self.assertEqual(calls[0]['actionId'], 'act')
+        self.assertTrue(calls[0]['actor'] and calls[0]['reason'] and calls[0]['decisionId'])
+        self.assertTrue(any('could not be retired' in e for e in runner.logger.errors))
