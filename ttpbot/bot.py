@@ -114,6 +114,16 @@ class TTPBot(Bot):
         TTPRaceHandler.corto_results = None
         self.created_races = self._load_created_races()
         self.sent_webhooks = self._load_sent_webhooks()
+        self.tc_preferences = self._build_tc_preferences()
+        TTPRaceHandler.tc_preferences = self.tc_preferences
+
+    def _build_tc_preferences(self):
+        try:
+            from .tc_preferences import TcPreferences
+            return TcPreferences.from_env(os.environ, lambda: self.created_races)
+        except Exception:
+            self.logger.error('TC chat choices are off (configuration unusable); race scheduling is unaffected', exc_info=True)
+            return None
 
     def _load_created_races(self):
         return self.created_race_store.load()
@@ -431,7 +441,9 @@ class TTPBot(Bot):
         # Clean up stale tracking entries. A room is remembered for as long as its
         # nightly may still get a booth (three hours), so a late retry carries it.
         from .nightly import BOOTH_HOURS_AFTER_START
-        room_cutoff = now - timedelta(hours=BOOTH_HOURS_AFTER_START)
+        # Chat opt-outs must also work late in a qualifier (the race limit is four hours).
+        room_hours = 6 if getattr(self, 'tc_preferences', None) is not None else BOOTH_HOURS_AFTER_START
+        room_cutoff = now - timedelta(hours=room_hours)
         cutoff = now - timedelta(hours=2)
         stale = [k for k in self.created_races if datetime.fromisoformat(k) <= room_cutoff]
         if stale:

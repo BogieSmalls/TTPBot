@@ -149,6 +149,7 @@ class TTPRaceHandler(RaceHandler):
     #: Set by TTPBot at start-up. racetime_bot constructs handlers itself and
     #: gives them no reference back to the bot, so shared state arrives here.
     grace_ledger = None
+    tc_preferences = None
     grace_enforced = False
 
     stop_at = ['cancelled', 'finished']
@@ -1287,10 +1288,49 @@ class TTPRaceHandler(RaceHandler):
         """!z1rr -- Show the Z1RR Discord invite."""
         await self.send_message(f'Join the Z1RR Discord! {Z1RR_DISCORD_URL}')
 
+    async def ex_optout(self, args, message):
+        """Sit out this TC bracket, while still racing the qualifiers."""
+        await self._tc_preference(args, message, True)
+
+    async def ex_optin(self, args, message):
+        """Undo a TC opt-out before invitations open."""
+        await self._tc_preference(args, message, False)
+
+    async def _tc_preference(self, args, message, declined):
+        if args:
+            await self.send_message('Use !optout or !optin with no name. These commands change only your own TC choice.')
+            return
+        if self.tc_preferences is None:
+            await self.send_message('TC chat choices are unavailable. Please tell Council your choice.')
+            return
+        try:
+            result = await self.tc_preferences.record(self.data['name'], message, declined)
+        except Exception:
+            self.logger.warning('TC chat choice could not be confirmed', exc_info=True)
+            await self.send_message('I could not confirm your TC choice was saved. Try again, or tell Council.')
+            return
+        error = result.get('error')
+        if error:
+            text = {
+                'outside-qualifiers':'!optout and !optin work only in current TC qualifier rooms tagged by Council.',
+                'offers-started':'TC offers have started. Answer at https://my.z1rracing.com or ask Council to change your choice.',
+                'no-edition':'Council needs to set the TC edition before I can save your choice. Please tell Council.',
+                'wrong-night':'Council has a different qualifier night set up. Please tell Council your choice.',
+            }.get(error, 'I could not confirm your TC choice was saved. Please tell Council.')
+        elif isinstance(result.get('edition'), int) and isinstance(result.get('declined'), bool):
+            if result['declined']:
+                text = "Recorded: you're sitting out TC{}. You can still race the qualifiers. Use !optin before offers start to undo this.".format(result['edition'])
+            else:
+                text = "Recorded: you're eligible for TC{} again. This does not claim a seat; answer your invite if you qualify.".format(result['edition'])
+        else:
+            text = 'I could not confirm your TC choice was saved. Try again, or tell Council.'
+        await self.send_message(text)
+
     async def ex_help(self, args, message):
         """!help -- List available TTPBot commands."""
         lines = [
             'TTPBot commands:',
+            '  TC qualifiers: !optout sits out this TC bracket; !optin undoes it before offers start.',
             '  Seed rolling (when SahasrahBot is offline):',
             '    !ttpbot                     Roll seeds here when SahasrahBot is not answering',
             '    !cancel                     Clear the rolled seed to roll again',

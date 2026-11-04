@@ -35,6 +35,25 @@ crew and channel operations still require fresh Data. Invalid owner/edition data
 holds the tick. No service restart or environment edit is needed when Council
 confirms the next Corto through Discord.
 
+## TC qualifier chat choices
+
+`!optout` saves the racetime speaker in Council v2 Events' Not participating
+list for the configured TC edition. `!optin` reverses it. Both work only in
+rooms this scheduler opened that Council tagged as Corto qualifiers. The
+choice covers the whole qualifier night, including the midnight race.
+Once offers start, the bot directs racers to the portal or Council.
+
+Deploy the compatible portal first. Set `TTPBOT_PORTAL_URL=http://127.0.0.1:3012`
+and a new `Z1RR_TC_CHAT_TOKEN` matching `/etc/z1rr-my.env`. The existing
+`COMPETITIONS_URL`, `COMPETITIONS_READER_TOKEN`, `COMPETITIONS_ENVIRONMENT`
+and `TTPBOT_NIGHTLY_EDITION` supply the qualifier tags. Booth enablement is
+independent. Restart `ttpbot`; no dependency or state migration is needed.
+
+Rollback: clear `Z1RR_TC_CHAT_TOKEN` and restart `ttpbot`. Keep every existing
+state file and the portal store; saved choices remain in Council for manual
+correction. A failed save never produces a success reply; the racer can retry
+or tell Council.
+
 ## Install or Update Code
 
 For the Autumn/Corto competition cutover, see the site's
