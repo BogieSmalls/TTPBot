@@ -78,6 +78,14 @@ cancellation, a room with no engine action, or a refused retirement is logged as
 an error, and the room is not used. Those need the Council. Look for
 `was cancelled before it started` in `journalctl -u ttpbot`.
 
+Each case also posts one notice to the private Live Ops thread, where anyone
+watching on race night can see it, not only the Council. The notice says what
+happened, what TTPBot did, what anyone can do, and the exact Council command when
+one is needed. Set `TTPBOT_LIVEOPS_THREAD_ID=1519186063590035518` in
+`/etc/ttpbot.env`. The bot behind `TTPBOT_LEAGUE_DISCORD_BOT_TOKEN` (the same bot
+the relay posts Live Ops alerts as) must be a member of that private thread.
+Unset, it only logs. A notice Discord does not accept is tried again next tick.
+
 ```bash
 sudo useradd -r -s /usr/sbin/nologin ttpbot || true
 sudo install -d -o ttpbot -g ttpbot /opt/ttpbot /var/lib/ttpbot

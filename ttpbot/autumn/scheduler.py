@@ -72,7 +72,7 @@ class AutumnScheduler:
                  open_room=None, wake_booth=None, announce=None, invite=None,
                  event='autumn', request_booth=None, booth_notice_store=None,
                  announce_continuation=None, recover_results=None, recover_room=None, before_tick=None,
-                 read_room=None):
+                 read_room=None, notify_live_ops=None):
         self.source = source
         self.engine = engine
         self.logger = logger
@@ -103,6 +103,9 @@ class AutumnScheduler:
         # match key -> the scheduled time a cancelled room was replaced for. One
         # automatic replacement per time; a second cancellation needs a person.
         self._auto_replaced = {}
+        # Posts a plain-text notice to the Live Ops thread; True when it went.
+        self._notify_live_ops = notify_live_ops
+        self._live_ops_told = set()
         self._before_tick = before_tick
         self._workflow = False
         self._workflow_document = None
@@ -599,6 +602,9 @@ class AutumnScheduler:
                 'Autumn: %s game %s room %s was cancelled before it started, and this '
                 'scheduled time was already replaced once; leaving it to the Council '
                 '(/tournament room action:replace)', race.match_id, race.identity.game, url)
+            await self._tell_live_ops(('stuck', key, url), self._stuck_notice(
+                race, url, 'this is the second canceled room for this race time, so TTPBot '
+                'will not open another one on its own'))
             return True
         actions = (self._workflow_document or {}).get('actions', {})
         action = actions.get(room.get('actionId')) or next(
@@ -610,6 +616,8 @@ class AutumnScheduler:
                 'Autumn: %s game %s room %s was cancelled before it started but has no '
                 'engine room action to retire; the Council must replace it', race.match_id,
                 race.identity.game, url)
+            await self._tell_live_ops(('stuck', key, url), self._stuck_notice(
+                race, url, 'the bracket engine has no record of this room that TTPBot can retire'))
             return True
         result = await self.engine.recover_room(dict(
             self._room_identity(race), actionId=action['id'], decision='replace', actor='ttpbot',
@@ -622,12 +630,52 @@ class AutumnScheduler:
                 'Autumn: %s game %s room %s was cancelled before it started and could not be '
                 'retired (%s); it will not be used, and the Council must replace it',
                 race.match_id, race.identity.game, url, result.detail)
+            await self._tell_live_ops(('stuck', key, url), self._stuck_notice(
+                race, url, 'the bracket engine refused: {}'.format(result.detail or 'no reason given')))
             return True
         self._auto_replaced[key] = when
         self.logger.warning(
             'Autumn: %s game %s room %s was cancelled before it started; retired, and a '
             'fresh room follows the current schedule', race.match_id, race.identity.game, url)
+        await self._tell_live_ops(('retired', key, url), '\n'.join((
+            self._notice_head(race, url, 'race room canceled before the race started'),
+            'TTPBot retired that room. A fresh room opens automatically at the usual room time '
+            '(right away if that has passed), and the racers are invited and told as usual.',
+            'Nothing to do unless no new room shows up by 25 minutes before the start. Then '
+            'anyone can let the racers know in their match thread, and a Council member can '
+            'check it with `/tournament room action:inspect`.')))
         return True
+
+    def _notice_head(self, race, url, what):
+        event = str(getattr(race.identity, 'event', None) or self.event).capitalize()
+        game = ' Game {}'.format(race.identity.game) if race.identity.game > 1 else ''
+        stamp = int(race.at.timestamp())
+        return '\n'.join((
+            '**{} {}{}: {}**'.format(event, race.match_id, game, what),
+            '{} vs {}, scheduled <t:{}:t> (<t:{}:R>)'.format(race.runner_one, race.runner_two, stamp, stamp),
+            'Room: <{}>'.format(url)))
+
+    def _stuck_notice(self, race, url, why):
+        return '\n'.join((
+            self._notice_head(race, url, 'race room canceled before the race started, and TTPBot could not replace it'),
+            'Why: {}.'.format(why),
+            'That room will not be used, so this race has no room right now.',
+            'Anyone watching: let the racers know in their match thread that a new room is on '
+            'the way, and get a Council member.',
+            'Council: `/tournament room action:replace match:{} game:{} url:{} reason:<why>`. '
+            'TTPBot opens a fresh room on its next tick.'.format(race.match_id, race.identity.game, url)))
+
+    async def _tell_live_ops(self, signature, message):
+        """Once per problem, not once per tick; a notice Discord did not take is tried again."""
+        if self._notify_live_ops is None or signature in self._live_ops_told:
+            return
+        try:
+            told = await self._notify_live_ops(message)
+        except Exception:
+            self.logger.error('Autumn: Live Ops notice failed', exc_info=True)
+            return
+        if told:
+            self._live_ops_told.add(signature)
 
     async def _room(self, race, row):
         """The room for this match, making it if there is not one yet.

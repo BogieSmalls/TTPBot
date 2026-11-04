@@ -877,7 +877,7 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
             policyRevision=document['autonomy']['revision'], actor='council', decisionId='auto'))).ok)
         return engine
 
-    def _scheduler(self, engine, rooms, opened, handed, log=None):
+    def _scheduler(self, engine, rooms, opened, handed, log=None, told=None):
         async def opener(race, row):
             room = rooms['next'].pop(0)
             opened.append(room)
@@ -892,16 +892,20 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
         async def announce(race, row, url):
             pass
 
+        async def notify_live_ops(message):
+            (told if told is not None else []).append(message)
+            return True
+
         source = FakeSource(HEADER + ',Match,Game\n' + row(START, 'Alice', 'Bob') + ',W1-1,1')
         return AutumnScheduler(source, engine, log or Log(), open_room=opener, read_room=read_room,
-                               invite=let_in, announce=announce)
+                               invite=let_in, announce=announce, notify_live_ops=notify_live_ops)
 
     async def test_a_cancelled_unstarted_room_is_replaced_once_and_never_handed_out(self):
         engine = await self._engine()
         cancelled = {'status': 'cancelled', 'startedAt': None, 'entrantIds': []}
         rooms = {'next': [ROOM, ROOM2], 'facts': {ROOM: {'status': 'open', 'startedAt': None, 'entrantIds': []}}}
-        opened, handed, log = [], [], Log()
-        runner = self._scheduler(engine, rooms, opened, handed, log)
+        opened, handed, log, told = [], [], Log(), []
+        runner = self._scheduler(engine, rooms, opened, handed, log, told)
 
         await runner.tick(at(START, 25))
         self.assertEqual(opened, [ROOM])
@@ -914,6 +918,11 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
         self.assertIn(ROOM, document.get('retiredRooms', []))
         self.assertNotIn('W1-1|1', document['rooms'])
         self.assertTrue(any('was cancelled before it started' in w for w in log.warnings))
+        # Live Ops hears it, in words anyone watching can act on, with no pings.
+        self.assertEqual(len(told), 1)
+        self.assertIn('W1-1', told[0]); self.assertIn(ROOM, told[0]); self.assertIn('Alice vs Bob', told[0])
+        self.assertIn('fresh room', told[0]); self.assertIn('<t:{}:t>'.format(int(START.timestamp())), told[0])
+        self.assertNotIn('@', told[0])
 
         rooms['facts'][ROOM2] = {'status': 'open', 'startedAt': None, 'entrantIds': []}
         await runner.tick(at(START, 23))
@@ -928,6 +937,9 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
         self.assertEqual(opened, [ROOM, ROOM2])
         self.assertEqual((await engine.state())['document']['rooms']['W1-1|1']['room'], ROOM2)
         self.assertTrue(any('already replaced' in e for e in log.errors))
+        self.assertEqual(len(told), 2, 'one notice per problem, not one per tick')
+        self.assertIn(ROOM2, told[1]); self.assertIn('Council', told[1]); self.assertIn('/tournament room action:replace', told[1])
+        self.assertIn('Anyone', told[1])
 
     async def test_a_started_or_live_room_is_left_alone(self):
         engine = await self._engine()
@@ -949,7 +961,13 @@ class CancelledRoomFailureTests(unittest.IsolatedAsyncioTestCase):
     def _runner(self, read_room, recover):
         from types import SimpleNamespace
         engine = SimpleNamespace(edition='2026', recover_room=recover)
-        runner = AutumnScheduler(FakeSource(''), engine, Log(), read_room=read_room)
+        self.told = []
+        self.deliver = True
+
+        async def notify_live_ops(message):
+            self.told.append(message)
+            return self.deliver
+        runner = AutumnScheduler(FakeSource(''), engine, Log(), read_room=read_room, notify_live_ops=notify_live_ops)
         runner._workflow = True
         runner._workflow_document = {'actions': {'act': {'id': 'act', 'kind': 'race-room', 'matchId': 'W1-1', 'game': 1, 'room': ROOM, 'marker': 'm1'}}}
         race = SimpleNamespace(match_id='W1-1', identity=SimpleNamespace(game=1), at=START, runner_one='Alice', runner_two='Bob')
@@ -980,3 +998,19 @@ class CancelledRoomFailureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[0]['actionId'], 'act')
         self.assertTrue(calls[0]['actor'] and calls[0]['reason'] and calls[0]['decisionId'])
         self.assertTrue(any('could not be retired' in e for e in runner.logger.errors))
+        self.assertEqual(len(self.told), 1)
+        self.assertIn('could not replace', self.told[0]); self.assertIn('result review', self.told[0])
+
+    async def test_a_notice_discord_did_not_take_is_tried_again_next_tick(self):
+        async def read_room(url):
+            return {'status': 'cancelled', 'startedAt': None, 'entrantIds': []}
+
+        async def recover(payload):
+            return Written(NOT_RECORDED, detail='refused')
+        runner, race = self._runner(read_room, recover)
+        self.deliver = False
+        await runner._room_v2(race, None, {'room': {'room': ROOM, 'actionId': 'act'}})
+        self.deliver = True
+        await runner._room_v2(race, None, {'room': {'room': ROOM, 'actionId': 'act'}})
+        await runner._room_v2(race, None, {'room': {'room': ROOM, 'actionId': 'act'}})
+        self.assertEqual(len(self.told), 2)

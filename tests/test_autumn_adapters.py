@@ -465,6 +465,32 @@ class OneMatchThroughTheRealAdapters(unittest.TestCase):
         self.assertTrue(restarted.announced['autumn|W1-1'])
 
 
+class PostingToLiveOps(unittest.TestCase):
+    """The private Live Ops thread, where the relay's own alerts already go."""
+
+    def post(self, *answers, thread='1519186063590035518', token='tok'):
+        from ttpbot.autumn.announce import post_live_ops
+        endpoint = Endpoint(*answers)
+        log = Log()
+        return run(post_live_ops('Room canceled', thread, token, log, requester=endpoint)), endpoint, log
+
+    def test_posts_plain_text_to_the_thread_with_no_pings(self):
+        ok, endpoint, _ = self.post(Response(200))
+        self.assertTrue(ok)
+        call = endpoint.calls[0]
+        self.assertEqual(call['url'], 'https://discord.com/api/v10/channels/1519186063590035518/messages')
+        self.assertEqual(call['headers']['Authorization'], 'Bot tok')
+        self.assertEqual(call['json'], {'content': 'Room canceled', 'allowed_mentions': {'parse': []}})
+
+    def test_false_when_discord_refuses_fails_or_it_is_not_configured(self):
+        self.assertFalse(self.post(Response(403))[0])
+        self.assertFalse(self.post(aiohttp.ClientError('down'))[0])
+        for thread, token in (('', 'tok'), ('1519186063590035518', ''), ('not-a-snowflake', 'tok')):
+            ok, endpoint, _ = self.post(thread=thread, token=token)
+            self.assertFalse(ok)
+            self.assertEqual(endpoint.calls, [])
+
+
 class ReadingABoundRoom(unittest.TestCase):
     """What racetime says about a room the engine bound (L3-2, 2026-11-03)."""
 
