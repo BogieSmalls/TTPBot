@@ -255,7 +255,9 @@ SEED_PRESETS = {
     'ttp5uphill':        '143oNtDD4Pw3Yw6SRryTCXlqTsRz2fxg4s4pJW',
     'ttp5muffle':        '2487lt0moGMFLRug1ofQdxPuUBWnJVSsi7d202I',
     'ttp5pick5':         'p8GIOeYEAonHy5131VdG6b94Ts3EMMvBaQoWR',
-    # Torneo Corto, newest first. #33 is Chessjerk's pick as #32 champion.
+    # Torneo Corto, newest first. #34 is Bogie's pick as #33 champion, and
+    # #33 Chessjerk's as #32 champion.
+    'tc34':              'oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr',
     'tc33':              'oIbnPfPb0mR7ggXWkGxc3qVN!8mpdjauom05j',
     'tc32':              'CL3Eo9X9qqqZ4qTXumvwynEkysDc0y3TNu8a2ce',
     'tc31':              '248ktImaOpBMdBuEa3O1bTV!bsd!zkRgztHzXub',
@@ -274,6 +276,7 @@ TTP5_PRESETS = ['ttp5uphill', 'ttp5muffle', 'ttp5pick5']
 PRESET_NAMES = {
     'rr2026': '2026 Rookie Rumble',
     'sgl26ip': '2026 SGLive Onsite Flags',
+    'tc34': 'Torneo Corto #34',
     'tc33': 'Torneo Corto #33',
     'tc32': 'Torneo Corto #32',
     'tc31': 'Torneo Corto #31',
@@ -290,6 +293,7 @@ PRESET_NAMES = {
 # these hand over the flags rather than stay silent.
 PRESET_ALIASES = {
     # For anybody who would rather type it out than remember the short form.
+    'torneocorto34': 'tc34',
     'torneocorto33': 'tc33',
     'torneocorto32': 'tc32',
     'torneocorto31': 'tc31',

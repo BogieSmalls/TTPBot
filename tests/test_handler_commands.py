@@ -444,10 +444,6 @@ class HandlerCommandTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(handler.seed_rolled)
 
-
-if __name__ == '__main__':
-    unittest.main()
-
     async def test_torneo_corto_rolls_the_editions_flagset(self):
         handler = command_handler()
 
@@ -459,6 +455,27 @@ if __name__ == '__main__':
             handler.messages[0],
             r'^tc33 - Flags: oIbnPfPb0mR7ggXWkGxc3qVN!8mpdjauom05j Seed: \d+$',
         )
+
+    async def test_torneo_corto_34_rolls_and_describes_the_final_flagset(self):
+        # Bogie's pick, #tc-flags 2026-10-16: the revision with 0 HP bosses and Ganon.
+        from ttpbot.flag_summary import format_summary
+        handler = command_handler()
+
+        with patch('ttpbot.handler.asyncio.sleep', new=AsyncMock()):
+            await handler.ex_tc34([], {})
+
+        self.assertRegex(
+            handler.messages[0],
+            r'^tc34 - Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: \d+$',
+        )
+        summary = ' '.join(format_summary('oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr'))
+        for expected in ('OHKO', 'Boss HP: 0 HP', 'Set Gannon HP to 0'):
+            self.assertIn(expected, summary)
+
+        for asked in ('tc34', 'torneocorto34', 'TC34'):
+            handler = command_handler()
+            await handler.ex_summary([asked], {})
+            self.assertIn('OHKO', ' '.join(handler.messages))
 
     async def test_torneo_corto_hands_sahasrahbot_the_flags(self):
         # SahasrahBot has no Torneo Corto presets, so silence would leave no roll.
@@ -485,7 +502,7 @@ if __name__ == '__main__':
         from ttpbot.config import PRESET_ALIASES, PRESET_NAMES, SEED_PRESETS
         from ttpbot.flag_summary import format_summary
 
-        editions = [31, 32, 33]
+        editions = [31, 32, 33, 34]
         for edition in editions:
             preset = 'tc%d' % edition
             self.assertIn(preset, SEED_PRESETS)
@@ -499,3 +516,7 @@ if __name__ == '__main__':
         # Each edition is its own flagset; a copy-paste slip would make two the same.
         flags = [SEED_PRESETS['tc%d' % edition] for edition in editions]
         self.assertEqual(len(set(flags)), len(editions))
+
+
+if __name__ == '__main__':
+    unittest.main()
