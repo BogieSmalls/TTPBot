@@ -15,6 +15,7 @@ from .config import (
     TIMEZONE,
     WEBHOOK_MINUTES_BEFORE,
 )
+from .flagset_registry import registry as flagset_registry
 from .handler import TTPRaceHandler
 from .paths import data_dir as configured_data_dir, runtime_path
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
@@ -372,6 +373,7 @@ class TTPBot(Bot):
         self.loop.create_task(self.reauthorize())
         self.loop.create_task(self.refresh_races())
         self.loop.create_task(self.race_scheduler())
+        self.loop.create_task(flagset_registry.run())
         scheduler = None
         if self.league_enabled:
             scheduler = self._build_league_scheduler()

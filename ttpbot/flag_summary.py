@@ -9,6 +9,7 @@ exactly this order.
 """
 
 from .config import SEED_PRESETS
+from .flagset_registry import registry
 
 FLAG_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!'
 FLAG_BASE = 63
@@ -308,7 +309,12 @@ def summary_lines(flag_string):
 
 
 def preset_name(flag_string):
-    """The !race preset this flag string is, on an exact match only."""
+    """The flagset this exact string belongs to, at any version.
+
+    The !race preset's key when no registry copy has ever loaded.
+    """
+    if registry.loaded:
+        return registry.name_of(flag_string)
     for name, flags in SEED_PRESETS.items():
         if flags == flag_string:
             return name
