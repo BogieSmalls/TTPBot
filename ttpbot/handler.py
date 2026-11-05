@@ -1197,6 +1197,10 @@ class TTPRaceHandler(RaceHandler):
         """!ttp5pick5 -- Roll the TTP5 Pick 5 preset."""
         await self._roll_unknown_to_sahasrahbot('ttp5pick5', message)
 
+    async def ex_tc34(self, args, message):
+        """!tc34 -- Roll the Torneo Corto #34 flagset."""
+        await self._roll_unknown_to_sahasrahbot('tc34', message)
+
     async def ex_tc33(self, args, message):
         """!tc33 -- Roll the Torneo Corto #33 flagset."""
         await self._roll_unknown_to_sahasrahbot('tc33', message)
@@ -1210,7 +1214,11 @@ class TTPRaceHandler(RaceHandler):
         await self._roll_unknown_to_sahasrahbot('tc31', message)
 
     # Spelled out, for anybody who would rather type the whole thing. Both
-    # forms are also presets, so !race tc33 and !summary tc33 already work.
+    # forms are also presets, so !race tc34 and !summary tc34 already work.
+    async def ex_torneocorto34(self, args, message):
+        """!torneocorto34 -- Same as !tc34."""
+        await self.ex_tc34(args, message)
+
     async def ex_torneocorto33(self, args, message):
         """!torneocorto33 -- Same as !tc33."""
         await self.ex_tc33(args, message)
