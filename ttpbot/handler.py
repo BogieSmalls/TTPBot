@@ -14,6 +14,7 @@ from racetime_bot import RaceHandler
 _LEAGUE_RESULTS = set()
 
 from .flag_summary import FlagStringError, decode as decode_flags, format_summary
+from .flagset_registry import reduce as reduce_word, registry
 from .grace import GRACE_START, STARTED, GraceRace, entrants_from
 from .matchup import matchup_reply
 
@@ -26,7 +27,6 @@ from .config import (
     PRESET_NAMES,
     RACE_NUMBER_MAP,
     REMINDER_SCHEDULE,
-    SEED_PRESETS,
     TTP2_PRESETS,
     TTP3_PRESETS,
     TTP4_PRESETS,
@@ -38,6 +38,9 @@ from .paths import ensure_parent_dir, runtime_path
 from .room_policy import room_identity, is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 
+# Real flag strings are 30 or more characters. Vanilla, the one short exception, is registered.
+MIN_FLAG_STRING_LENGTH = 19
+PRESET_LIST = 'See https://z1rracing.com/flagsets/ for the list.'
 CHAT_LOG_DIR = runtime_path('chat_logs')
 LEARNED_ALIASES_FILE = runtime_path('learned_aliases.json')
 RECENT_ROOM_HISTORY_WINDOW = timedelta(seconds=90)
@@ -771,7 +774,7 @@ class TTPRaceHandler(RaceHandler):
                     await getattr(self, method)(args, message)
                 except Exception:
                     self.logger.error('Command raised exception.', exc_info=True)
-            elif command in SEED_PRESETS:
+            elif registry.is_shortcut(command):
                 # !consternation is how people ask for a preset. SahasrahBot has
                 # no such command, so with it present this posts the flags.
                 try:
@@ -1013,11 +1016,20 @@ class TTPRaceHandler(RaceHandler):
             return
 
         flags = args[0]
+        registered = registry.is_registered(flags)
+        # !flags is literal, like SahasrahBot's: it never rolls a shortcut for you.
+        if not registered and registry.is_shortcut(flags):
+            await self.send_message(f'"{flags}" is a shortcut, not a flag string. Use !{reduce_word(flags)} to roll it.')
+            return
         try:
             decode_flags(flags)
         except FlagStringError:
             # "!flags doesn't work either" once rolled a seed for "doesn't".
             await self.send_message(f'"{flags}" is not a flag string. Usage: !flags <flagstring>')
+            return
+        if not registered and len(flags) < MIN_FLAG_STRING_LENGTH:
+            # The decoder takes any letters, so a typo of a shortcut would roll a seed.
+            await self.send_message(f'"{flags}" is too short to be a flag string. Usage: !flags <flagstring>')
             return
         seed = random.randint(0, 8999999999999999999)
         seed_str = f'Seed: {seed} - Flags: {flags}'
@@ -1079,11 +1091,8 @@ class TTPRaceHandler(RaceHandler):
         Informational, so it answers even with SahasrahBot present. With no
         flag string it reads the one this room's seed was rolled with.
         """
-        flags = args[0] if args else self._room_flag_string()
-        if flags:
-            # A preset name, e.g. !summary ttp5uphill, stands for its flags.
-            preset = PRESET_ALIASES.get(flags.lower(), flags.lower())
-            flags = SEED_PRESETS.get(preset, flags)
+        # A shortcut, e.g. !summary ttp5uphill, stands for its latest string.
+        flags = (registry.resolve(args[0]) or args[0]) if args else self._room_flag_string()
         if not flags:
             await self.send_message(
                 'Usage: !summary <flagstring> (no seed has been rolled here yet)'
@@ -1115,16 +1124,12 @@ class TTPRaceHandler(RaceHandler):
             return
 
         if not args:
-            presets = ', '.join(sorted(SEED_PRESETS.keys()))
-            await self.send_message(f'No preset specified. Available presets: {presets}')
+            await self.send_message(f'No preset specified. {PRESET_LIST}')
             return
 
         preset = PRESET_ALIASES.get(args[0].lower(), args[0].lower())
-        if preset not in SEED_PRESETS:
-            presets = ', '.join(sorted(SEED_PRESETS.keys()))
-            await self.send_message(
-                f'Unknown preset "{preset}". Available presets: {presets}'
-            )
+        if registry.resolve(args[0]) is None:
+            await self.send_message(f'Unknown preset "{preset}". {PRESET_LIST}')
             return
 
         # Brief wait: let SahasrahBot respond first if present but not yet detected
@@ -1132,7 +1137,9 @@ class TTPRaceHandler(RaceHandler):
         if self.sahasrahbot_present or self.seed_rolled:
             return
 
-        flags = SEED_PRESETS[preset]
+        flags = registry.resolve(args[0])
+        if flags is None:  # Deleted during the wait.
+            return
         seed = random.randint(0, 8999999999999999999)
         seed_str = f'Flags: {flags} Seed: {seed}'
 
@@ -1237,8 +1244,12 @@ class TTPRaceHandler(RaceHandler):
         With SahasrahBot present TTPBot never rolls, to avoid two seeds, but
         staying silent would leave the command unanswered.
         """
+        flags = registry.resolve(preset)
+        if flags is None:
+            await self.send_message(f'Unknown preset "{preset}". {PRESET_LIST}')
+            return
         if self.sahasrahbot_present:
-            await self._hand_off_flags(PRESET_NAMES.get(preset, preset), SEED_PRESETS[preset])
+            await self._hand_off_flags(registry.name_of(flags) or PRESET_NAMES.get(PRESET_ALIASES.get(preset, preset), preset), flags)
             return
         await self.ex_race([preset], message)
 
@@ -1372,5 +1383,5 @@ def _alias_command(preset):
 
 
 # Each alias is a command of its own, e.g. !ttp4rr rolls ttp4rp.
-for _alias, _preset in PRESET_ALIASES.items():
-    setattr(TTPRaceHandler, f'ex_{_alias}', _alias_command(_preset))
+for _alias in PRESET_ALIASES:
+    setattr(TTPRaceHandler, f'ex_{_alias}', _alias_command(_alias))

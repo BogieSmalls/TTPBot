@@ -73,6 +73,11 @@ class FakeLoop:
 
 
 class RunReachesRunForeverTests(unittest.TestCase):
+    def setUp(self):
+        registry = patch('ttpbot.bot.flagset_registry.run', new=lambda: 'flagset-registry-marker')
+        registry.start()
+        self.addCleanup(registry.stop)
+
     def test_a_broken_league_state_store_still_lets_ttp_scheduling_start(self):
         """The constraint that actually matters: TTP is unaffected."""
         bot = bot_for_league(league_enabled=True)
@@ -93,12 +98,12 @@ class RunReachesRunForeverTests(unittest.TestCase):
         self.assertTrue(bot.loop.run_forever_called)
         self.assertEqual(
             bot.loop.tasks,
-            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker'],
+            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'flagset-registry-marker'],
         )
         bot.logger.error.assert_called()
 
-    def test_run_creates_exactly_three_ttp_tasks_when_league_is_disabled(self):
-        """When league_enabled=False, run() creates only the three TTP tasks."""
+    def test_run_creates_only_the_ttp_tasks_and_the_registry_when_league_is_disabled(self):
+        """When league_enabled=False, run() creates the three TTP tasks and the registry."""
         bot = bot_for_league(league_enabled=False)
         bot.loop = FakeLoop()
         bot.handle_exception = Mock()
@@ -110,16 +115,16 @@ class RunReachesRunForeverTests(unittest.TestCase):
         bot.run()
 
         self.assertTrue(bot.loop.run_forever_called)
-        self.assertEqual(len(bot.loop.tasks), 3)
+        self.assertEqual(len(bot.loop.tasks), 4)
         self.assertEqual(
             bot.loop.tasks,
-            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker'],
+            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'flagset-registry-marker'],
         )
         # Verify _build_league_scheduler was never called
         bot._build_league_scheduler.assert_not_called()
 
-    def test_run_creates_four_tasks_and_builds_league_when_league_is_enabled(self):
-        """When league_enabled=True and scheduler succeeds, run() creates four tasks."""
+    def test_run_creates_five_tasks_and_builds_league_when_league_is_enabled(self):
+        """When league_enabled=True and scheduler succeeds, run() creates five tasks."""
         bot = bot_for_league(league_enabled=True)
         bot.loop = FakeLoop()
         bot.handle_exception = Mock()
@@ -135,10 +140,10 @@ class RunReachesRunForeverTests(unittest.TestCase):
         bot.run()
 
         self.assertTrue(bot.loop.run_forever_called)
-        self.assertEqual(len(bot.loop.tasks), 4)
+        self.assertEqual(len(bot.loop.tasks), 5)
         self.assertEqual(
             bot.loop.tasks,
-            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'league-scheduler-marker'],
+            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'flagset-registry-marker', 'league-scheduler-marker'],
         )
         # Verify _build_league_scheduler was called exactly once
         bot._build_league_scheduler.assert_called_once()

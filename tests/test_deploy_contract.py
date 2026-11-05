@@ -51,6 +51,7 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "LEAGUE_COOP_FOUR_RACER_BOOTH",
             "TTPBOT_NIGHTLY_BOOTHS_ENABLED", "TTPBOT_NIGHTLY_EDITION", "TTPBOT_NIGHTLY_ACTOR",
             "COMPETITIONS_URL", "COMPETITIONS_ENVIRONMENT", "COMPETITIONS_READER_TOKEN", "COMPETITIONS_BOT_TOKEN",
+            "Z1RR_FLAGSETS_URL", "Z1RR_FLAGSETS_CACHE",
         }
         variables = {
             line.split("=", 1)[0]
