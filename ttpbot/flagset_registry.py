@@ -58,6 +58,7 @@ def validate_snapshot(snapshot):
 
     string_owner = {}
     form_owner = {}
+    seen_names = set()
 
     def claim(typed, name):
         form = reduce(typed)
@@ -82,6 +83,9 @@ def validate_snapshot(snapshot):
             description = flagset['description']
             if description is not None and (not isinstance(description, str) or len(description) > DESCRIPTION_MAX):
                 problems.append(f'"{name}": invalid description')
+        if name in seen_names:
+            problems.append(f'"{name}": name used twice')
+        seen_names.add(name)
         claim(name, name)
         shortcuts = flagset.get('shortcuts')
         if not isinstance(shortcuts, list):
@@ -125,6 +129,7 @@ class FlagsetRegistry:
                 self._built_in[reduce(alias)] = presets[key]
         self._built_in_strings = frozenset(presets.values()) | SHORT_FLAG_STRINGS
         self._forms = None
+        self._shortcuts = None
         self._names = None
 
     @property
@@ -138,7 +143,9 @@ class FlagsetRegistry:
         return forms.get(reduce(word))
 
     def is_shortcut(self, word):
-        return self.resolve(word) is not None
+        """Whether a bare !word rolls: listed shortcuts only. A name alone is for !race and
+        !summary, so a plain word like !random can't use up a room's one roll."""
+        return reduce(word) in (self._built_in if self._shortcuts is None else self._shortcuts)
 
     def is_registered(self, flags):
         if self._names is None:
@@ -152,14 +159,17 @@ class FlagsetRegistry:
     def install(self, snapshot):
         """Take a copy already known to be valid."""
         forms = {}
+        shortcuts = set()
         names = {}
         for flagset in snapshot['flagsets']:
             latest = next(entry['flags'] for entry in flagset['strings'] if entry['isLatest'])
             for typed in [flagset['name'], *flagset['shortcuts']]:
                 forms[reduce(typed)] = latest
+            shortcuts.update(reduce(shortcut) for shortcut in flagset['shortcuts'])
             for entry in flagset['strings']:
                 names[entry['flags']] = flagset['name']
         self._forms = forms
+        self._shortcuts = shortcuts
         self._names = names
 
     def load_cache(self):

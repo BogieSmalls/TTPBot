@@ -49,6 +49,10 @@
     {"why": "two flagsets with one name", "snapshot": {"schemaVersion": 1, "revision": 1, "flagsets": [
       {"name": "TTP3 Power", "description": null, "shortcuts": [], "strings": [{"flags": "AAAA", "isLatest": true}]},
       {"name": "ttp3 power", "description": null, "shortcuts": [], "strings": [{"flags": "BBBB", "isLatest": true}]}
+    ]}},
+    {"why": "two flagsets with the identical name", "snapshot": {"schemaVersion": 1, "revision": 1, "flagsets": [
+      {"name": "A", "description": null, "shortcuts": [], "strings": [{"flags": "AAAA", "isLatest": true}]},
+      {"name": "A", "description": null, "shortcuts": [], "strings": [{"flags": "BBBB", "isLatest": true}]}
     ]}}
   ]
 }

@@ -127,6 +127,13 @@ class RegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(registry.is_shortcut('tc33'))
         self.assertFalse(registry.is_registered(SEED_PRESETS['tc33']))
 
+    def test_a_name_alone_is_not_a_bare_command(self):
+        # !random must not use up a room's roll. !race and !summary still take the name.
+        registry = fresh(snapshot(flagset('Random%', [], UNREGISTERED)))
+        self.assertFalse(registry.is_shortcut('random'))
+        self.assertEqual(registry.resolve('random'), UNREGISTERED)
+        self.assertTrue(registry.is_shortcut('consternation'))
+
     def test_name_of_finds_any_version(self):
         registry = fresh(snapshot())
         self.assertEqual(registry.name_of(OLD_CONSTERNATION), 'Consternation')
@@ -246,6 +253,12 @@ class HandlerWithoutSahasrahBot(unittest.IsolatedAsyncioTestCase):
 
     async def test_race_takes_a_shortcut_in_any_case(self):
         self.rolled(await self.run_command('!race CORTO34'), TC34)
+
+    async def test_a_name_with_no_shortcut_rolls_only_through_race(self):
+        registry = fresh(snapshot(flagset('Beginner', [], UNREGISTERED)))
+        handler = await self.run_command('!beginner', registry)
+        self.assertFalse(handler.seed_rolled, handler.messages)
+        self.rolled(await self.run_command('!race beginner', registry), UNREGISTERED)
 
     async def test_race_refuses_an_unknown_word(self):
         handler = await self.run_command('!race nothing')
