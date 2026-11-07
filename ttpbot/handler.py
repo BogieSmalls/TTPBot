@@ -25,7 +25,6 @@ from .config import (
     LEAGUE_WEEKS,
     PRESET_ALIASES,
     PRESET_NAMES,
-    RACE_NUMBER_MAP,
     REMINDER_SCHEDULE,
     TTP2_PRESETS,
     TTP3_PRESETS,
@@ -37,6 +36,7 @@ from .config import (
 from .paths import ensure_parent_dir, runtime_path
 from .room_policy import room_identity, is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
+from .season_record import flags_text, info_text, seasons, welcome_text
 
 # Real flag strings are 30 or more characters. Vanilla, the one short exception, is registered.
 MIN_FLAG_STRING_LENGTH = 19
@@ -485,8 +485,8 @@ class TTPRaceHandler(RaceHandler):
 
         # Check if we already welcomed this room
         already_welcomed = any(
-            'Welcome to TTP Season 5!' in text
-            or 'Welcome to TTP Season 4!' in text
+            re.search(r'Welcome to TTP Season [0-9]+!', text)
+            or any(f'Welcome to {goal}!' in text for goal in seasons.goals())
             or 'Welcome to Triforce Triple Play!' in text
             or GENERIC_WELCOME_MESSAGE in text
             for text in bot_messages
@@ -503,12 +503,7 @@ class TTPRaceHandler(RaceHandler):
             self.state['welcomed'] = True
         elif not self.state.get('welcomed'):
             if self.ttp_scheduled_room:
-                await self.send_message(
-                    "Welcome to TTP Season 5! I'll help out with hash "
-                    "confirmation and other bot duties. "
-                    "Type !schedule for today's race times, !info for TTP details, "
-                    "or !ttpflags for flagset details."
-                )
+                await self.send_message(welcome_text(seasons.current(datetime.now(TIMEZONE))))
             else:
                 await self.send_message(GENERIC_WELCOME_MESSAGE)
             self.state['welcomed'] = True
@@ -774,6 +769,11 @@ class TTPRaceHandler(RaceHandler):
                     await getattr(self, method)(args, message)
                 except Exception:
                     self.logger.error('Command raised exception.', exc_info=True)
+            elif seasons.by_random_command(command):
+                try:
+                    await self._roll_season_random(seasons.by_random_command(command), message)
+                except Exception:
+                    self.logger.error('Command raised exception.', exc_info=True)
             elif registry.is_shortcut(command):
                 # !consternation is how people ask for a preset. SahasrahBot has
                 # no such command, so with it present this posts the flags.
@@ -959,23 +959,13 @@ class TTPRaceHandler(RaceHandler):
         await self.send_message('\n'.join(lines))
 
     async def ex_info(self, args, message):
-        """!info - Show TTP Season 5 information."""
-        await self.send_message(
-            "TTP Season 5 regular season runs Aug 31 - Dec 19, 2026. "
-            "Rooms use the TTP Season 5 goal during this window. "
-            "Races: Mon-Sat at 8 PM, 10 PM, 12 AM ET, plus 6 PM on Saturday "
-            "(the 12 AM race closes out the previous evening). "
-            "No Sunday evening races."
-        )
+        """!info - Show the current TTP season's information."""
+        await self.send_message(info_text(seasons.current(datetime.now(TIMEZONE))))
 
     async def ex_ttpflags(self, args, message):
         """!ttpflags - Show TTP flagset presets."""
         await self.send_message(
-            "TTP5 flagset presets:\n"
-            "  !ttp5 -- Random pick from the three TTP5 flagsets\n"
-            "  !ttp5uphill -- Uphill Battle\n"
-            "  !ttp5muffle -- Muffle Rug\n"
-            "  !ttp5pick5 -- Pick 5\n"
+            flags_text(seasons.current(datetime.now(TIMEZONE))) +
             "In-season races have no required flagset -- flags are chosen by "
             "mutual agreement (majority vote if disagreement). The three "
             "official flagsets are encouraged but not required during the season."
@@ -1190,7 +1180,24 @@ class TTPRaceHandler(RaceHandler):
 
     async def ex_ttp5(self, args, message):
         """!ttp5 -- Roll a random TTP Season 5 preset."""
-        await self._roll_unknown_to_sahasrahbot(random.choice(TTP5_PRESETS), message)
+        season = seasons.by_random_command('ttp5')
+        if season:
+            await self._roll_season_random(season, message)
+        else:
+            await self._roll_unknown_to_sahasrahbot(random.choice(TTP5_PRESETS), message)
+
+    async def _roll_season_random(self, season, message):
+        """A season's random command: one of its three flagsets."""
+        await self._roll_unknown_to_sahasrahbot(random.choice([entry['command'] for entry in season['flagsets']]), message)
+
+    def _season_help_lines(self):
+        """The !help lines for each season on file, oldest first."""
+        lines = []
+        for season in seasons.oldest_first():
+            tag = f'TTP{season["number"]}'
+            lines.append(f'    !{season["randomCommand"]:<26} Random {season["goal"]} preset')
+            lines.append(f'    {" / ".join("!" + entry["command"] for entry in season["flagsets"])}  {tag} presets directly')
+        return lines
 
     async def ex_ttp5uphill(self, args, message):
         """!ttp5uphill -- Roll the TTP5 Uphill Battle preset."""
@@ -1359,14 +1366,13 @@ class TTPRaceHandler(RaceHandler):
             '    !ttp3                       Random TTP Season 3 preset',
             '    !ttp4                       Random TTP Season 4 preset',
             '    !ttp4rp / !ttp4hopla / !ttp4consternation  TTP4 presets directly',
-            '    !ttp5                       Random TTP Season 5 preset',
-            '    !ttp5uphill / !ttp5muffle / !ttp5pick5  TTP5 presets directly',
+            *self._season_help_lines(),
             '    !leagueweek1 ... !leagueweek7  Z1RR League weekly flagsets',
             '  Flags:',
             "    !summary [flagstring]       Summarize a flag string or preset (default: this room's seed)",
             '  Season info:',
             '    !schedule                   Today\'s remaining race times',
-            '    !info                       TTP Season 5 details',
+            f'    !info                       {seasons.current(datetime.now(TIMEZONE))["goal"]} details',
             '    !ttpflags                   TTP flagset details',
             '    !matchup <racer1> <racer2>  Head-to-head record from the Z1RR stats',
             '    !z1rr                       Z1RR Discord invite',

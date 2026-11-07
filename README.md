@@ -22,7 +22,7 @@ TTPBot opens a fresh race room 30 minutes before every scheduled Triforce Triple
 
 Discord announcements number each slate TTP1, TTP2, TTP3 for the 8 PM, 10 PM and 12 AM races. Saturday's 6 PM race is announced as TTP0.
 
-TTP5 regular-season rooms use the `TTP Season 5` goal from Monday, August 31, 2026 through Saturday, December 19, 2026. Outside the season window, normal scheduled rooms use the `Beat the game` goal and an `info_bot` label beginning with `Triforce Triple Play | Scheduled:`. Rooms use `streaming_required: true`, a 4-hour time limit, a 15-second start delay, and auto-start when all entrants ready up. Rooms are deduplicated across bot restarts via a persisted `created_races.json` so a service restart mid-slate won't double-open anything.
+A season's goal, nights and room label come from the season record (`/ttp-seasons.json`, read through `Z1RR_SEASONS_URL`; Season 5 is built in until a first load). Season 5's rooms use the `TTP Season 5` goal from Monday, August 31, 2026 through Saturday, December 19, 2026, and its last room is the 12 AM race that closes that night. A season set to `stop` opens nothing after that until the next season's first night; one set to `continue` keeps opening rooms on the `Beat the game` goal with an `info_bot` label beginning with `Triforce Triple Play | Scheduled:`. Rooms use `streaming_required: true`, a 4-hour time limit, a 15-second start delay, and auto-start when all entrants ready up. Rooms are deduplicated across bot restarts via a persisted `created_races.json` so a service restart mid-slate won't double-open anything.
 
 ### Discord announcements
 
@@ -150,8 +150,7 @@ See [docs/oci-service-runbook.md](docs/oci-service-runbook.md).
 
 All tunable values live in [`ttpbot/config.py`](ttpbot/config.py):
 
-- `SEASON_START` / `SEASON_END` — season window
-- `WEEKLY_SCHEDULE` — per-day race times
+- `SEASON_START` / `SEASON_END` — Season 5's window, for the built-in copy (`season_record.py`)
 - `ROOM_OPEN_MINUTES_BEFORE` — how far ahead of race time to open the room (default 30)
 - `WEBHOOK_MINUTES_BEFORE` — how far ahead to post the Discord announcement (default 20)
 - `REMINDER_SCHEDULE` — which reminders to send and when

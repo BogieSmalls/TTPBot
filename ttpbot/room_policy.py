@@ -1,17 +1,17 @@
 import re
 
 from .config import (
-    GOAL_NAME,
     AUTUMN_ROOM_INFO_PREFIX, LEAGUE_ROOM_INFO_PREFIX,
     POST_SEASON_GOAL_NAME,
-    TTP_ROOM_INFO_PREFIXES,
+    POST_SEASON_ROOM_INFO_PREFIX,
 )
+from .season_record import seasons
 
 
 def is_ttp_scheduled_room(race_data):
     """Return True for TTP-managed rooms, including labeled post-season rooms."""
     goal_name = race_data.get('goal', {}).get('name', '')
-    if goal_name == GOAL_NAME:
+    if goal_name in seasons.goals():
         return True
     if goal_name != POST_SEASON_GOAL_NAME:
         return False
@@ -19,7 +19,7 @@ def is_ttp_scheduled_room(race_data):
     info_bot = race_data.get('info_bot', '') or ''
     return any(
         info_bot.startswith(f'{prefix} | Scheduled:')
-        for prefix in TTP_ROOM_INFO_PREFIXES
+        for prefix in (*seasons.room_prefixes(), POST_SEASON_ROOM_INFO_PREFIX)
     )
 
 
