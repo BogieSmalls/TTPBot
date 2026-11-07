@@ -1,22 +1,22 @@
 import unittest
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from unittest.mock import patch
 
 from ttpbot.config import (
     GOAL_NAME,
     POST_SEASON_GOAL_NAME,
-    RACE_NUMBER_MAP,
     SEASON_END,
     SEASON_START,
     TIMEZONE,
-    WEEKLY_SCHEDULE,
 )
 from ttpbot.schedule import (
     get_races_for_date,
     race_goal_for_time,
     race_info_for_time,
     slate_date,
+    slot_name,
 )
+from ttpbot.season_record import seasons
 
 
 class ScheduleTests(unittest.TestCase):
@@ -78,21 +78,16 @@ class ScheduleTests(unittest.TestCase):
             [time(20, 0), time(22, 0)],
         )
 
-    def test_every_scheduled_time_has_an_announcement_number(self):
-        # RACE_NUMBER_MAP is keyed by clock time alone, so a time is only safe
-        # to use on a given day if it means the same race number everywhere.
-        for weekday, times in WEEKLY_SCHEDULE.items():
-            for slot in times:
-                with self.subTest(weekday=weekday, slot=slot):
-                    self.assertIn(slot, RACE_NUMBER_MAP)
+    def test_every_scheduled_time_has_an_announcement_name(self):
+        first = date(2026, 8, 31)
+        for offset in range(16 * 7):
+            for race in get_races_for_date(first + timedelta(days=offset)):
+                with self.subTest(race=race):
+                    self.assertIsNotNone(slot_name(race))
 
-        # 6 PM is TTP0, which only exists on Saturday. A weekday 6 PM race
-        # would be announced as TTP0 too.
-        days_with_6_pm = [
-            weekday for weekday, times in WEEKLY_SCHEDULE.items()
-            if time(18, 0) in times
-        ]
-        self.assertEqual(days_with_6_pm, [5])
+        # 6 PM is TTP0, which only exists on Saturday.
+        self.assertEqual(slot_name(datetime(2026, 9, 26, 18, 0, tzinfo=TIMEZONE)), 'TTP0')
+        self.assertIsNone(slot_name(datetime(2026, 9, 28, 18, 0, tzinfo=TIMEZONE)))
 
     def test_midnight_race_belongs_to_the_previous_evening_slate(self):
         # A 12:00 AM race is the third race of the prior evening's slate, so it
@@ -100,7 +95,9 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(slate_date(date(2026, 9, 1), time(0, 0)), date(2026, 8, 31))
         self.assertEqual(slate_date(date(2026, 9, 1), time(20, 0)), date(2026, 9, 1))
 
-        with patch('ttpbot.schedule.SEASON_START', date(2026, 9, 1)):
+        built_in = seasons._built_in[0]
+        later = {**built_in, 'schedule': {**built_in['schedule'], 'firstNight': '2026-09-01'}}
+        with patch.object(seasons, '_built_in', [later]):
             self.assertEqual(
                 [race.time() for race in get_races_for_date(date(2026, 9, 1))],
                 [time(20, 0), time(22, 0)],

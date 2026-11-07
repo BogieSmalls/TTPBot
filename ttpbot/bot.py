@@ -10,7 +10,6 @@ import websockets.exceptions
 from racetime_bot import Bot
 
 from .config import (
-    RACE_NUMBER_MAP,
     ROOM_OPEN_MINUTES_BEFORE,
     TIMEZONE,
     WEBHOOK_MINUTES_BEFORE,
@@ -18,7 +17,8 @@ from .config import (
 from .flagset_registry import registry as flagset_registry
 from .handler import TTPRaceHandler
 from .paths import data_dir as configured_data_dir, runtime_path
-from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time
+from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time, slate_date, slot_name
+from .season_record import seasons as season_record
 from .room_policy import is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room
 from .state import DestinationStateStore, UNCERTAIN_RACE
 
@@ -370,10 +370,13 @@ class TTPBot(Bot):
 
     def run(self):
         """Add the race scheduler task alongside the standard bot tasks."""
+        # Before the scheduler first looks: a restart mid-Season 6 must not open a tick on Season 5.
+        season_record.load_cache()
         self.loop.create_task(self.reauthorize())
         self.loop.create_task(self.refresh_races())
         self.loop.create_task(self.race_scheduler())
         self.loop.create_task(flagset_registry.run())
+        self.loop.create_task(season_record.run())
         scheduler = None
         if self.league_enabled:
             scheduler = self._build_league_scheduler()
@@ -585,15 +588,12 @@ class TTPBot(Bot):
             return False
 
         race_time = scheduled_time.time()
-        number, use_prev_day = RACE_NUMBER_MAP.get(race_time, (None, False))
-        if number is None:
-            self.logger.warning('No race number mapping for %s', race_time)
+        name = slot_name(scheduled_time)
+        if name is None:
+            self.logger.warning('No race slot at %s', race_time)
             return False
 
-        if use_prev_day:
-            day_name = (scheduled_time - timedelta(days=1)).strftime('%A')
-        else:
-            day_name = scheduled_time.strftime('%A')
+        day_name = slate_date(scheduled_time.date(), race_time).strftime('%A')
 
         # Named links rather than bare URLs, and no preview card (Bogie,
         # 2026-10-23): racetime's embed was clutter, and the Race Viewer link
@@ -604,7 +604,7 @@ class TTPBot(Bot):
             links.append(f'[Watch or replay](https://z1rracing.com/watch/{viewer[1]}/)')
         message = (
             f'<@&{self.race_seekers_role_id}> '
-            f'{day_name} TTP{number}: ' + ' · '.join(links)
+            f'{day_name} {name}: ' + ' · '.join(links)
         )
         self.logger.info('Sending webhook: %s', message)
 

@@ -1,0 +1,63 @@
+{
+  "_comment": "One contract for every copy of the TTP season snapshot check. Owned by Z1RR.Data; other repos copy this file unchanged. `base` is a whole valid snapshot; each invalid row applies `change` (dotted path to new value) to Season 5 and names a word its problem must contain.",
+  "base": {
+    "schemaVersion": 1,
+    "revision": 1,
+    "updatedAt": "2026-11-06T17:00:00.000Z",
+    "seasons": [
+      {
+        "number": 5,
+        "theme": "Five Hearts at Betty's",
+        "rulesUrl": "https://docs.google.com/document/d/1JVLZdgtF_edcJMB0vrI5NKUlj84Yq0uJ7q1Yqn5V3A4/edit?tab=t.0",
+        "goal": "TTP Season 5",
+        "roomPrefix": "TTP Season 5",
+        "boardLabel": "TTP S5",
+        "discordChannelId": "1494388330022830251",
+        "discordChannelName": "ttp5",
+        "adminTeam": [],
+        "schedule": {
+          "firstNight": "2026-08-31",
+          "lastNight": "2026-12-19",
+          "weeks": 16,
+          "slots": [
+            {"name": "TTP0", "at": "18:00", "days": [6]},
+            {"name": "TTP1", "at": "20:00", "days": [1, 2, 3, 4, 5, 6]},
+            {"name": "TTP2", "at": "22:00", "days": [1, 2, 3, 4, 5, 6]},
+            {"name": "TTP3", "at": "00:00", "days": [1, 2, 3, 4, 5, 6]}
+          ],
+          "afterLastRace": "stop"
+        },
+        "flagsets": [
+          {"name": "TTP5 Uphill Battle", "command": "ttp5uphill"},
+          {"name": "TTP5 Muffle Rug", "command": "ttp5muffle"},
+          {"name": "TTP5 Pick 5", "command": "ttp5pick5"}
+        ],
+        "randomCommand": "ttp5",
+        "qualifying": {"races": 16, "fieldLimit": null, "tiebreakers": ["head-to-head wins", "average finish time"]},
+        "tournament": {
+          "answersDueAt": "2026-12-29T05:00:00.000Z",
+          "reminderAt": "2026-12-26T05:00:00.000Z",
+          "goal": "Beat the game",
+          "roomLabel": "TTP Season 5 Tournament",
+          "challongeSlug": "z1rrttp5",
+          "predictionsCloseAt": "2027-01-04T05:00:00.000Z",
+          "round1Date": "2027-01-04",
+          "roundDays": 7
+        },
+        "handChecklist": {"rulesDoc": true, "goalExists": true, "discordChannels": false, "predictionsOpened": false}
+      }
+    ]
+  },
+  "invalid": [
+    {"why": "a first night that isn't a Monday", "change": {"schedule.firstNight": "2026-09-01"}, "problem": "Monday"},
+    {"why": "a week count that doesn't match the dates", "change": {"schedule.weeks": 24}, "problem": "dates make 16 weeks"},
+    {"why": "two flagsets", "change": {"flagsets": [{"name": "A", "command": "a"}, {"name": "B", "command": "b"}]}, "problem": "three flagsets"},
+    {"why": "the same flagset twice", "change": {"flagsets": [{"name": "A", "command": "a"}, {"name": "A", "command": "b"}, {"name": "C", "command": "c"}]}, "problem": "distinct"},
+    {"why": "the same command twice", "change": {"flagsets": [{"name": "A", "command": "a"}, {"name": "B", "command": "a"}, {"name": "C", "command": "c"}]}, "problem": "distinct"},
+    {"why": "an unknown after-last-race choice", "change": {"schedule.afterLastRace": "maybe"}, "problem": "afterLastRace"},
+    {"why": "a field limit under the bracket minimum", "change": {"qualifying.fieldLimit": 7}, "problem": "fieldLimit"},
+    {"why": "a field limit over the bracket maximum", "change": {"qualifying.fieldLimit": 129}, "problem": "fieldLimit"},
+    {"why": "a slot time that isn't HH:MM", "change": {"schedule.slots": [{"name": "TTP1", "at": "8:00 PM", "days": [1]}]}, "problem": "slot"},
+    {"why": "a Round 1 date that isn't a date", "change": {"tournament.round1Date": "Jan 4"}, "problem": "round1Date"}
+  ]
+}

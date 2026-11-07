@@ -77,6 +77,9 @@ class RunReachesRunForeverTests(unittest.TestCase):
         registry = patch('ttpbot.bot.flagset_registry.run', new=lambda: 'flagset-registry-marker')
         registry.start()
         self.addCleanup(registry.stop)
+        record = patch('ttpbot.bot.season_record.run', new=lambda: 'season-record-marker')
+        record.start()
+        self.addCleanup(record.stop)
 
     def test_a_broken_league_state_store_still_lets_ttp_scheduling_start(self):
         """The constraint that actually matters: TTP is unaffected."""
@@ -98,7 +101,7 @@ class RunReachesRunForeverTests(unittest.TestCase):
         self.assertTrue(bot.loop.run_forever_called)
         self.assertEqual(
             bot.loop.tasks,
-            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'flagset-registry-marker'],
+            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'flagset-registry-marker', 'season-record-marker'],
         )
         bot.logger.error.assert_called()
 
@@ -115,15 +118,15 @@ class RunReachesRunForeverTests(unittest.TestCase):
         bot.run()
 
         self.assertTrue(bot.loop.run_forever_called)
-        self.assertEqual(len(bot.loop.tasks), 4)
+        self.assertEqual(len(bot.loop.tasks), 5)
         self.assertEqual(
             bot.loop.tasks,
-            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'flagset-registry-marker'],
+            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'flagset-registry-marker', 'season-record-marker'],
         )
         # Verify _build_league_scheduler was never called
         bot._build_league_scheduler.assert_not_called()
 
-    def test_run_creates_five_tasks_and_builds_league_when_league_is_enabled(self):
+    def test_run_creates_six_tasks_and_builds_league_when_league_is_enabled(self):
         """When league_enabled=True and scheduler succeeds, run() creates five tasks."""
         bot = bot_for_league(league_enabled=True)
         bot.loop = FakeLoop()
@@ -140,10 +143,10 @@ class RunReachesRunForeverTests(unittest.TestCase):
         bot.run()
 
         self.assertTrue(bot.loop.run_forever_called)
-        self.assertEqual(len(bot.loop.tasks), 5)
+        self.assertEqual(len(bot.loop.tasks), 6)
         self.assertEqual(
             bot.loop.tasks,
-            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'flagset-registry-marker', 'league-scheduler-marker'],
+            ['reauthorize-marker', 'refresh-races-marker', 'race-scheduler-marker', 'flagset-registry-marker', 'season-record-marker', 'league-scheduler-marker'],
         )
         # Verify _build_league_scheduler was called exactly once
         bot._build_league_scheduler.assert_called_once()
