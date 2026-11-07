@@ -202,11 +202,20 @@ curl -s -o /dev/null -w '%{http_code}
 Expect `200`. `GOAL_NAME` in `ttpbot/config.py` must match the origin's goal
 string exactly; verify against `<origin>/<slug>/data`.
 
-Validate locally and then probe read-only. `ttpbot-preflight` sources `/etc/ttpbot.env`; it does not create a room or send Discord:
+Validate locally and then probe read-only. `ttpbot-preflight` does not create a
+room or send Discord. On coop-relay `/etc/ttpbot.env` is `root:root` mode `0600`,
+so `sudo -u ttpbot` cannot read it. Let systemd hand the file to the probe as the
+`ttpbot` user, the way the service gets it, and point the script's own
+`TTPBOT_ENV_FILE` at nothing so it doesn't try to source the file again:
 
 ```bash
-sudo -u ttpbot /usr/local/bin/ttpbot-preflight
+sudo systemd-run --quiet --wait --pipe --collect -p User=ttpbot -p EnvironmentFile=/etc/ttpbot.env -E TTPBOT_ENV_FILE=/nonexistent -p WorkingDirectory=/opt/ttpbot /usr/local/bin/ttpbot-preflight
 ```
+
+While the service runs it holds the scheduler lock, so the probe reports
+`"scheduler_lock_available": false` and `"ok": false` with every other check
+`true`. For a deploy, stop `ttpbot`, run the probe, and start it only on
+`"ok":true`.
 
 ## Switching Destination (racetime.gg <-> Raceroom)
 
@@ -241,7 +250,8 @@ sudo chown -R ttpbot:ttpbot /var/lib/ttpbot/<outgoing>-state
 ```
 
 `learned_aliases.json` and `chat_logs/` are not destination-bound; leave them.
-Re-run `ttpbot-preflight` and require `"ok":true` before starting.
+Re-run `ttpbot-preflight` through `systemd-run` as above and require `"ok":true`
+before starting.
 
 ## Explicit legacy state migration
 
