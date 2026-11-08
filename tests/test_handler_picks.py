@@ -541,6 +541,18 @@ class Council(unittest.IsolatedAsyncioTestCase):
                          'TTP5 W1-25 Game 3 (https://racetime.gg/z1r/ttp-room): That seed is Uphill Battle, which '
                          'was already played. This game should be Pick 5. !cancel clears it.')
 
+    async def test_a_roll_checked_during_an_engine_blip_is_checked_again(self):
+        room = Room(3, game3_engine())
+        await room.open()
+        room.engine.down = True
+        await room.roll('SahasrahBot', info='Seed: 1 - Flags: ' + UPHILL)
+        self.assertEqual(room.said[-1], room.council_said(
+            "I can't reach the bracket right now, so picks here can't be saved"))
+        room.engine.down = False
+        await room.race_data()
+        self.assertEqual(room.said[-1], room.council_said(
+            'That seed is Uphill Battle, which was already played. This game should be Pick 5. !cancel clears it'))
+
     async def test_free_text_flags_never_count(self):  # Flags: leagueweek8
         room = Room(2, Engine('defer', games={1: 'TTP5 Uphill Battle'}, score=(1, 0)))
         await room.open()

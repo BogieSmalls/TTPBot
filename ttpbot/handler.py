@@ -622,7 +622,6 @@ class TTPRaceHandler(RaceHandler):
         race = self.tournament_race()
         if race is None or self.ttp_engine is None:
             return
-        self._ttp_checked = key
         try:
             state, flagsets, _ = await self._ttp_read(race)
             if flags and flagsets and flags not in [f['flags'] for f in flagsets]:
@@ -631,11 +630,13 @@ class TTPRaceHandler(RaceHandler):
                 state, flagsets, _ = await self._ttp_read(race)
         except Exception:
             self.logger.warning('[%s] engine unread for a roll check', self.data.get('name'), exc_info=True)
+            # Not marked checked: the next race data or roll checks it again.
             await self._ttp_tell_council(race, ENGINE_DOWN)
             return
         check = picks.check_roll(flags, state, race['game'], flagsets=flagsets,
                                  registry_name=registry.name_of(flags) if flags else None,
                                  room=self._ttp_room())
+        self._ttp_checked = key
         if check.warning:
             await self._ttp_tell_council(race, check.warning, per_roll=True)
         await self._ttp_say_once(check.ask)
