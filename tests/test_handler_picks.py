@@ -490,12 +490,27 @@ class Finished(unittest.IsolatedAsyncioTestCase):
         reader.assert_awaited_once()
 
     async def test_a_recorded_game_reads_no_log(self):
-        engine = Engine('defer', games={1: 'TTP5 Uphill Battle', 2: 'TTP5 Pick 5'}, score=(1, 0))
+        # Recorded from this room, or by Council for any room.
+        for room, source in ((ROOM_URL, 'room-start'), ('https://racetime.gg/z1r/game-2', 'council')):
+            with self.subTest(source=source):
+                engine = Engine('defer', games={1: 'TTP5 Uphill Battle', 2: 'TTP5 Pick 5'}, score=(1, 0))
+                engine.games[2].update(room=room, source=source)
+                engine.draw = AsyncMock(return_value={'matches': [{'id': 'W1-25', 'a': 'thomjay',
+                                                                   'b': 'specialk3782'}]})
+                results, live_ops, reader = self.results(engine, log=self.LOG_ROLLED)
+                await results.record(self.finished('Seed: 9 - Flags: ' + PICK5))
+                reader.assert_not_awaited()
+                self.assertEqual(live_ops.posts, [])
+
+    async def test_the_finish_fallback_records_over_a_retired_room_s_recording(self):
+        # A rematch whose start write failed: Game 2's recording is the retired room's.
+        engine = Engine('defer', games={1: 'TTP5 Uphill Battle', 2: 'TTP5 Muffle Rug'}, score=(1, 0))
         engine.draw = AsyncMock(return_value={'matches': [{'id': 'W1-25', 'a': 'thomjay', 'b': 'specialk3782'}]})
         results, live_ops, reader = self.results(engine, log=self.LOG_ROLLED)
         await results.record(self.finished('Seed: 9 - Flags: ' + PICK5))
-        reader.assert_not_awaited()
-        self.assertEqual(live_ops.posts, [])
+        reader.assert_awaited_once_with(ROOM_URL)
+        self.assertEqual(engine.recorded, [('W1-25', 2, PICK5, 'room-finish')])
+        self.assertEqual(engine.games[2]['room'], ROOM_URL)
 
     async def test_a_finished_room_with_a_cancel_in_its_log_records_nothing(self):
         engine = Engine('defer', games={1: 'TTP5 Uphill Battle'}, score=(1, 0))

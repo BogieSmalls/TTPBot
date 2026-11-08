@@ -116,7 +116,7 @@ class AutumnResults:
             self.logger.warning('Live Ops notice failed', exc_info=True)
 
     async def _recover_flagset(self, match, game, room, data):
-        """A game finished with no flagset on record: read the room's log.
+        """A game finished with no flagset on record from this room or Council: read the room's log.
 
         Only a roll the log shows still standing counts, from SahasrahBot's or
         TTPBot's own lines. A log that can't be read records nothing.
@@ -128,7 +128,10 @@ class AutumnResults:
             await self._tell(match, game, room, "the bracket couldn't be read to check this game's flagset. "
                              'Council needs to check it.')
             return
-        if str(game) in (state.get('games') or {}):
+        recorded = (state.get('games') or {}).get(str(game))
+        if recorded and (recorded.get('room') == room or recorded.get('source') == 'council'):
+            # A retired room's recording does not stand for this room: a
+            # rematch whose start write failed is recorded here.
             return
         try:
             text = await self.log_reader(room)
