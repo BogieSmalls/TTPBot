@@ -194,6 +194,9 @@ class TTPRaceHandler(RaceHandler):
     _ttp_history_seen = False
     _ttp_started = False
     _ttp_checked = None
+    #: Race info as it stood at the last cancel (or with no roll standing).
+    #: A roll is checked only once race info has moved on from it.
+    _ttp_stale_info = None
     _ttp_flagsets = None
     _ttp_task = None
     _ttp_lock = None
@@ -441,9 +444,14 @@ class TTPRaceHandler(RaceHandler):
         """TTPBot's own words in this room: from history, then as it speaks."""
         return self.state.setdefault('ttp_said', [])
 
+    def _ttp_roll_said(self):
+        """TTPBot's words since the last roll or cancel, so each roll is warned about once."""
+        return self.state.setdefault('ttp_roll_said', [])
+
     async def _ttp_say(self, text):
         await self.send_message(text)
         self._ttp_said().append(text)
+        self._ttp_roll_said().append(text)
 
     async def _ttp_say_once(self, text):
         if text and text not in self._ttp_said():
@@ -479,9 +487,14 @@ class TTPRaceHandler(RaceHandler):
             self.logger.warning('[%s] Live Ops notice failed', self.data.get('name'), exc_info=True)
             return False
 
-    async def _ttp_tell_council(self, race, base):
-        """The room and Live Ops, once each. The room says Council was told only if it was."""
-        if any(said.startswith(base) for said in self._ttp_said()):
+    async def _ttp_tell_council(self, race, base, per_roll=False):
+        """The room and Live Ops, once each. The room says Council was told only if it was.
+
+        Once per room, or with `per_roll` once per roll: a wrong roll rolled
+        again after a cancel is a new problem.
+        """
+        heard = self._ttp_roll_said() if per_roll else self._ttp_said()
+        if any(said.startswith(base) for said in heard):
             return
         told = await self._ttp_notify(race, base + '.')
         await self._ttp_say(picks.with_council(base, told))
@@ -528,11 +541,18 @@ class TTPRaceHandler(RaceHandler):
         # recorded and the room warns, rather than guess.
         self.roll_state = picks.roll_state(ordered)
         self.seed_rolled = self.roll_state == picks.ROLLED
+        self._ttp_stale_info = None if self.seed_rolled else self.data.get('info_bot')
         said = self._ttp_said()
+        since_roll = []
         for msg in ordered:
             text = msg.get('message_plain') or msg.get('message') or ''
+            if picks.roll_state([msg]) != picks.NONE:
+                since_roll = []
+            elif msg.get('is_bot') and msg.get('bot') == 'TTPBot':
+                since_roll.append(text)
             if msg.get('is_bot') and msg.get('bot') == 'TTPBot' and text not in said:
                 said.append(text)
+        self.state['ttp_roll_said'] = since_roll
 
     async def _ttp_after_history(self):
         self._ttp_history_seen = True
@@ -551,7 +571,14 @@ class TTPRaceHandler(RaceHandler):
     async def _ttp_set_roll(self, state):
         before, self.roll_state = self.roll_state, state
         self.seed_rolled = state == picks.ROLLED
-        if state == before or not self._ttp_history_seen or not self._room_is_open():
+        if state == before:
+            return
+        # A new roll or a cancel: what was said about the last roll is behind it.
+        self.state['ttp_roll_said'] = []
+        if state != picks.ROLLED:
+            # The info the next roll must replace before it is checked.
+            self._ttp_stale_info = self.data.get('info_bot')
+        if not self._ttp_history_seen or not self._room_is_open():
             return
         try:
             if state == picks.CANCELLED:
@@ -578,7 +605,14 @@ class TTPRaceHandler(RaceHandler):
         """Check the roll standing against the game, once per roll."""
         if self.roll_state != picks.ROLLED or not self._room_is_open():
             return
-        flags = picks.current_roll(self.data.get('info_bot'))
+        info = self.data.get('info_bot')
+        if self._ttp_stale_info is not None:
+            if info == self._ttp_stale_info:
+                # TTPBot's own roll lands before racetime shows its race info:
+                # what is there is still the roll before it.
+                return
+            self._ttp_stale_info = None
+        flags = picks.current_roll(info)
         key = (self.roll_state, flags)
         if key == self._ttp_checked:
             return
@@ -599,7 +633,7 @@ class TTPRaceHandler(RaceHandler):
         check = picks.check_roll(flags, state, race['game'], flagsets=flagsets,
                                  registry_name=registry.name_of(flags) if flags else None)
         if check.warning:
-            await self._ttp_tell_council(race, check.warning)
+            await self._ttp_tell_council(race, check.warning, per_roll=True)
         await self._ttp_say_once(check.ask)
 
     async def _ttp_start(self):

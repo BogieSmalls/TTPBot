@@ -286,6 +286,52 @@ class CancelledRolls(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(room.engine.recorded, [('W1-25', 3, PICK5, 'room-start')])
         self.assertEqual(room.said.count(wrong), 1)
 
+    async def test_a_repeated_wrong_roll_after_a_cancel_is_warned_again(self):
+        room = Room(3, game3_engine())
+        await room.open()
+        wrong = room.council_said('That seed is Uphill Battle, which was already played. This game should be '
+                                  'Pick 5. !cancel clears it')
+        await room.roll('SahasrahBot', info='Seed: 1 - Flags: ' + UPHILL)
+        await room.bot_says('SahasrahBot', RESET)
+        self.assertEqual(room.said[-1], tr.CANCELLED_WARNING)
+        await room.roll('SahasrahBot', info='Seed: 2 - Flags: ' + UPHILL)
+        self.assertEqual(room.said.count(wrong), 2)
+        self.assertEqual(sum('That seed is Uphill Battle' in post for post in room.live_ops.posts), 2)
+        # Once per roll: the same roll seen again says nothing more.
+        await room.race_data()
+        await room.restart()
+        self.assertEqual(room.said, [])
+        await room.start()
+        self.assertEqual(room.engine.recorded, [('W1-25', 3, UPHILL, 'room-start')])
+
+    async def test_ttpbot_s_own_roll_is_not_checked_against_stale_race_info(self):
+        room = Room(3, game3_engine())
+        await room.open()
+        wrong = room.council_said('That seed is Uphill Battle, which was already played. This game should be '
+                                  'Pick 5. !cancel clears it')
+        await room.command('!flags ' + UPHILL)              # TTPBot rolls; racetime pushes the info after
+        await room.race_data()
+        self.assertEqual(room.said.count(wrong), 1)
+        await room.command('!cancel')
+        self.assertEqual(room.said[-1], tr.CANCELLED_WARNING)
+        await room.command('!flags ' + PICK5)               # race info still shows Uphill here
+        self.assertEqual(room.said.count(wrong), 1)
+        await room.race_data()
+        self.assertEqual(room.said.count(wrong), 1)
+        self.assertEqual(len(room.live_ops.posts), 1)
+        await room.start()
+        self.assertEqual(room.engine.recorded, [('W1-25', 3, PICK5, 'room-start')])
+
+    async def test_a_restart_compares_only_against_what_was_said_since_the_last_roll(self):
+        room = Room(3, game3_engine())
+        wrong = room.council_said('That seed is Uphill Battle, which was already played. This game should be '
+                                  'Pick 5. !cancel clears it')
+        room.chat = history(('SahasrahBot', ROLLED), ('TTPBot', wrong), ('SahasrahBot', RESET),
+                            ('TTPBot', tr.CANCELLED_WARNING), ('SahasrahBot', ROLLED))
+        room.data['info_bot'] = 'Seed: 2 - Flags: ' + UPHILL
+        await room.restart()
+        self.assertEqual(room.said.count(wrong), 1)
+
     async def test_a_cancel_after_a_ttpbot_handoff_with_no_reroll_records_nothing(self):  # Review Focus 1
         room = Room(2, Engine('defer', games={1: 'TTP5 Uphill Battle'}, score=(1, 0)))
         await room.open()
