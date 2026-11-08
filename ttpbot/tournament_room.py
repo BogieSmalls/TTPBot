@@ -132,12 +132,32 @@ def _game3(pick_state, flagsets):
     return None
 
 
-def expected_flagset(pick_state, game, flagsets):
-    """What this game should be raced on, if anyone knows yet."""
+def _rematch(pick_state, game, room):
+    """The flagset this game was raced on in a retired room, when `room` is its rematch.
+
+    Game 3 is the flagset left either way, so only Games 1 and 2 have one.
+    A room recorded from itself has started; it is not a rematch.
+    """
+    if room is None or game == 3:
+        return None
+    recorded = _games(pick_state).get(game)
+    if recorded and recorded.get('room') != room:
+        return recorded['flagset']
+    return None
+
+
+def expected_flagset(pick_state, game, flagsets, room=None):
+    """What this game should be raced on, if anyone knows yet.
+
+    `room` is this room's URL, so a rematch room expects the flagset its game
+    was raced on in the retired room.
+    """
     chosen = _chosen(pick_state).get(game)
     if chosen:
         return chosen['flagset']
-    return _game3(pick_state, flagsets) if game == 3 else None
+    if game == 3:
+        return _game3(pick_state, flagsets)
+    return _rematch(pick_state, game, room)
 
 
 def _commands(names, flagsets):
@@ -178,10 +198,13 @@ def _decided_line(first, second, flagsets, pick_state, ready=True):
     return text
 
 
-def _roll_line(pick_state, game, name, flagsets):
-    """'Game 2 is Muffle Rug. Roll it when everyone's ready: !flags F If there's a Game 3, it's Pick 5.'"""
-    text = "Game {} is {}. Roll it when everyone's ready: !flags {}".format(
-        game, short_name(name), _flags_of(name, flagsets))
+def _roll_line(pick_state, game, name, flagsets, rematch=False):
+    """'Game 2 is Muffle Rug. Roll it when everyone's ready: !flags F If there's a Game 3, it's Pick 5.'
+
+    A rematch room says 'Game 2 is a rematch on Muffle Rug.'
+    """
+    text = "Game {} is {}{}. Roll it when everyone's ready: !flags {}".format(
+        game, 'a rematch on ' if rematch else '', short_name(name), _flags_of(name, flagsets))
     if game == 2:
         rest = [n for n in _left(pick_state, 2, flagsets) if n != name]
         if len(rest) == 1:
@@ -189,13 +212,21 @@ def _roll_line(pick_state, game, name, flagsets):
     return text
 
 
-def plan_for_room(pick_state, game, *, flagsets, tag, round_label, score=None):
-    """What the room says when it opens, from the engine's pickState."""
+def _is_rematch(pick_state, game, room):
+    """A rematch room with nothing chosen for its game: it rolls what was raced."""
+    return not _chosen(pick_state).get(game) and _rematch(pick_state, game, room) is not None
+
+
+def plan_for_room(pick_state, game, *, flagsets, tag, round_label, score=None, room=None):
+    """What the room says when it opens, from the engine's pickState.
+
+    `room` is this room's URL, which tells a rematch room from one that started.
+    """
     better, other = pick_state['betterSeed'], pick_state['otherSeed']
     top = heading(pick_state, game, tag=tag, round_label=round_label, score=score)
     decision = pick_state.get('decision')
     owners = _owners(pick_state)
-    expected = expected_flagset(pick_state, game, flagsets)
+    expected = expected_flagset(pick_state, game, flagsets, room=room)
     played = _played_before(pick_state, game)
     notices = []
 
@@ -219,7 +250,8 @@ def plan_for_room(pick_state, game, *, flagsets, tag, round_label, score=None):
         notices.append("Game 1's flagset isn't on record, so this room can't rule one out")
 
     if expected:
-        return RoomPlan([top, _roll_line(pick_state, game, expected, flagsets)], owners.get(game), [], False, notices)
+        line = _roll_line(pick_state, game, expected, flagsets, rematch=_is_rematch(pick_state, game, room))
+        return RoomPlan([top, line], owners.get(game), [], False, notices)
 
     if game == 1 and not decision:
         line = ("{}, you're the better seed, so this decision is yours: !pick to choose this game's flagset, "
@@ -244,17 +276,25 @@ def plan_for_room(pick_state, game, *, flagsets, tag, round_label, score=None):
     return RoomPlan([top, line], owner, commands, False, notices)
 
 
-def reply_to_command(pick_state, game, speaker, command, *, flagsets, rolled=False):
-    """The answer to !pick, !defer or a flagset command, and the write it needs."""
+def reply_to_command(pick_state, game, speaker, command, *, flagsets, rolled=False, room=None):
+    """The answer to !pick, !defer or a flagset command, and the write it needs.
+
+    `room` is this room's URL: a rematch room answers with its rematch roll,
+    and a room that has itself started answers as it always has.
+    """
     better, other = pick_state['betterSeed'], pick_state['otherSeed']
     match_id = pick_state['matchId']
     games = _games(pick_state)
     command = (command or '').lower()
+    rematch = _rematch(pick_state, game, room)
+    started_here = game in games and rematch is None
 
     if command in ('pick', 'defer'):
         if speaker != better:
             return Reply('Only {}, the better seed, decides who picks first.'.format(better), None)
         if game != 1 or 1 in games:
+            if pick_state.get('decision') and not started_here:
+                return Reply('That decision is already recorded.', None)
             return Reply('Game 1 has started, so Council records that decision now.', None)
         decision = pick_state.get('decision')
         if decision:
@@ -277,6 +317,9 @@ def reply_to_command(pick_state, game, speaker, command, *, flagsets, rolled=Fal
         if name:
             return Reply('Game 3 is {}, the flagset left, so nobody picks.'.format(short_name(name)), None)
         return Reply("Nobody picks Game 3. Council decides its flagset.", None)
+    if rematch is not None:
+        name = expected_flagset(pick_state, game, flagsets, room=room)
+        return Reply(_roll_line(pick_state, game, name, flagsets, rematch=_is_rematch(pick_state, game, room)), None)
     if game in games:
         return Reply('Game {} has started, so its flagset is the one it was raced on.'.format(game), None)
     owner = _owners(pick_state).get(game)
@@ -294,19 +337,20 @@ def reply_to_command(pick_state, game, speaker, command, *, flagsets, rolled=Fal
                                  'actor': speaker, 'by': 'racer'}))
 
 
-def check_roll(flags, pick_state, game, *, flagsets, state=ROLLED, registry_name=None):
+def check_roll(flags, pick_state, game, *, flagsets, state=ROLLED, registry_name=None, room=None):
     """Whether a roll fits this game. Never blocks it: SahasrahBot can't be stopped.
 
     Only a string on the frozen list counts. `registry_name` is the Flag
     Registry's name for the string, so a newer version of a frozen flagset is
-    named as such (Review Focus 5) rather than called unknown.
+    named as such (Review Focus 5) rather than called unknown. `room` is this
+    room's URL, so a rematch room expects its game's raced flagset.
     """
     if state == CANCELLED:
         return RollCheck(False, None, CANCELLED_WARNING, None)
     if state != ROLLED or not flags:
         return RollCheck(False, None, None, None)
-    expected = expected_flagset(pick_state, game, flagsets)
-    should = ' This game should be {}.'.format(short_name(expected)) if expected else ''
+    expected = expected_flagset(pick_state, game, flagsets, room=room)
+    should =' This game should be {}.'.format(short_name(expected)) if expected else ''
     ask = None
     if game == 1 and not pick_state.get('decision') and 1 not in _games(pick_state):
         ask = ('{}, this seed was rolled before a !pick or !defer. Please confirm with !pick or !defer, '

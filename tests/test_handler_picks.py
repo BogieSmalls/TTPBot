@@ -688,6 +688,42 @@ class Picks(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(room.said[-1], 'Game 3 is Pick 5, the flagset left, so nobody picks.')
         self.assertEqual(room.engine.writes, [])
 
+    REMATCH = ("Game 2 is a rematch on Muffle Rug. Roll it when everyone's ready: !flags " + MUFFLE
+               + " If there's a Game 3, it's Pick 5.")
+
+    def rematch_engine(self):
+        # Game 2 was raced on Muffle Rug in a room since retired (z1r/game-2).
+        return Engine('defer', games={1: 'TTP5 Uphill Battle', 2: 'TTP5 Muffle Rug'}, score=(1, 0))
+
+    async def test_a_rematch_room_names_the_flagset_its_game_was_raced_on(self):
+        room = Room(2, self.rematch_engine())
+        await room.open()
+        self.assertEqual(room.said[1:], ['TTP5 Round 1, Game 2: thomjay leads 1–0.', self.REMATCH])
+        await room.command('!defer', who='thomjay')
+        self.assertEqual(room.said[-1], 'That decision is already recorded.')
+        # A different roll still counts at the start, and is warned about as usual.
+        await room.roll('SahasrahBot', info='Seed: 1 - Flags: ' + PICK5)
+        self.assertEqual(room.said[-1], room.council_said(
+            'That seed is Pick 5, but this game should be Muffle Rug. !cancel clears it'))
+        await room.start()
+        self.assertEqual(room.engine.recorded, [('W1-25', 2, PICK5, 'room-start')])
+        self.assertEqual(room.engine.games[2]['room'], 'https://racetime.gg/z1r/ttp-room')
+
+    async def test_a_flagset_command_in_a_rematch_room_answers_with_the_rematch_roll(self):
+        room = Room(2, self.rematch_engine())
+        await room.open()
+        await room.command('!ttp5pick5', who='thomjay')
+        await room.command('!ttp5muffle', who='specialk3782')
+        self.assertEqual(room.said[-2:], [self.REMATCH, self.REMATCH])
+        self.assertEqual(room.engine.writes, [])
+        # A room that has itself started keeps its answer.
+        started = room.engine.pick_state()
+        started['games']['2']['room'] = 'https://racetime.gg/z1r/ttp-room'
+        self.assertEqual(
+            tr.reply_to_command(started, 2, 'thomjay', 'ttp5pick5', flagsets=FLAGSETS,
+                                room='https://racetime.gg/z1r/ttp-room').text,
+            'Game 2 has started, so its flagset is the one it was raced on.')
+
     async def test_random_race_and_presets_do_not_roll_here(self):
         room = Room(1, Engine('defer'))
         await room.open()

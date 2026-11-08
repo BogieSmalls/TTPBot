@@ -631,7 +631,8 @@ class TTPRaceHandler(RaceHandler):
             await self._ttp_tell_council(race, ENGINE_DOWN)
             return
         check = picks.check_roll(flags, state, race['game'], flagsets=flagsets,
-                                 registry_name=registry.name_of(flags) if flags else None)
+                                 registry_name=registry.name_of(flags) if flags else None,
+                                 room=self._ttp_room())
         if check.warning:
             await self._ttp_tell_council(race, check.warning, per_roll=True)
         await self._ttp_say_once(check.ask)
@@ -716,7 +717,7 @@ class TTPRaceHandler(RaceHandler):
             return
         tag, label = self._ttp_labels(race)
         plan = picks.plan_for_room(state, race['game'], flagsets=flagsets, tag=tag,
-                                   round_label=label, score=score)
+                                   round_label=label, score=score, room=self._ttp_room())
         if plan.opening[0] not in self._ttp_said():
             for line in plan.opening:
                 await self._ttp_say(line)
@@ -794,7 +795,8 @@ class TTPRaceHandler(RaceHandler):
             await self._ttp_tell_council(race, ENGINE_DOWN)
             return True
         reply = picks.reply_to_command(state, race['game'], self._ttp_speaker(message, race, state), command,
-                                       flagsets=flagsets, rolled=self.roll_state == picks.ROLLED)
+                                       flagsets=flagsets, rolled=self.roll_state == picks.ROLLED,
+                                       room=self._ttp_room())
         if reply.text is None:
             return False
         if reply.op is None:
