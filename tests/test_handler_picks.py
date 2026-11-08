@@ -62,6 +62,9 @@ class Engine:
         self.down = False
         self.recorded = []
         self.writes = []
+        #: Room warnings kept for the series card, and whether they are kept.
+        self.notes = []
+        self.noting = True
 
     @staticmethod
     def flags_of(name):
@@ -140,6 +143,12 @@ class Engine:
                                      'room': p['room'], 'actor': p['actor']}
             self.recorded.append((p['matchId'], p['game'], p['flags'], p['source']))
         return await self._write('recordFlagset', payload, change)
+
+    async def note_warning(self, payload):
+        if self.down or not self.noting:
+            return Written(UNCONFIRMED, detail='engine unreachable')
+        self.notes.append(dict(payload))
+        return Written(RECORDED, answer={'picks': self.pick_state()})
 
 
 class LiveOps:
@@ -521,6 +530,19 @@ class Finished(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(engine.recorded, [])
         self.assertTrue(live_ops.told('no roll standing'))
 
+    async def test_a_finished_game_still_unrecorded_is_noted_for_the_series_card(self):
+        engine = Engine('defer', games={1: 'TTP5 Uphill Battle'}, score=(1, 0))
+        engine.draw = AsyncMock(return_value={'matches': [{'id': 'W1-25', 'a': 'thomjay', 'b': 'specialk3782'}]})
+        log = self.LOG_ROLLED + '\n[2027-01-09 00:52:00+00:00] SahasrahBot: ' + RESET
+        results, live_ops, _ = self.results(engine, log=log)
+        await results.record(self.finished('Seed: 9 - Flags: ' + PICK5))
+        self.assertEqual(engine.notes, [{
+            'matchId': 'W1-25', 'game': 2, 'room': ROOM_URL, 'code': 'unrecorded',
+            'text': 'The room finished with no roll standing, so no flagset was recorded for this game. '
+                    'Council needs to record it.',
+            'actor': 'ttpbot', 'edition': '5'}])
+        self.assertTrue(live_ops.told('no roll standing'))
+
     async def test_an_unreadable_log_records_nothing_and_warns(self):
         engine = Engine('defer', games={1: 'TTP5 Uphill Battle'}, score=(1, 0))
         engine.draw = AsyncMock(return_value={'matches': [{'id': 'W1-25', 'a': 'thomjay', 'b': 'specialk3782'}]})
@@ -537,11 +559,61 @@ class Council(unittest.IsolatedAsyncioTestCase):
                                 (False, ". I couldn't reach Council, so please tell them in Discord.")):
             with self.subTest(accepts=accepts):
                 room = Room(3, game3_engine(), LiveOps(accepts))
+                room.engine.noting = False                   # Live Ops alone
                 await room.open()
                 await room.roll('SahasrahBot', info='Seed: 1 - Flags: ' + UPHILL)
                 self.assertEqual(len(room.live_ops.posts), 1)
                 self.assertTrue(room.said[-1].endswith(ending), room.said[-1])
                 self.assertEqual(sum('Council has been told' in line for line in room.said), int(accepts))
+
+    async def test_a_wrong_roll_is_noted_for_the_series_card(self):
+        room = Room(3, game3_engine())
+        await room.open()
+        await room.roll('SahasrahBot', info='Seed: 1 - Flags: ' + UPHILL)
+        self.assertEqual(room.engine.notes, [{
+            'matchId': 'W1-25', 'game': 3, 'room': 'https://racetime.gg/z1r/ttp-room', 'code': 'wrong-roll',
+            'text': 'That seed is Uphill Battle, which was already played. This game should be Pick 5. '
+                    '!cancel clears it.',
+            'actor': 'ttpbot', 'edition': '5'}])
+        # Picked against raced is a wrong roll too.
+        picked = Room(1, Engine('defer', chosen={1: 'TTP5 Uphill Battle'}))
+        await picked.open()
+        await picked.roll('SahasrahBot', info='Seed: 1 - Flags: ' + PICK5)
+        self.assertEqual([(n['code'], n['text']) for n in picked.engine.notes], [
+            ('wrong-roll', 'That seed is Pick 5, but this game should be Uphill Battle. !cancel clears it.')])
+
+    async def test_each_room_problem_is_noted_with_its_code(self):
+        frozen = Room(2, Engine('defer', games={1: 'TTP5 Uphill Battle'}, score=(1, 0)))
+        await frozen.open()
+        await frozen.roll('SahasrahBot', info='Seed: 1 - Flags: leagueweek8')
+        await frozen.start()
+        self.assertEqual([n['code'] for n in frozen.engine.notes], ['not-frozen', 'unrecorded'])
+
+        edited = Room(1, Engine('defer', chosen={1: 'TTP5 Uphill Battle'}))
+        await edited.open()
+        with patch('ttpbot.handler.registry.name_of', return_value='TTP5 Uphill Battle'):
+            await edited.roll('SahasrahBot', info='Seed: 1 - Flags: ' + UPHILL[:-1] + 'X')
+        self.assertEqual([n['code'] for n in edited.engine.notes], ['registry-edit'])
+
+        unrolled = Room(3, game3_engine())
+        await unrolled.open()
+        await unrolled.start()
+        self.assertEqual([(n['code'], n['text']) for n in unrolled.engine.notes],
+                         [('no-roll', tr.NO_ROLL_AT_START + '.')])
+
+    async def test_council_counts_as_told_when_only_the_series_card_note_succeeded(self):
+        wrong = 'That seed is Uphill Battle, which was already played. This game should be Pick 5. !cancel clears it'
+        room = Room(3, game3_engine(), LiveOps(accepts=False))
+        await room.open()
+        await room.roll('SahasrahBot', info='Seed: 1 - Flags: ' + UPHILL)
+        self.assertEqual(len(room.live_ops.posts), 1)
+        self.assertEqual(room.said[-1], room.council_said(wrong))
+        # Neither: the room asks for Discord.
+        room = Room(3, game3_engine(), LiveOps(accepts=False))
+        room.engine.noting = False
+        await room.open()
+        await room.roll('SahasrahBot', info='Seed: 1 - Flags: ' + UPHILL)
+        self.assertEqual(room.said[-1], tr.with_council(wrong, False))
 
     async def test_a_wrong_roll_tells_the_room_and_live_ops_once(self):
         room = Room(3, game3_engine())
@@ -965,6 +1037,15 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
                                              'source': 'room-start', 'actor': 'TTPBot'})
         self.assertTrue(again.ok, again)
         self.assertEqual((await engine.picks('W1-1'))['played'], ['TTP5 Uphill Battle'])
+
+        note = {'matchId': 'W1-1', 'game': 2, 'room': ROOM_URL, 'code': 'wrong-roll',
+                'text': 'That seed is Uphill Battle, which was already played. !cancel clears it.', 'actor': 'ttpbot'}
+        noted = await engine.note_warning(dict(note))
+        self.assertTrue(noted.ok, noted)
+        self.assertTrue((await engine.note_warning(dict(note))).ok)
+        self.assertEqual([(w['game'], w['room'], w['code'], w['text']) for w in
+                          (await engine.picks('W1-1'))['roomWarnings']],
+                         [(2, ROOM_URL, 'wrong-roll', note['text'])])
 
         # A lost answer is settled by reading the series back, not by sending again.
         lost = AutumnEngine(url='http://127.0.0.1:{}'.format(port), token='scratch', event='ttp', edition='5')

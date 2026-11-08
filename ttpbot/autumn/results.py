@@ -106,8 +106,18 @@ class AutumnResults:
                 except Exception:
                     self.logger.warning('TTP flagset check failed for %s', saved[0], exc_info=True)
 
-    async def _tell(self, match, game, room, text):
+    async def _tell(self, match, game, room, text, code=None):
+        """Live Ops and, for a room problem with a `code`, Council's series card. Never raises."""
         self.logger.warning('TTP %s Game %s: %s', match, game, text)
+        if code is not None:
+            try:
+                written = await self.engine.note_warning(dict(
+                    matchId=match, game=game, room=room, code=code, text=text[:1].upper() + text[1:],
+                    actor='ttpbot', edition=self.edition))
+                if not written.ok:
+                    self.logger.warning('TTP series card note not kept: %s', written.detail or written.outcome)
+            except Exception:
+                self.logger.warning('TTP series card note failed', exc_info=True)
         if self.notify is None:
             return
         try:
@@ -138,19 +148,20 @@ class AutumnResults:
         except Exception:
             self.logger.warning('TTP room log unread for %s', room, exc_info=True)
             await self._tell(match, game, room, "the room log couldn't be read, so no flagset was recorded for "
-                             'this game. Council needs to record it.')
+                             'this game. Council needs to record it.', code='unrecorded')
             return
         flags = current_roll(data.get('info_bot'))
         if roll_state_from_log(text) != ROLLED or not flags:
             await self._tell(match, game, room, 'the room finished with no roll standing, so no flagset was '
-                             'recorded for this game. Council needs to record it.')
+                             'recorded for this game. Council needs to record it.', code='unrecorded')
             return
         written = await self.engine.record_flagset(dict(
             matchId=match, game=game, flags=flags, room=room, source='room-finish', actor='TTPBot',
             edition=self.edition))
         if not written.ok:
             await self._tell(match, game, room, "the flagset from the finished room wasn't recorded ({}). "
-                             'Council needs to record it.'.format(written.detail or written.outcome))
+                             'Council needs to record it.'.format(written.detail or written.outcome),
+                             code='unrecorded')
 
     async def _record(self, data, saved_to):
         """Save and deliver a finished room's observation.

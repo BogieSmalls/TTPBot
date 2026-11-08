@@ -490,16 +490,34 @@ class TTPRaceHandler(RaceHandler):
             self.logger.warning('[%s] Live Ops notice failed', self.data.get('name'), exc_info=True)
             return False
 
-    async def _ttp_tell_council(self, race, base, per_roll=False):
+    async def _ttp_note(self, race, code, text):
+        """Council's series card, as the engine keeps it. True only when the engine kept it."""
+        try:
+            written = await self.ttp_engine.note_warning(dict(
+                matchId=race['match_id'], game=race['game'], room=self._ttp_room(), code=code, text=text,
+                actor='ttpbot', edition=race.get('edition')))
+        except Exception:
+            self.logger.warning('[%s] series card note failed', self.data.get('name'), exc_info=True)
+            return False
+        if not written.ok:
+            self.logger.warning('[%s] series card note not kept: %s', self.data.get('name'),
+                                written.detail or written.outcome)
+        return written.ok
+
+    async def _ttp_tell_council(self, race, base, per_roll=False, code=None):
         """The room and Live Ops, once each. The room says Council was told only if it was.
 
         Once per room, or with `per_roll` once per roll: a wrong roll rolled
-        again after a cancel is a new problem.
+        again after a cancel is a new problem. A room problem with a `code` is
+        also noted on Council's series card, and either one reaching Council
+        counts as told.
         """
         heard = self._ttp_roll_said() if per_roll else self._ttp_said()
         if any(said.startswith(base) for said in heard):
             return
         told = await self._ttp_notify(race, base + '.')
+        if code is not None:
+            told = await self._ttp_note(race, code, base + '.') or told
         await self._ttp_say(picks.with_council(base, told))
 
     async def _ttp_notify_once(self, race, text):
@@ -638,7 +656,7 @@ class TTPRaceHandler(RaceHandler):
                                  room=self._ttp_room())
         self._ttp_checked = key
         if check.warning:
-            await self._ttp_tell_council(race, check.warning, per_roll=True)
+            await self._ttp_tell_council(race, check.warning, per_roll=True, code=check.code)
         await self._ttp_say_once(check.ask)
 
     async def _ttp_start(self):
@@ -662,7 +680,7 @@ class TTPRaceHandler(RaceHandler):
                     return
             except Exception:
                 pass
-            await self._ttp_tell_council(race, picks.NO_ROLL_AT_START)
+            await self._ttp_tell_council(race, picks.NO_ROLL_AT_START, code='no-roll')
             return
         written = await self.ttp_engine.record_flagset(dict(
             matchId=race['match_id'], game=race['game'], flags=flags, room=room,
@@ -677,7 +695,8 @@ class TTPRaceHandler(RaceHandler):
                             written.detail or written.outcome)
         if written.outcome == NOT_RECORDED:
             await self._ttp_tell_council(
-                race, "The race started on a roll the bracket didn't accept, so no flagset was recorded for this game")
+                race, "The race started on a roll the bracket didn't accept, so no flagset was recorded for this game",
+                code='unrecorded')
         else:
             await self._ttp_tell_council(
                 race, "I couldn't confirm this game's flagset with the bracket, so it's checked again when the race finishes")

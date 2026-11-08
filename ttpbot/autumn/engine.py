@@ -410,6 +410,18 @@ class AutumnEngine:
             return game.get('flags') == payload['flags'] and game.get('room') == payload.get('room')
         return await self._pick_write('recordFlagset', payload, landed)
 
+    async def note_warning(self, payload):
+        """A room's warning for Council's series card: {matchId, game, room, code, text, actor}.
+
+        The same warning again writes nothing at the engine. It clears once
+        Council records that game's flagset.
+        """
+        def landed(state):
+            return any(w.get('game') == payload['game'] and w.get('room') == payload.get('room')
+                       and w.get('code') == payload['code'] and w.get('text') == payload['text']
+                       for w in state.get('roomWarnings') or [])
+        return await self._pick_write('noteWarning', payload, landed)
+
     async def claim_thread(self, match_id, by):
         """Claim the right to create a match's thread. See the engine's writer."""
         return await self._post('claimThread', {'matchId': match_id, 'by': by})

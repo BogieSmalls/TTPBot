@@ -24,8 +24,9 @@ RoomPlan = namedtuple('RoomPlan', 'opening owner commands needs_decision notices
 Reply = namedtuple('Reply', 'text op')
 
 #: A roll checked against the game. `warning` goes to the room and Council;
-#: `ask` goes to the room only.
-RollCheck = namedtuple('RollCheck', 'ok flagset warning ask')
+#: `ask` goes to the room only. `code` names the warning on Council's series
+#: card: 'wrong-roll', 'not-frozen' or 'registry-edit'.
+RollCheck = namedtuple('RollCheck', 'ok flagset warning ask code', defaults=(None,))
 
 NONE, ROLLED, CANCELLED = 'none', 'rolled', 'cancelled'
 
@@ -353,7 +354,7 @@ def check_roll(flags, pick_state, game, *, flagsets, state=ROLLED, registry_name
     if state != ROLLED or not flags:
         return RollCheck(False, None, None, None)
     expected = expected_flagset(pick_state, game, flagsets, room=room)
-    should =' This game should be {}.'.format(short_name(expected)) if expected else ''
+    should = ' This game should be {}.'.format(short_name(expected)) if expected else ''
     ask = None
     if game == 1 and not pick_state.get('decision') and 1 not in _games(pick_state):
         ask = ('{}, this seed was rolled before a !pick or !defer. Please confirm with !pick or !defer, '
@@ -366,17 +367,17 @@ def check_roll(flags, pick_state, game, *, flagsets, state=ROLLED, registry_name
             warning = ("That seed is a different {} string from the one frozen for this tournament, "
                        "so it won't count until Council confirms the change.{} !cancel clears it").format(
                            short_name(newer), should)
-        else:
-            warning = "That seed isn't one of this tournament's flagsets, so it won't count.{} !cancel clears it".format(should)
-        return RollCheck(False, None, warning, ask)
+            return RollCheck(False, None, warning, ask, 'registry-edit')
+        warning = "That seed isn't one of this tournament's flagsets, so it won't count.{} !cancel clears it".format(should)
+        return RollCheck(False, None, warning, ask, 'not-frozen')
     name = found['name']
     if name in _played_before(pick_state, game):
         warning = 'That seed is {}, which was already played.{} !cancel clears it'.format(short_name(name), should)
-        return RollCheck(False, name, warning, ask)
+        return RollCheck(False, name, warning, ask, 'wrong-roll')
     if expected and name != expected:
         warning = 'That seed is {}, but this game should be {}. !cancel clears it'.format(
             short_name(name), short_name(expected))
-        return RollCheck(False, name, warning, ask)
+        return RollCheck(False, name, warning, ask, 'wrong-roll')
     return RollCheck(True, name, None, ask)
 
 
