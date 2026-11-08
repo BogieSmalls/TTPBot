@@ -23,6 +23,7 @@ from .room_policy import (
     is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room, is_ttp_tournament_room,
 )
 from .state import DestinationStateStore, UNCERTAIN_RACE
+from . import rehearsal
 
 from .provider import ProviderConfigurationError
 
@@ -155,14 +156,24 @@ class TTPBot(Bot):
             'command_prefix': '!',
         }
 
+    #: The TTP tournament runner, once run() has built it.
+    ttp_runner = None
+
+    def _own_rooms(self):
+        runner = self.ttp_runner
+        return rehearsal.own_room_names(getattr(getattr(runner, 'scheduler', None), 'created', None))
+
     def should_handle(self, race_data):
         """Handle only rooms this bot scheduled.
 
         The z1r category on racetime.gg is shared with the wider Z1R
-        community, so TTPBot stays out of races it did not open.
+        community, so TTPBot stays out of races it did not open. A rehearsal
+        copy goes further: only the rooms its own engine had it open.
         """
         if not super().should_handle(race_data):
             return False
+        if rehearsal.enabled():
+            return race_data.get('name') in self._own_rooms()
         return (is_ttp_scheduled_room(race_data) or is_league_room(race_data)
                 or is_autumn_room(race_data) or is_corto_room(race_data)
                 or is_ttp_tournament_room(race_data))
@@ -390,6 +401,9 @@ class TTPBot(Bot):
         # Before the scheduler first looks: a restart mid-Season 6 must not open a tick on Season 5.
         season_record.load_cache()
         self.loop.create_task(self.reauthorize())
+        if rehearsal.enabled():
+            self._run_rehearsal()
+            return
         self.loop.create_task(self.refresh_races())
         self.loop.create_task(self.race_scheduler())
         self.loop.create_task(flagset_registry.run())
@@ -412,9 +426,58 @@ class TTPBot(Bot):
         ttp = self._build_ttp_runner()
         if ttp is not None:
             self.logger.info('TTP season tournament scheduling is enabled')
+            self.ttp_runner = ttp
             self.loop.create_task(ttp.run())
         self.loop.set_exception_handler(self.handle_exception)
         self.loop.run_forever()
+
+    def _run_rehearsal(self):
+        """The rehearsal copy: the TTP tournament runner and its own rooms, nothing else.
+
+        No nightly room scheduler, no category scan (its rooms are unlisted, and
+        every other room belongs to production), no League, Autumn or Corto.
+        """
+        self.logger.warning('TTPBOT_REHEARSAL is on: TTP tournament rooms from this engine only')
+        self.loop.create_task(flagset_registry.run())
+        self.loop.create_task(season_record.run())
+        ttp = self._build_ttp_runner()
+        if ttp is None:
+            self.logger.error('Rehearsal: the TTP tournament runner is not configured, so nothing will run')
+        else:
+            self.ttp_runner = ttp
+            self.loop.create_task(ttp.run())
+        self.loop.create_task(self.join_own_rooms())
+        self.loop.set_exception_handler(self.handle_exception)
+        self.loop.run_forever()
+
+    async def join_own_rooms(self):
+        """Rehearsal: join the rooms this bot opened, by URL, every scan."""
+        while True:
+            try:
+                await self._join_own_rooms_once()
+            except Exception:
+                self.logger.error('Rehearsal: joining own rooms failed', exc_info=True)
+            await asyncio.sleep(self.scan_races_every)
+
+    async def _read_room(self, name):
+        try:
+            async with aiohttp.request('get', self.provider.http_url('/' + name + '/data'),
+                                       timeout=aiohttp.ClientTimeout(total=10)) as response:
+                return await response.json() if response.status == 200 else None
+        except Exception:
+            self.logger.warning('Rehearsal: could not read %s', name, exc_info=True)
+            return None
+
+    async def _join_own_rooms_once(self):
+        for name in sorted(self._own_rooms()):
+            if name in self.handlers:
+                continue
+            race_data = await self._read_room(name)
+            if not race_data or name in self.handlers or not self.should_handle(race_data):
+                continue
+            handler = self.create_handler(race_data)
+            self.handlers[name] = self.loop.create_task(handler.handle())
+            self.handlers[name].add_done_callback(lambda _task, key=name: self.handlers.pop(key, None))
 
     def _build_nightly_booths(self, crew):
         """TTP Nightly booths for the races Council staffs, or None when off (the default)."""
