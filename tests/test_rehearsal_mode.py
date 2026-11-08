@@ -149,5 +149,58 @@ class Startup(unittest.TestCase):
         self.assertNotIn('TTPBot.join_own_rooms', names)
 
 
+class OutboundCheck(unittest.TestCase):
+    """The rehearsal posts to Discord with the bot token itself, so its targets are checked before it starts."""
+
+    GOOD = {
+        'TTPBOT_REHEARSAL': 'true', 'TTPBOT_REHEARSAL_CHANNEL_IDS': '1600000000000000001,1600000000000000002',
+        'TTPBOT_TTP_DISCORD_CHANNEL_ID': '1600000000000000001', 'TTPBOT_LIVEOPS_THREAD_ID': '1600000000000000002',
+        'TTPBOT_DATA_DIR': '/var/lib/z1rr-ttp-rehearsal/ttpbot', 'Z1RR_ENGINE_URL': 'http://127.0.0.1:3117',
+        'Z1RR_FLAGSETS_CACHE': '/var/lib/z1rr-ttp-rehearsal/ttpbot/flagsets.json',
+    }
+
+    def problems(self, **patch):
+        from ttpbot.rehearsal import outbound_problems
+        env = dict(self.GOOD)
+        for key, value in patch.items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value
+        return outbound_problems(env)
+
+    def test_rehearsal_targets_pass(self):
+        self.assertEqual(self.problems(), [])
+
+    def test_posts_and_live_ops_must_be_rehearsal_channels(self):
+        self.assertTrue(self.problems(TTPBOT_TTP_DISCORD_CHANNEL_ID='1505213275049037915'))
+        self.assertTrue(self.problems(TTPBOT_LIVEOPS_THREAD_ID='1505213275049037915'))
+        self.assertTrue(self.problems(TTPBOT_REHEARSAL_CHANNEL_IDS=None))
+
+    def test_no_webhook_at_all(self):
+        for key in ('TTPBOT_DISCORD_WEBHOOK_URL', 'TTPBOT_LEAGUE_DISCORD_WEBHOOK_URL', 'TTPBOT_TTP_DISCORD_WEBHOOK_URL'):
+            self.assertTrue(self.problems(**{key: 'https://discord.com/api/webhooks/1/x'}), key)
+
+    def test_booths_only_on_restream_staging(self):
+        self.assertTrue(self.problems(Z1RR_RELAY_URL='https://wake.example', Z1RR_WAKE_TOKEN='t'))
+        self.assertTrue(self.problems(Z1RR_CONTROL_PLANE_URL='https://cp.example'))
+        self.assertEqual(self.problems(Z1RR_RELAY_URL='https://wake.example', Z1RR_WAKE_TARGET='staging',
+                                       Z1RR_CONTROL_PLANE_URL='https://cp.example'), [])
+
+    def test_startup_refuses_a_webhook_given_on_the_command_line(self):
+        from ttpbot.rehearsal import startup_problems
+        config = SimpleNamespace(discord_webhook_url='https://discord.com/api/webhooks/1/x', league_discord_webhook_url=None)
+        self.assertTrue(startup_problems(self.GOOD, config))
+        self.assertEqual(startup_problems(self.GOOD, SimpleNamespace(discord_webhook_url=None, league_discord_webhook_url=None)), [])
+        self.assertEqual(startup_problems({'Z1RR_ENGINE_URL': 'http://127.0.0.1:3007'}, config), [], 'production is not checked')
+
+    def test_never_production_engine_or_state(self):
+        self.assertTrue(self.problems(Z1RR_ENGINE_URL='http://127.0.0.1:3007'))
+        self.assertTrue(self.problems(Z1RR_ENGINE_URL=None))
+        self.assertTrue(self.problems(TTPBOT_DATA_DIR='/var/lib/ttpbot'))
+        self.assertTrue(self.problems(Z1RR_FLAGSETS_CACHE=None))
+        self.assertTrue(self.problems(Z1RR_FLAGSETS_CACHE='/var/lib/ttpbot/flagsets.json'))
+
+
 if __name__ == '__main__':
     unittest.main()
