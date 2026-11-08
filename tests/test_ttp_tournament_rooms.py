@@ -86,6 +86,7 @@ class Naming(unittest.TestCase):
         self.assertNotIn('Autumn', content)
 
 
+@patch.dict('os.environ', {'Z1RR_TTP_ENABLED': 'true'})
 class Recognition(unittest.TestCase):
     def test_only_the_tournament_test_claims_a_ttp_tournament_room(self):
         for data in (room(info_user=TITLE), room(info_bot=TITLE),
@@ -134,6 +135,7 @@ class Recovery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(found, 'https://racetime.gg/z1r/ttp-room')
 
 
+@patch.dict('os.environ', {'Z1RR_TTP_ENABLED': 'true'})
 class Handler(unittest.IsolatedAsyncioTestCase):
     async def test_the_handler_gets_when_and_game_when_the_seed_lands_after_begin(self):
         state = {}
@@ -215,6 +217,35 @@ class Switch(unittest.TestCase):
         bot = SimpleNamespace(provider=RacetimeProvider('https://racetime.gg', 'z1r'), access_token='scratch', state={})
         with self.assertRaises(ValueError):
             build_autumn_runner(dict(ENV, Z1RR_TTP_SCHEDULE_AUTHORITY='sheet'), bot, LOG, event='ttp')
+
+
+class Rollback(unittest.IsolatedAsyncioTestCase):
+    """Z1RR_TTP_ENABLED=false is the documented rollback: tournament rooms are left alone."""
+
+    def test_turned_off_a_tournament_room_is_not_recognised_or_joined(self):
+        for env in ({'Z1RR_TTP_ENABLED': 'false'}, {}):
+            with self.subTest(env=env), patch.dict('os.environ', env, clear=True):
+                self.assertFalse(room_policy.is_ttp_tournament_room(room(info_user=TITLE)))
+                bot = TTPBot.__new__(TTPBot)
+                for status in ('open', 'in_progress'):
+                    self.assertFalse(bot.should_handle(dict(room(info_user=TITLE), status={'value': status})))
+
+    async def test_turned_off_an_existing_room_answers_no_pick_command(self):
+        with patch.dict('os.environ', {'Z1RR_TTP_ENABLED': 'false'}, clear=True):
+            handler = TTPRaceHandler(conn=None, logger=LOG, state={})
+            handler.data = dict(room(info_user=TITLE), name='z1r/ttp-room', status={'value': 'open'}, entrants=[])
+            handler.ws = SimpleNamespace(send=AsyncMock())
+            handler.invite_user = AsyncMock()
+            handler.send_message = AsyncMock()
+            await handler.begin()
+            self.assertFalse(handler.ttp_tournament_room)
+            self.assertIsNone(handler._ttp_task)
+            handler._ttp_command = AsyncMock(return_value=True)
+            await handler.chat_message({'message': {'message': '!pick Muffle Rug', 'user': {'name': 'thomjay'},
+                                                    'is_bot': False, 'is_system': False}})
+            handler._ttp_command.assert_not_awaited()
+            sent = ' '.join(str(c.args[0]) for c in handler.send_message.await_args_list)
+            self.assertNotIn("can't be saved", sent)
 
 
 class Night(unittest.IsolatedAsyncioTestCase):

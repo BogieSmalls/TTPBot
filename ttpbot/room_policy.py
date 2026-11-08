@@ -1,3 +1,4 @@
+import os
 import re
 
 from .config import (
@@ -100,12 +101,23 @@ def tournament_name(event, edition):
     return name(edition)
 
 
+def ttp_tournament_enabled(environ=None):
+    """Z1RR_TTP_ENABLED, read the way the runner reads it: off unless it says on."""
+    value = (os.environ if environ is None else environ).get('Z1RR_TTP_ENABLED', '')
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 def is_ttp_tournament_room(race_data):
     """Return True for a TTP season tournament room this bot opened.
 
     The title starts with the season's room label. Either field may carry it:
     info_user is ours, and SahasrahBot overwrites info_bot when it rolls.
+
+    With Z1RR_TTP_ENABLED off (the rollback) no room is one: TTPBot does not
+    join it, or answers its pick commands, after the restart that loads the switch.
     """
+    if not ttp_tournament_enabled():
+        return False
     goal_name = race_data.get('goal', {}).get('name', '')
     for season in seasons.oldest_first():
         tournament = season.get('tournament') or {}

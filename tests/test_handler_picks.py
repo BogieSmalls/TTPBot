@@ -217,7 +217,9 @@ class Room:
         self.handler = handler
         if seeded:
             self.seed(state)
-        await handler.begin()
+        # TTP is switched on: with Z1RR_TTP_ENABLED off no room is a tournament room.
+        with patch.dict('os.environ', {'Z1RR_TTP_ENABLED': 'true'}):
+            await handler.begin()
         await handler.chat_history({'messages': list(self.chat)})
         return handler
 
