@@ -40,6 +40,9 @@ PRESET_OFF = "In tournament rooms, presets don't roll. Roll the picked flagset w
 CANCELLED_WARNING = 'That seed was cancelled, so this game needs a new roll before the race starts.'
 NO_ROLL_AT_START = 'The race started with no roll standing, so no flagset was recorded for this game'
 NOT_SAVED = "I couldn't confirm that with the bracket, so it wasn't saved. Please try again in a moment."
+#: Said to the room and Council while nobody owns Game 2's pick. The room
+#: names the picker once Council records the decision.
+NO_PICKER = 'Nobody has recorded who picks Game 2, so this room names no picker until Council does'
 
 _FLAGS = re.compile(r'Flags: (\S+)')
 #: `[time] SahasrahBot: text`. A person's name carries `#1234`, so a person
@@ -261,7 +264,7 @@ def plan_for_room(pick_state, game, *, flagsets, tag, round_label, score=None, r
     owner = owners.get(game)
     if not owner:
         # Codex requirement 2: a roll can't show who owned the Game 1 decision.
-        notices.append('Nobody has recorded who picks Game 2, so this room names no picker until Council does')
+        notices.append(NO_PICKER)
         return RoomPlan([top], None, [], False, notices)
 
     left = _left(pick_state, game, flagsets)

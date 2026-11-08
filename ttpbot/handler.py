@@ -52,6 +52,9 @@ TTP_TICK_SECONDS = 15
 TTP_REMINDERS = (15, 10)
 #: A reminder more than this late (a restart) is skipped rather than sent.
 TTP_REMINDER_GRACE_MINUTES = 2
+#: While a room waits on Council to name Game 2's picker, how often it reads
+#: the bracket again.
+TTP_OWNER_CHECK_SECONDS = 60
 ENGINE_DOWN = "I can't reach the bracket right now, so picks here can't be saved"
 NO_FLAGSETS = "This tournament has no frozen flagsets yet, so picks can't run here"
 
@@ -695,14 +698,46 @@ class TTPRaceHandler(RaceHandler):
         race = self.tournament_race()
         if race is None or self.ttp_engine is None:
             return
+        now = now or datetime.now(timezone.utc)
         async with self._ttp_lock_held():
             try:
-                await self._ttp_open(race)
-                await self._ttp_remind(race, now or datetime.now(timezone.utc))
+                await self._ttp_open(race, now)
+                await self._ttp_remind(race, now)
+                await self._ttp_await_owner(race, now)
             except Exception:
                 self.logger.error('Error in tournament room tick', exc_info=True)
 
-    async def _ttp_open(self, race):
+    def _ttp_awaiting_owner(self):
+        """The room said it names no picker until Council does, and hasn't named one since."""
+        return (not self.state.get('ttp_owner_named')
+                and any(said.startswith(picks.NO_PICKER) for said in self._ttp_said()))
+
+    async def _ttp_name_owner(self, plan):
+        """Once Council has recorded who picks, say what the room would now open with."""
+        if not plan.owner or not self._ttp_awaiting_owner():
+            return
+        for line in plan.opening[1:]:
+            await self._ttp_say_once(line)
+        self.state['ttp_owner_named'] = True
+
+    async def _ttp_await_owner(self, race, now):
+        """Read the picks again, at most once a minute, while the room waits on Council."""
+        if not self._ttp_awaiting_owner():
+            return
+        last = self.state.get('ttp_owner_read')
+        if last is not None and timedelta(0) <= now - last < timedelta(seconds=TTP_OWNER_CHECK_SECONDS):
+            return
+        self.state['ttp_owner_read'] = now
+        try:
+            state, flagsets, _ = await self._ttp_read(race)
+        except Exception:
+            self.logger.warning('[%s] engine unread for the picker', self.data.get('name'), exc_info=True)
+            return
+        tag, label = self._ttp_labels(race)
+        await self._ttp_name_owner(picks.plan_for_room(state, race['game'], flagsets=flagsets, tag=tag,
+                                                       round_label=label, room=self._ttp_room()))
+
+    async def _ttp_open(self, race, now):
         key = '{}|{}'.format(race['match_id'], race['game'])
         if self.state.get('ttp_opened') == key:
             return
@@ -724,6 +759,9 @@ class TTPRaceHandler(RaceHandler):
         for notice in plan.notices:
             await self._ttp_tell_council(race, notice)
         self.state['ttp_opened'] = key
+        self.state['ttp_owner_read'] = now
+        # After a restart: Council may have named the picker while TTPBot was away.
+        await self._ttp_name_owner(plan)
 
     async def _ttp_remind(self, race, now):
         sent = self.state.setdefault('ttp_reminded', [])

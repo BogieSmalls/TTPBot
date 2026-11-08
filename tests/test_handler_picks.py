@@ -803,6 +803,31 @@ class Picks(unittest.IsolatedAsyncioTestCase):
             "thomjay, the race starts in 10 minutes and this game's pick is still yours: !ttp5muffle !ttp5pick5"])
         self.assertEqual(owed.engine.writes, [])
 
+    async def test_the_room_names_the_picker_once_council_records_the_decision(self):
+        owner = "thomjay owns this pick. Uphill Battle has been played. When you're ready: !ttp5muffle !ttp5pick5"
+        no_picker = 'Nobody has recorded who picks Game 2, so this room names no picker until Council does'
+        engine = Engine(games={1: 'TTP5 Uphill Battle'}, score=(1, 0))
+        room = Room(2, engine)
+        await room.open()
+        self.assertEqual(room.said[-1], room.council_said(no_picker))
+        await room.handler._ttp_tick(START - timedelta(minutes=40))
+        self.assertEqual(room.said[-1], room.council_said(no_picker))
+        engine.decision = {'choice': 'defer', 'by': 'council', 'actor': 'council'}
+        await room.handler._ttp_tick(START - timedelta(minutes=39))
+        self.assertEqual(room.said[-1], owner)
+        await room.handler._ttp_tick(START - timedelta(minutes=38))
+        await room.restart()
+        await room.handler._ttp_tick(START - timedelta(minutes=37))
+        self.assertEqual(room.said, [])
+        self.assertEqual(sum(line.get('message_plain') == owner for line in room.chat), 1)
+
+        # Council records it while TTPBot is down: the restart names the picker, once.
+        down = Room(2, Engine(games={1: 'TTP5 Uphill Battle'}, score=(1, 0)))
+        await down.open()
+        down.engine.decision = {'choice': 'defer', 'by': 'council', 'actor': 'council'}
+        await down.restart()
+        self.assertEqual(down.said, [owner])
+
     async def test_a_late_start_skips_reminders_already_past(self):
         room = Room(1)
         await room.open()
