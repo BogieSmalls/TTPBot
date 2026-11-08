@@ -24,6 +24,7 @@ import asyncio
 
 import aiohttp
 
+from .. import rehearsal
 from ..config import POST_SEASON_GOAL_NAME
 from ..provider import ProviderConfigurationError
 from ..state import UNCERTAIN_RACE
@@ -62,7 +63,7 @@ def autumn_room_form_data(race, label=None):
     Ranked, unlike a League co-op room: a tournament match between two people is
     exactly what a rating is for.
     """
-    return {
+    form = {
         'goal': POST_SEASON_GOAL_NAME,
         # info_user only, as the League learned: racetime renders both fields, so
         # writing the title to each showed it twice, and info_bot is what
@@ -81,6 +82,12 @@ def autumn_room_form_data(race, label=None):
         'chat_message_delay': '0',
         'hide_comments': 'true',
     }
+    if rehearsal.enabled():
+        # A staging rehearsal's rooms are real racetime rooms: kept off the
+        # category page and out of everyone's ratings.
+        form['unlisted'] = 'true'
+        form['ranked'] = 'false'
+    return form
 
 
 async def create_autumn_room(race, provider, access_token, logger, label=None,

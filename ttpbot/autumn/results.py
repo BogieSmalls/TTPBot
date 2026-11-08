@@ -38,13 +38,18 @@ def command_for(key, entry, *, event='autumn'):
 
 
 class AutumnResults:
-    def __init__(self, *, store, engine, provider, logger, event='autumn', edition='2026', reader=None, created=None):
+    def __init__(self, *, store, engine, provider, logger, event='autumn', edition='2026', reader=None, created=None,
+                 notify=None, log_reader=None):
         self.store, self.engine, self.provider, self.logger = store, engine, provider, logger
         # The rooms this bot opened, so only those are ever adopted (_adopt).
         self.created = created
         self.edition = edition
         self.event, self.scope = event, '{}-{}'.format(event, edition)
         self.reader = reader or self._read_room
+        # TTP only: Live Ops, and the room's public /log for a flagset the
+        # start missed.
+        self.notify = notify
+        self.log_reader = log_reader or self._read_log
         self._lock = asyncio.Lock()
 
     def bind(self, race, room, racers, retired=()):
@@ -80,7 +85,90 @@ class AutumnResults:
                 raise RuntimeError('room read returned HTTP {}'.format(response.status))
             return await response.json(content_type=None)
 
+    async def _read_log(self, room):
+        async with aiohttp.request('GET', room.rstrip('/') + '/log',
+                                   timeout=aiohttp.ClientTimeout(total=20),
+                                   allow_redirects=False) as response:
+            if response.status != 200:
+                raise RuntimeError('room log returned HTTP {}'.format(response.status))
+            return await response.text()
+
     async def record(self, data):
+        saved = []
+        try:
+            await self._record(data, saved)
+        finally:
+            # After the observation is saved, even if delivering it failed:
+            # a missed flagset is checked once, with the finish.
+            if saved and self.event == 'ttp' and (data.get('status') or {}).get('value') == 'finished':
+                try:
+                    await self._recover_flagset(*saved[0], data)
+                except Exception:
+                    self.logger.warning('TTP flagset check failed for %s', saved[0], exc_info=True)
+
+    async def _tell(self, match, game, room, text, code=None):
+        """Live Ops and, for a room problem with a `code`, Council's series card. Never raises."""
+        self.logger.warning('TTP %s Game %s: %s', match, game, text)
+        if code is not None:
+            try:
+                written = await self.engine.note_warning(dict(
+                    matchId=match, game=game, room=room, code=code, text=text[:1].upper() + text[1:],
+                    actor='ttpbot', edition=self.edition))
+                if not written.ok:
+                    self.logger.warning('TTP series card note not kept: %s', written.detail or written.outcome)
+            except Exception:
+                self.logger.warning('TTP series card note failed', exc_info=True)
+        if self.notify is None:
+            return
+        try:
+            await self.notify('TTP{} {} Game {} ({}): {}'.format(self.edition, match, game, room, text))
+        except Exception:
+            self.logger.warning('Live Ops notice failed', exc_info=True)
+
+    async def _recover_flagset(self, match, game, room, data):
+        """A game finished with no flagset on record from this room or Council: read the room's log.
+
+        Only a roll the log shows still standing counts, from SahasrahBot's or
+        TTPBot's own lines. A log that can't be read records nothing.
+        """
+        from ..tournament_room import ROLLED, current_roll, roll_state_from_log
+        try:
+            state = await self.engine.picks(match, self.edition)
+        except Exception:
+            await self._tell(match, game, room, "the bracket couldn't be read to check this game's flagset. "
+                             'Council needs to check it.')
+            return
+        recorded = (state.get('games') or {}).get(str(game))
+        if recorded and (recorded.get('room') == room or recorded.get('source') == 'council'):
+            # A retired room's recording does not stand for this room: a
+            # rematch whose start write failed is recorded here.
+            return
+        try:
+            text = await self.log_reader(room)
+        except Exception:
+            self.logger.warning('TTP room log unread for %s', room, exc_info=True)
+            await self._tell(match, game, room, "the room log couldn't be read, so no flagset was recorded for "
+                             'this game. Council needs to record it.', code='unrecorded')
+            return
+        flags = current_roll(data.get('info_bot'))
+        if roll_state_from_log(text) != ROLLED or not flags:
+            await self._tell(match, game, room, 'the room finished with no roll standing, so no flagset was '
+                             'recorded for this game. Council needs to record it.', code='unrecorded')
+            return
+        written = await self.engine.record_flagset(dict(
+            matchId=match, game=game, flags=flags, room=room, source='room-finish', actor='TTPBot',
+            edition=self.edition))
+        if not written.ok:
+            await self._tell(match, game, room, "the flagset from the finished room wasn't recorded ({}). "
+                             'Council needs to record it.'.format(written.detail or written.outcome),
+                             code='unrecorded')
+
+    async def _record(self, data, saved_to):
+        """Save and deliver a finished room's observation.
+
+        Appends (match, game, room) to `saved_to` once this call has saved a
+        new observation, so the caller knows even if delivering it fails.
+        """
         if not isinstance(data, dict):
             return
         status = (data.get('status') or {}).get('value')
@@ -119,6 +207,7 @@ class AutumnResults:
             saved = dict(saved, observations={**saved.get('observations', {}), oid: dict(facts=facts, receipt=None)})
             entries[key] = saved
             self.store.save(entries)
+            saved_to.append((match, int(game), room))
             document = (await self.engine.state()).get('document') or {}
             winner, reason = self._winner(data, saved, document)
             _, match, game = key.split('|')

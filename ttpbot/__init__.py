@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import sys
 
 from .bot import TTPBot
@@ -60,6 +61,10 @@ def main():
     missing = missing_config_names(config)
     if missing:
         parser.error('missing required config: ' + ', '.join(missing))
+    from .rehearsal import startup_problems
+    unsafe = startup_problems(os.environ, config)
+    if unsafe:
+        parser.error('TTPBOT_REHEARSAL refused: ' + '; '.join(unsafe))
     if args.check_config:
         print('TTPBOT_CONFIG=PASS destination={} league={}'.format(
             config.provider.destination_key,

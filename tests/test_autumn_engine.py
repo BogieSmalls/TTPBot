@@ -261,6 +261,35 @@ class Configuration(unittest.TestCase):
         self.assertEqual(asked.asked, [], 'nothing should have been sent')
 
 
+class RoomWarnings(unittest.TestCase):
+    NOTE = {'matchId': 'W1-25', 'game': 2, 'room': 'https://racetime.gg/z1r/ttp-room', 'code': 'wrong-roll',
+            'text': 'That seed is Pick 5, but this game should be Muffle Rug. !cancel clears it.',
+            'actor': 'ttpbot', 'edition': '5'}
+
+    def test_a_room_warning_is_posted_for_the_series_card(self):
+        wire = Engine(Answer(body=jsonlib.dumps({'revision': 3, 'picks': {'roomWarnings': []}})))
+        client = AutumnEngine(token='secret', event='ttp', edition='5', session_factory=wire)
+        written = run(client.note_warning(dict(self.NOTE)))
+        self.assertTrue(written.ok)
+        self.assertEqual(wire.asked[0]['method'], 'POST')
+        self.assertTrue(wire.asked[0]['url'].endswith('/tournament/noteWarning'), wire.asked[0]['url'])
+        self.assertEqual(wire.asked[0]['headers']['authorization'], 'Bearer secret')
+        self.assertEqual(wire.asked[0]['json'], {
+            'event': 'ttp', 'edition': '5', 'matchId': 'W1-25', 'game': 2,
+            'room': 'https://racetime.gg/z1r/ttp-room', 'code': 'wrong-roll',
+            'text': 'That seed is Pick 5, but this game should be Muffle Rug. !cancel clears it.',
+            'actor': 'ttpbot'})
+
+    def test_a_lost_answer_is_settled_by_reading_the_series_back(self):
+        kept = {k: self.NOTE[k] for k in ('game', 'room', 'code', 'text')}
+        wire = Engine(Answer(status=502), Answer(body=jsonlib.dumps({'matchId': 'W1-25', 'roomWarnings': [
+            dict(kept, at='2027-01-09T00:40:00.000Z')]})))
+        client = AutumnEngine(token='secret', event='ttp', edition='5', session_factory=wire)
+        written = run(client.note_warning(dict(self.NOTE)))
+        self.assertEqual(written.outcome, RECORDED)
+        self.assertEqual([r['method'] for r in wire.asked], ['POST', 'GET'])
+
+
 if __name__ == '__main__':
     unittest.main()
 

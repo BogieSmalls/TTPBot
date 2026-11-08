@@ -38,7 +38,9 @@ def build_announcement(race, race_url, ids=None, label=None, crew=(),
     one = _mention(race.runner_one, ids.get(race.runner_one))
     two = _mention(race.runner_two, ids.get(race.runner_two))
 
-    headline = tournament_name('corto', race.identity.edition) + ' \u00b7 ' + race.match_id if race.identity.event == 'corto' else 'Z1R Autumn'
+    event = race.identity.event
+    headline = 'Z1R Autumn' if event == 'autumn' else (
+        tournament_name(event, race.identity.edition) + ' \u00b7 ' + race.match_id)
     if label:
         headline = '{} — {}'.format(headline, label)
     if (race.identity.event == 'autumn' and race.identity.edition) or race.identity.game > 1 or getattr(race, 'best_of', 1) > 1:
