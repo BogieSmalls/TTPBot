@@ -19,7 +19,9 @@ from .handler import TTPRaceHandler
 from .paths import data_dir as configured_data_dir, runtime_path
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time, slate_date, slot_name
 from .season_record import seasons as season_record
-from .room_policy import is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room
+from .room_policy import (
+    is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room, is_ttp_tournament_room,
+)
 from .state import DestinationStateStore, UNCERTAIN_RACE
 
 from .provider import ProviderConfigurationError
@@ -113,6 +115,7 @@ class TTPBot(Bot):
         TTPRaceHandler.results_recorder = self._build_results_recorder()
         TTPRaceHandler.autumn_results = None
         TTPRaceHandler.corto_results = None
+        TTPRaceHandler.ttp_results = None
         self.created_races = self._load_created_races()
         self.sent_webhooks = self._load_sent_webhooks()
         self.tc_preferences = self._build_tc_preferences()
@@ -158,7 +161,8 @@ class TTPBot(Bot):
         if not super().should_handle(race_data):
             return False
         return (is_ttp_scheduled_room(race_data) or is_league_room(race_data)
-                or is_autumn_room(race_data) or is_corto_room(race_data))
+                or is_autumn_room(race_data) or is_corto_room(race_data)
+                or is_ttp_tournament_room(race_data))
 
     def _build_results_recorder(self):
         """Construct the results recorder, or None if it is switched off.
@@ -289,6 +293,9 @@ class TTPBot(Bot):
     def _build_corto_runner(self):
         return self._build_tournament_runner("corto")
 
+    def _build_ttp_runner(self):
+        return self._build_tournament_runner("ttp")
+
     def _build_tournament_runner(self, event):
         """Construct the Autumn runner, or None if it cannot start.
 
@@ -392,6 +399,10 @@ class TTPBot(Bot):
         if corto is not None:
             self.logger.info('Torneo Corto scheduling is enabled')
             self.loop.create_task(corto.run())
+        ttp = self._build_ttp_runner()
+        if ttp is not None:
+            self.logger.info('TTP season tournament scheduling is enabled')
+            self.loop.create_task(ttp.run())
         self.loop.set_exception_handler(self.handle_exception)
         self.loop.run_forever()
 

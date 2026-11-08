@@ -13,6 +13,9 @@ from racetime_bot import RaceHandler
 #: collected before it files.
 _LEAGUE_RESULTS = set()
 
+#: How a tournament room names itself in the invite log line.
+TOURNAMENT_LABELS = {'autumn': 'Autumn', 'corto': 'Torneo Corto', 'ttp': 'TTP tournament'}
+
 from .flag_summary import FlagStringError, decode as decode_flags, format_summary
 from .flagset_registry import reduce as reduce_word, registry
 from .grace import GRACE_START, STARTED, GraceRace, entrants_from
@@ -34,7 +37,10 @@ from .config import (
     Z1RR_DISCORD_URL,
 )
 from .paths import ensure_parent_dir, runtime_path
-from .room_policy import room_identity, is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room
+from .room_policy import (
+    room_identity, is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room,
+    is_ttp_tournament_room,
+)
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 from .season_record import flags_text, info_text, seasons, welcome_text
 
@@ -162,6 +168,7 @@ class TTPRaceHandler(RaceHandler):
     results_recorder = None
     autumn_results = None
     corto_results = None
+    ttp_results = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -172,6 +179,7 @@ class TTPRaceHandler(RaceHandler):
         self.league_room = False
         self.autumn_room = False
         self.corto_room = False
+        self.ttp_tournament_room = False
         self.reminder_task = None
         self.pending_hash = None
         self.pending_hash_user = None
@@ -221,6 +229,7 @@ class TTPRaceHandler(RaceHandler):
         self.league_room = is_league_room(self.data)
         self.autumn_room = is_autumn_room(self.data)
         self.corto_room = is_corto_room(self.data)
+        self.ttp_tournament_room = is_ttp_tournament_room(self.data)
         self.history_command_cutoff_utc = self._recent_room_history_cutoff()
 
         if self.ttp_scheduled_room:
@@ -257,7 +266,7 @@ class TTPRaceHandler(RaceHandler):
                 pass
             elif self.league_room:
                 await self._send_league_invites()
-            elif self.autumn_room or self.corto_room:
+            elif self._tournament_event():
                 # Shared state is reseeded after reconnects and process restarts.
                 self.state['_autumn_send_invites'] = self._send_autumn_invites
                 await self._send_autumn_invites()
@@ -363,10 +372,36 @@ class TTPRaceHandler(RaceHandler):
                 self.data.get('name'), invite)
         return []
 
+    def _tournament_event(self):
+        """The tournament runner's event this room belongs to, or None."""
+        for event, flag in (('ttp', 'ttp_tournament_room'), ('corto', 'corto_room'), ('autumn', 'autumn_room')):
+            if getattr(self, flag, False):
+                return event
+        return None
+
+    def tournament_race(self):
+        """What the runner seeded about a TTP tournament room's game, or None.
+
+        `when` comes back as an aware datetime. None until the seed lands, which
+        may be after `begin`: the runner re-seeds every tick it is in its window.
+        """
+        if not self.ttp_tournament_room:
+            return None
+        seeded = (self.state or {}).get('autumn_race') or {}
+        if seeded.get('event') != 'ttp' or not isinstance(seeded.get('game'), int):
+            return None
+        try:
+            when = datetime.fromisoformat(seeded['when'])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if when.tzinfo is None:
+            return None
+        return dict(seeded, when=when)
+
     async def _send_autumn_invites(self):
-        """Invite an Autumn room's two racers, exactly once."""
+        """Invite a tournament room's two racers, exactly once."""
         await self._send_invites(
-            'Torneo Corto' if self.corto_room else 'Autumn', 'autumn_invited', self._autumn_invite_ids())
+            TOURNAMENT_LABELS[self._tournament_event()], 'autumn_invited', self._autumn_invite_ids())
 
     async def _send_league_invites(self):
         """Invite the scheduled racers exactly once."""
@@ -937,7 +972,8 @@ class TTPRaceHandler(RaceHandler):
             _LEAGUE_RESULTS.add(task)
             task.add_done_callback(_LEAGUE_RESULTS.discard)
 
-        collector = self.corto_results if getattr(self, 'corto_room', False) else self.autumn_results if getattr(self, 'autumn_room', False) else None
+        event = self._tournament_event()
+        collector = getattr(self, event + '_results', None) if event else None
         if collector is not None:
             try:
                 await collector.record(self.data)

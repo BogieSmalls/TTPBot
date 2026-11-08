@@ -31,6 +31,7 @@ The booth handoff uses the same crew directory and request transport as League,
 with tournament identity and the tournament route on the control plane.
 """
 
+import re
 from urllib.parse import urlsplit
 
 from ..config import TIMEZONE
@@ -51,6 +52,32 @@ DEFAULT_SCHEDULE_URL = (
     'https://docs.google.com/spreadsheets/d/'
     '1cKqpvwSAsaoYhNJUZSeBCqJ_D_it2W2nb-V0cr_1V5Q/export?format=csv&gid=2033319762'
 )
+
+#: Where each event's schedule comes from when the environment does not say.
+#: TTP has no sheet: its games are scheduled in Discord and kept by the engine.
+SCHEDULES = {
+    'autumn': ('sheet', DEFAULT_SCHEDULE_URL),
+    'corto': ('sheet', 'https://docs.google.com/spreadsheets/d/'
+                       '1eZsfEjRi0ni9aE0GbQSDrEOL178jVd7h-P-StsNO_AQ/export?format=csv&gid=2033319762'),
+    'ttp': ('engine', None),
+}
+
+_WINNERS_ROUND = re.compile(r'^W(\d+)-\d+$')
+
+
+def round_label(race):
+    """The name a room and its announcement give this race's round, or None.
+
+    TTP names every round, and the last one is the Championship, as the
+    racer and public pages do. Other events keep their own labels.
+    """
+    if race.identity.event == 'ttp':
+        match = _WINNERS_ROUND.match(race.match_id)
+        if not match:
+            return None
+        number = int(match.group(1))
+        return 'Championship' if number == getattr(race, 'rounds', None) else 'Round {}'.format(number)
+    return _round_label(race.match_id)
 
 
 def _round_label(match_id, size=None):
@@ -100,11 +127,17 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
     """
     engine = engine_from_env(env, event=event, logger=logger)
     prefix = event.upper()
-    default_url = ('https://docs.google.com/spreadsheets/d/1eZsfEjRi0ni9aE0GbQSDrEOL178jVd7h-P-StsNO_AQ/export?format=csv&gid=2033319762' if event == 'corto' else DEFAULT_SCHEDULE_URL)
+    if event not in SCHEDULES:
+        raise ValueError('unknown tournament event {!r}'.format(event))
+    default_authority, default_url = SCHEDULES[event]
     url = (env.get('Z1RR_{}_SCHEDULE_URL'.format(prefix)) or '').strip() or default_url
-    authority = env.get('Z1RR_{}_SCHEDULE_AUTHORITY'.format(prefix), 'sheet')
+    authority = env.get('Z1RR_{}_SCHEDULE_AUTHORITY'.format(prefix), default_authority)
     if authority not in ('sheet', 'engine'):
         raise ValueError('invalid {} schedule authority'.format(event))
+    if authority == 'sheet' and not url:
+        # Never another event's sheet: that is how a TTP runner would read
+        # the Autumn schedule.
+        raise ValueError('{} has no schedule sheet'.format(event))
     source = (EngineScheduleSource(event=event, edition=engine.edition if engine else None,
               url=env.get('COMPETITIONS_URL'), token=env.get('COMPETITIONS_READER_TOKEN'),
               environment=env.get('COMPETITIONS_ENVIRONMENT'), logger=logger)
@@ -135,7 +168,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
     async def open_room(race, row):
         return await create_autumn_room(
             race, bot.provider, getattr(bot, 'access_token', None), logger,
-            label=_round_label(race.match_id))
+            label=round_label(race))
 
     async def notify_live_ops(message):
         # The Live Ops thread, read by whoever is watching on race night
@@ -150,7 +183,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
 
     async def recover_room(race, action):
         return await recover_autumn_room(race, bot.provider, getattr(bot, 'access_token', None), logger,
-            label=_round_label(race.match_id))
+            label=round_label(race))
 
     async def seed_invites(race, url):
         """Write the invite list where the room's handler will read it.
@@ -186,7 +219,15 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             # one racer and leave the other looking at a room they are not in,
             # which is worse than inviting nobody and saying so.
             'invite': [who for who in ids if who] if all(ids) else [],
-            'title': room_title(race, _round_label(race.match_id)),
+            'title': room_title(race, round_label(race)),
+            # Which game this room is, and when it starts. Every event carries
+            # it; a TTP room's handler reads it for picks and reminders.
+            'event': race.identity.event,
+            'edition': race.identity.edition,
+            'match_id': race.match_id,
+            'game': race.identity.game,
+            'runners': [race.runner_one, race.runner_two],
+            'when': race.at.isoformat(),
         }
         if not all(ids):
             missing = [
@@ -212,7 +253,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         posted = await send_autumn_announcement(
             race, url, (env.get('TTPBOT_{}_DISCORD_WEBHOOK_URL'.format(prefix)) or '').strip()
             or getattr(bot, event + '_webhook_url', None), logger,
-            ids=ids, label=_round_label(race.match_id),
+            ids=ids, label=round_label(race),
             continuation=bool(booth and booth.is_continuation), correction=correction,
             crew=tuple(getattr(row, 'crew', ()) or ()) if (getattr(row, 'channel', '') or '').strip() else (),
             channel_id=(env.get('TTPBOT_{}_DISCORD_CHANNEL_ID'.format(prefix)) or '').strip(),

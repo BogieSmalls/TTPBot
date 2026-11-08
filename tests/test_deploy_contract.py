@@ -38,6 +38,7 @@ class DeploymentDocumentationTests(unittest.TestCase):
             "Z1RR_AUTUMN_EDITION",
             "Z1RR_CORTO_ENABLED", "Z1RR_CORTO_EDITION",
             "Z1RR_CORTO_SCHEDULE_URL", "TTPBOT_CORTO_DISCORD_CHANNEL_ID",
+            "Z1RR_TTP_ENABLED", "Z1RR_TTP_EDITION",
             "Z1RR_ENGINE_URL",
             "Z1RR_ENGINE_TOKEN",
             "TTPBOT_AUTUMN_DISCORD_CHANNEL_ID",

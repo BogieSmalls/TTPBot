@@ -33,6 +33,7 @@ room, waking a booth and posting an announcement each have their own.
 """
 
 import asyncio
+import re
 from uuid import uuid4
 from datetime import datetime, timedelta
 
@@ -298,8 +299,12 @@ class AutumnScheduler:
         if engine_owned:
             crew_for = {(row.match_id, row.game): row for row in schedule.rows}
 
+        # How many winners' rounds the bracket has, so the last can be named.
+        rounds = max((int(m.group(1)) for m in (re.match(r'^W(\d+)-\d+$', match_id) for match_id in matches) if m),
+                     default=None)
         for race in matching.resolved:
             race.best_of = (matches[race.match_id].get('series') or {}).get('bestOf', 1)
+            race.rounds = rounds
             if self.stopped:
                 return
             try:

@@ -64,8 +64,58 @@ def is_league_room(race_data):
     )
 
 
+def _ttp_tournament(edition):
+    """The season's tournament record, for a numbered edition."""
+    try:
+        number = int(str(edition))
+    except (TypeError, ValueError):
+        return None
+    season = next((s for s in seasons.oldest_first() if s.get('number') == number), None)
+    return (season or {}).get('tournament') or None
+
+
+def _ttp_name(edition):
+    label = (_ttp_tournament(edition) or {}).get('roomLabel')
+    if not label:
+        # No guess. A room named for the wrong competition is recognised by the
+        # wrong code; a room not opened is a log line somebody reads.
+        raise ValueError('no TTP season {} tournament on file'.format(edition))
+    return label
+
+
+#: Every tournament the runner opens rooms for, by the bracket engine's event
+#: name. An event not listed has no name, and never borrows Autumn's.
+TOURNAMENT_NAMES = {
+    'autumn': lambda edition: '{} Autumn Tournament'.format(edition or '2026'),
+    'corto': lambda edition: 'Torneo Corto #{}'.format(edition),
+    'ttp': _ttp_name,
+}
+
+
 def tournament_name(event, edition):
-    return 'Torneo Corto #{}'.format(edition) if event == 'corto' else '{} Autumn Tournament'.format(edition or '2026')
+    try:
+        name = TOURNAMENT_NAMES[event]
+    except KeyError:
+        raise ValueError('unknown tournament event {!r}'.format(event)) from None
+    return name(edition)
+
+
+def is_ttp_tournament_room(race_data):
+    """Return True for a TTP season tournament room this bot opened.
+
+    The title starts with the season's room label. Either field may carry it:
+    info_user is ours, and SahasrahBot overwrites info_bot when it rolls.
+    """
+    goal_name = race_data.get('goal', {}).get('name', '')
+    for season in seasons.oldest_first():
+        tournament = season.get('tournament') or {}
+        label, goal = tournament.get('roomLabel'), tournament.get('goal')
+        if not label or goal_name != goal:
+            continue
+        if any((race_data.get(field) or '').startswith(label + ' — ')
+               for field in ('info_user', 'info_bot')):
+            return True
+    return False
 
 
 def is_corto_room(race_data):
