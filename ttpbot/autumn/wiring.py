@@ -97,11 +97,13 @@ def _round_label(match_id, size=None):
 class AutumnRunner:
     """The scheduler plus the adapters it needs, ready to tick."""
 
-    def __init__(self, scheduler, engine, logger, results=None):
+    def __init__(self, scheduler, engine, logger, results=None, live_ops=None):
         self.scheduler = scheduler
         self.engine = engine
         self.logger = logger
         self.results = results
+        #: The Live Ops notifier, for a TTP room's handler to tell Council.
+        self.live_ops = live_ops
 
     @property
     def configured(self):
@@ -178,6 +180,10 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             (env.get('TTPBOT_{}_DISCORD_BOT_TOKEN'.format(prefix))
              or env.get('TTPBOT_LEAGUE_DISCORD_BOT_TOKEN') or '').strip(), logger)
 
+    if results is not None:
+        # A TTP game that finishes with no flagset on record is said in Live Ops.
+        results.notify = notify_live_ops
+
     async def read_room(url):
         return await read_autumn_room(url, logger)
 
@@ -228,6 +234,8 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             'game': race.identity.game,
             'runners': [race.runner_one, race.runner_two],
             'when': race.at.isoformat(),
+            # How a TTP room names the round: 'TTP5 Round 1, Game 2: ...'.
+            'round': round_label(race),
         }
         if not all(ids):
             missing = [
@@ -319,7 +327,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         recover_results=results.recover if results else None,
         before_tick=select_edition if authority == 'engine' else None,
     )
-    return AutumnRunner(scheduler, engine, logger, results)
+    return AutumnRunner(scheduler, engine, logger, results, live_ops=notify_live_ops)
 
 
 async def _racetime_ids(engine, logger):

@@ -359,6 +359,57 @@ class AutumnEngine:
             pass
         return result
 
+    # -- picks (TTP) ------------------------------------------------------
+
+    async def picks(self, match_id, edition=None):
+        """The engine's pickState for one series. Needs the token."""
+        return await self._get('/tournament/picks?' + urlencode(
+            {'event': self._event, 'edition': edition or self.edition, 'match': match_id}), authorized=True)
+
+    async def tournament_flagsets(self):
+        """The flagsets frozen into the tournament: [{name, flags, command}]."""
+        document = (await self.state()).get('document') or {}
+        return list(document.get('tournamentFlagsets') or [])
+
+    async def _pick_write(self, operation, payload, landed):
+        """A pick write, with a lost answer settled by reading the series back.
+
+        Each of these is idempotent at the engine, but a lost answer is still
+        read back rather than sent again, as every other write here is.
+        """
+        written = await self._post(operation, payload)
+        if written.outcome != UNCONFIRMED:
+            return written
+        try:
+            state = await self.picks(payload['matchId'], payload.get('edition'))
+        except EngineUnreachable as exc:
+            return Written(UNCONFIRMED, detail='read-back failed: {}'.format(exc))
+        if landed(state):
+            return Written(RECORDED, detail='confirmed by read-back', answer={'picks': state})
+        return written
+
+    async def decide_pick(self, payload):
+        """!pick or !defer: who picks Game 1."""
+        def landed(state):
+            decision = state.get('decision') or {}
+            return (decision.get('choice') == payload['choice'] and decision.get('by') == payload['by']
+                    and decision.get('actor') == payload['actor'])
+        return await self._pick_write('decidePick', payload, landed)
+
+    async def choose_pick(self, payload):
+        """A game's flagset, chosen before it is raced. Never public."""
+        def landed(state):
+            chosen = (state.get('chosen') or {}).get(str(payload['game'])) or {}
+            return chosen.get('flagset') == payload['flagset'] and chosen.get('actor') == payload['actor']
+        return await self._pick_write('choosePick', payload, landed)
+
+    async def record_flagset(self, payload):
+        """What a game was raced on, from the flags its room rolled."""
+        def landed(state):
+            game = (state.get('games') or {}).get(str(payload['game'])) or {}
+            return game.get('flags') == payload['flags'] and game.get('room') == payload.get('room')
+        return await self._pick_write('recordFlagset', payload, landed)
+
     async def claim_thread(self, match_id, by):
         """Claim the right to create a match's thread. See the engine's writer."""
         return await self._post('claimThread', {'matchId': match_id, 'by': by})

@@ -180,7 +180,8 @@ class Switch(unittest.TestCase):
         bot.provider = RacetimeProvider('https://racetime.gg', 'z1r')
         bot.logger = LOG
         bot.state = {}
-        self.addCleanup(setattr, TTPRaceHandler, 'ttp_results', None)
+        for name in ('ttp_results', 'ttp_engine', 'ttp_live_ops', 'ttp_room_url'):
+            self.addCleanup(setattr, TTPRaceHandler, name, None)
         with patch.dict('os.environ', env, clear=True):
             return bot._build_ttp_runner()
 
@@ -197,6 +198,18 @@ class Switch(unittest.TestCase):
         self.assertEqual(runner.scheduler.source.authority, 'engine')
         self.assertEqual(runner.scheduler.created_store.path.name, 'ttp_created_races.json')
         self.assertEqual(runner.results.scope, 'ttp-5')
+
+    def test_turned_on_the_handler_gets_the_engine_live_ops_and_room_url(self):
+        runner = self.build(ENV)
+        self.assertIs(TTPRaceHandler.ttp_engine, runner.engine)
+        self.assertIs(TTPRaceHandler.ttp_live_ops, runner.live_ops)
+        self.assertIs(runner.results.notify, runner.live_ops)
+        self.assertEqual(TTPRaceHandler.ttp_room_url('z1r/ttp-room'), 'https://racetime.gg/z1r/ttp-room')
+
+    def test_turned_off_the_handler_has_no_engine(self):
+        self.build(dict(ENV, Z1RR_TTP_ENABLED='false'))
+        self.assertIsNone(TTPRaceHandler.ttp_engine)
+        self.assertIsNone(TTPRaceHandler.ttp_live_ops)
 
     def test_ttp_has_no_schedule_sheet_to_fall_back_to(self):
         bot = SimpleNamespace(provider=RacetimeProvider('https://racetime.gg', 'z1r'), access_token='scratch', state={})
@@ -289,6 +302,7 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
             self.assertEqual({k: seeded[k] for k in ('event', 'edition', 'match_id', 'game', 'runners', 'when')},
                              {'event': 'ttp', 'edition': '5', 'match_id': 'W1-1', 'game': 1,
                               'runners': ['thomjay', 'specialk3782'], 'when': START.isoformat()})
+            self.assertEqual(seeded['round'], 'Round 1')
 
             again = runner_now()
             now = START - timedelta(minutes=28)

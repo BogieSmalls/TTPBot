@@ -116,6 +116,9 @@ class TTPBot(Bot):
         TTPRaceHandler.autumn_results = None
         TTPRaceHandler.corto_results = None
         TTPRaceHandler.ttp_results = None
+        TTPRaceHandler.ttp_engine = None
+        TTPRaceHandler.ttp_live_ops = None
+        TTPRaceHandler.ttp_room_url = None
         self.created_races = self._load_created_races()
         self.sent_webhooks = self._load_sent_webhooks()
         self.tc_preferences = self._build_tc_preferences()
@@ -321,6 +324,13 @@ class TTPBot(Bot):
             runner = build_autumn_runner(os.environ, self, self.logger,
                                          stores=stores, event=event)
             setattr(TTPRaceHandler, event + '_results', runner.results)
+            if event == 'ttp' and runner.configured:
+                # Picks in the room: the engine, Live Ops, and the room URL the
+                # result receipts use, so a start and a finish name one room.
+                provider = self.provider
+                TTPRaceHandler.ttp_engine = runner.engine
+                TTPRaceHandler.ttp_live_ops = runner.live_ops
+                TTPRaceHandler.ttp_room_url = lambda name: provider.resolve_location('/' + name.lstrip('/'))
             return runner if runner.configured else None
         except Exception:
             self.logger.error(

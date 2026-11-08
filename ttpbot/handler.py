@@ -43,6 +43,17 @@ from .room_policy import (
 )
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 from .season_record import flags_text, info_text, seasons, welcome_text
+from . import tournament_room as picks
+from .autumn.engine import NOT_RECORDED
+
+#: How often a TTP tournament room looks at the clock for its opening and reminders.
+TTP_TICK_SECONDS = 15
+#: Reminders before the race, in minutes, while a pick is owed.
+TTP_REMINDERS = (15, 10)
+#: A reminder more than this late (a restart) is skipped rather than sent.
+TTP_REMINDER_GRACE_MINUTES = 2
+ENGINE_DOWN = "I can't reach the bracket right now, so picks here can't be saved"
+NO_FLAGSETS = "This tournament has no frozen flagsets yet, so picks can't run here"
 
 # Real flag strings are 30 or more characters. Vanilla, the one short exception, is registered.
 MIN_FLAG_STRING_LENGTH = 19
@@ -170,6 +181,23 @@ class TTPRaceHandler(RaceHandler):
     corto_results = None
     ttp_results = None
 
+    #: Set by TTPBot when the ttp runner is built, as the collectors are: the
+    #: bracket engine, the Live Ops notifier (an async callable returning True
+    #: only when Discord took the post), and the room name -> URL resolver.
+    ttp_engine = None
+    ttp_live_ops = None
+    ttp_room_url = None
+
+    #: Class defaults, so a handler built without __init__ still reads them.
+    ttp_tournament_room = False
+    roll_state = picks.NONE
+    _ttp_history_seen = False
+    _ttp_started = False
+    _ttp_checked = None
+    _ttp_flagsets = None
+    _ttp_task = None
+    _ttp_lock = None
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.reminders_sent = set()
@@ -270,6 +298,10 @@ class TTPRaceHandler(RaceHandler):
                 # Shared state is reseeded after reconnects and process restarts.
                 self.state['_autumn_send_invites'] = self._send_autumn_invites
                 await self._send_autumn_invites()
+                if self.ttp_tournament_room:
+                    # Opening messages and reminders. Each tick waits for chat
+                    # history, so a restart never repeats what the room has.
+                    self._ttp_task = asyncio.ensure_future(self._ttp_loop())
 
         # Request chat history to detect prior seed rolls and, for TTP rooms,
         # avoid duplicate welcomes/reminders.
@@ -398,10 +430,375 @@ class TTPRaceHandler(RaceHandler):
             return None
         return dict(seeded, when=when)
 
+    # -- TTP tournament picks ---------------------------------------------
+    #
+    # The engine owns who picks and what was played; tournament_room says what
+    # the room hears. Every write is decided, written, then told. Nothing here
+    # may stop or delay the race: an engine that is down is reported, never
+    # waited on.
+
+    def _ttp_said(self):
+        """TTPBot's own words in this room: from history, then as it speaks."""
+        return self.state.setdefault('ttp_said', [])
+
+    async def _ttp_say(self, text):
+        await self.send_message(text)
+        self._ttp_said().append(text)
+
+    async def _ttp_say_once(self, text):
+        if text and text not in self._ttp_said():
+            await self._ttp_say(text)
+
+    def _ttp_room(self):
+        name = self.data.get('name') or ''
+        if self.ttp_room_url is not None:
+            try:
+                return self.ttp_room_url(name)
+            except Exception:
+                self.logger.warning('[%s] room URL unresolved', name, exc_info=True)
+        return name
+
+    @staticmethod
+    def _ttp_labels(race):
+        tag = 'TTP{}'.format(race.get('edition') or '')
+        label = race.get('round')
+        if not label:
+            found = re.match(r'^W(\d+)-\d+$', race.get('match_id') or '')
+            label = 'Round {}'.format(found.group(1)) if found else race.get('match_id')
+        return tag, label
+
+    async def _ttp_notify(self, race, text):
+        """Live Ops, which is how Council hears. True only when the post went through."""
+        if self.ttp_live_ops is None:
+            return False
+        tag, _ = self._ttp_labels(race)
+        try:
+            return bool(await self.ttp_live_ops('{} {} Game {} ({}): {}'.format(
+                tag, race.get('match_id'), race.get('game'), self._ttp_room(), text)))
+        except Exception:
+            self.logger.warning('[%s] Live Ops notice failed', self.data.get('name'), exc_info=True)
+            return False
+
+    async def _ttp_tell_council(self, race, base):
+        """The room and Live Ops, once each. The room says Council was told only if it was."""
+        if any(said.startswith(base) for said in self._ttp_said()):
+            return
+        told = await self._ttp_notify(race, base + '.')
+        await self._ttp_say(picks.with_council(base, told))
+
+    async def _ttp_notify_once(self, race, text):
+        """Live Ops only, once per room."""
+        sent = self.state.setdefault('ttp_told', [])
+        if text in sent:
+            return
+        sent.append(text)
+        await self._ttp_notify(race, text)
+
+    async def _ttp_read(self, race, score=False):
+        """pickState, the frozen flagsets and, for Games 2 and 3, the score."""
+        engine = self.ttp_engine
+        state = await engine.picks(race['match_id'], race.get('edition'))
+        if not self._ttp_flagsets:
+            self._ttp_flagsets = await engine.tournament_flagsets()
+        return state, self._ttp_flagsets, (await self._ttp_score(race) if score else None)
+
+    async def _ttp_score(self, race):
+        try:
+            drawn = await self.ttp_engine.draw()
+        except Exception:
+            self.logger.warning('[%s] series score unread', self.data.get('name'), exc_info=True)
+            return None
+        match = next((m for m in drawn.get('matches', []) if m.get('id') == race['match_id']), None)
+        series = (match or {}).get('series') or {}
+        if not match or 'a' not in series or 'b' not in series:
+            return None
+        return {match.get('a'): series['a'], match.get('b'): series['b']}
+
+    def _ttp_lock_held(self):
+        if self._ttp_lock is None:
+            self._ttp_lock = asyncio.Lock()
+        return self._ttp_lock
+
+    def _ttp_rebuild_from_history(self, messages):
+        ordered = sorted(
+            messages,
+            key=lambda msg: self._parse_history_timestamp(msg.get('posted_at'))
+            or datetime.min.replace(tzinfo=timezone.utc))
+        # With no roll in reach of the history, this is 'none': nothing is
+        # recorded and the room warns, rather than guess.
+        self.roll_state = picks.roll_state(ordered)
+        self.seed_rolled = self.roll_state == picks.ROLLED
+        said = self._ttp_said()
+        for msg in ordered:
+            text = msg.get('message_plain') or msg.get('message') or ''
+            if msg.get('is_bot') and msg.get('bot') == 'TTPBot' and text not in said:
+                said.append(text)
+
+    async def _ttp_after_history(self):
+        self._ttp_history_seen = True
+        status = (self.data.get('status') or {}).get('value')
+        try:
+            if status == 'in_progress':
+                # A reconnect mid-race records again, which the engine treats
+                # as the no-op it is.
+                await self._ttp_start()
+                return
+            await self._ttp_tick()
+            await self._ttp_check_roll()
+        except Exception:
+            self.logger.error('Tournament room history check raised exception.', exc_info=True)
+
+    async def _ttp_set_roll(self, state):
+        before, self.roll_state = self.roll_state, state
+        self.seed_rolled = state == picks.ROLLED
+        if state == before or not self._ttp_history_seen or not self._room_is_open():
+            return
+        try:
+            if state == picks.CANCELLED:
+                await self._ttp_say(picks.CANCELLED_WARNING)
+                self._ttp_checked = None
+            else:
+                await self._ttp_check_roll()
+        except Exception:
+            self.logger.error('Tournament roll check raised exception.', exc_info=True)
+
+    async def _ttp_race_data(self):
+        status = (self.data.get('status') or {}).get('value')
+        if status == 'in_progress':
+            if self._ttp_task and not self._ttp_task.done():
+                self._ttp_task.cancel()
+            if self._ttp_history_seen:
+                await self._ttp_start()
+            # Otherwise the history, when it lands, records the start.
+            return
+        if self._ttp_history_seen and self._room_is_open():
+            await self._ttp_check_roll()
+
+    async def _ttp_check_roll(self):
+        """Check the roll standing against the game, once per roll."""
+        if self.roll_state != picks.ROLLED or not self._room_is_open():
+            return
+        flags = picks.current_roll(self.data.get('info_bot'))
+        key = (self.roll_state, flags)
+        if key == self._ttp_checked:
+            return
+        race = self.tournament_race()
+        if race is None or self.ttp_engine is None:
+            return
+        self._ttp_checked = key
+        try:
+            state, flagsets, _ = await self._ttp_read(race)
+            if flags and flagsets and flags not in [f['flags'] for f in flagsets]:
+                # A confirmed edit reaches the tournament without a restart.
+                self._ttp_flagsets = None
+                state, flagsets, _ = await self._ttp_read(race)
+        except Exception:
+            self.logger.warning('[%s] engine unread for a roll check', self.data.get('name'), exc_info=True)
+            await self._ttp_tell_council(race, ENGINE_DOWN)
+            return
+        check = picks.check_roll(flags, state, race['game'], flagsets=flagsets,
+                                 registry_name=registry.name_of(flags) if flags else None)
+        if check.warning:
+            await self._ttp_tell_council(race, check.warning)
+        await self._ttp_say_once(check.ask)
+
+    async def _ttp_start(self):
+        """Record the game's flagset from the roll standing as the race starts."""
+        if self._ttp_started:
+            return
+        self._ttp_started = True
+        race = self.tournament_race()
+        flags = picks.flags_at_start(self.data.get('info_bot'), self.roll_state)
+        if race is None or self.ttp_engine is None:
+            self.logger.warning('[%s] TTP race started before its match was known; '
+                                'the finished room is checked instead', self.data.get('name'))
+            return
+        room = self._ttp_room()
+        if flags is None:
+            try:
+                # A restart whose history no longer reaches the roll: the
+                # engine may already hold this room's recording.
+                state = await self.ttp_engine.picks(race['match_id'], race.get('edition'))
+                if ((state.get('games') or {}).get(str(race['game'])) or {}).get('room') == room:
+                    return
+            except Exception:
+                pass
+            await self._ttp_tell_council(race, picks.NO_ROLL_AT_START)
+            return
+        written = await self.ttp_engine.record_flagset(dict(
+            matchId=race['match_id'], game=race['game'], flags=flags, room=room,
+            source='room-start', actor='TTPBot', edition=race.get('edition')))
+        if written.ok:
+            state = (written.answer or {}).get('picks') or {}
+            if race['game'] == 1 and state and not state.get('decision'):
+                await self._ttp_notify_once(
+                    race, 'Game 1 started with no !pick or !defer, so Council needs to record who picks Game 2.')
+            return
+        self.logger.warning('[%s] flagset not recorded at the start: %s', self.data.get('name'),
+                            written.detail or written.outcome)
+        if written.outcome == NOT_RECORDED:
+            await self._ttp_tell_council(
+                race, "The race started on a roll the bracket didn't accept, so no flagset was recorded for this game")
+        else:
+            await self._ttp_tell_council(
+                race, "I couldn't confirm this game's flagset with the bracket, so it's checked again when the race finishes")
+
+    async def _ttp_loop(self):
+        try:
+            while self._room_is_open():
+                await self._ttp_tick()
+                await asyncio.sleep(TTP_TICK_SECONDS)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            self.logger.error('Error in tournament room loop', exc_info=True)
+
+    async def _ttp_tick(self, now=None):
+        """The opening once the match is known, then the reminders. Idempotent."""
+        if not self.ttp_tournament_room or not self._ttp_history_seen or not self._room_is_open():
+            return
+        race = self.tournament_race()
+        if race is None or self.ttp_engine is None:
+            return
+        async with self._ttp_lock_held():
+            try:
+                await self._ttp_open(race)
+                await self._ttp_remind(race, now or datetime.now(timezone.utc))
+            except Exception:
+                self.logger.error('Error in tournament room tick', exc_info=True)
+
+    async def _ttp_open(self, race):
+        key = '{}|{}'.format(race['match_id'], race['game'])
+        if self.state.get('ttp_opened') == key:
+            return
+        try:
+            state, flagsets, score = await self._ttp_read(race, score=race['game'] > 1)
+        except Exception:
+            self.logger.warning('[%s] engine unread for the opening', self.data.get('name'), exc_info=True)
+            await self._ttp_tell_council(race, ENGINE_DOWN)
+            return
+        if not flagsets:
+            await self._ttp_tell_council(race, NO_FLAGSETS)
+            return
+        tag, label = self._ttp_labels(race)
+        plan = picks.plan_for_room(state, race['game'], flagsets=flagsets, tag=tag,
+                                   round_label=label, score=score)
+        if plan.opening[0] not in self._ttp_said():
+            for line in plan.opening:
+                await self._ttp_say(line)
+        for notice in plan.notices:
+            await self._ttp_tell_council(race, notice)
+        self.state['ttp_opened'] = key
+
+    async def _ttp_remind(self, race, now):
+        sent = self.state.setdefault('ttp_reminded', [])
+        minutes_until = (race['when'] - now).total_seconds() / 60
+        for minutes in TTP_REMINDERS:
+            if minutes in sent or minutes_until > minutes:
+                continue
+            sent.append(minutes)
+            if minutes_until < minutes - TTP_REMINDER_GRACE_MINUTES:
+                continue
+            state, flagsets, _ = await self._ttp_read(race)
+            await self._ttp_say_once(picks.reminder(
+                state, race['game'], minutes, flagsets=flagsets, rolled=self.roll_state == picks.ROLLED))
+
+    def _ttp_season_commands(self, edition):
+        """The season's random command and flagset commands, from its record."""
+        try:
+            number = int(str(edition))
+        except (TypeError, ValueError):
+            number = None
+        if number is not None:
+            season = next((s for s in seasons.oldest_first() if s.get('number') == number), None) or {}
+        else:
+            # Before the runner's seed lands: the season whose label the room carries.
+            titles = [self.data.get(field) or '' for field in ('info_user', 'info_bot')]
+            season = next((s for s in seasons.oldest_first()
+                           if (s.get('tournament') or {}).get('roomLabel')
+                           and any(t.startswith(s['tournament']['roomLabel'] + ' — ') for t in titles)), None) or {}
+        commands = {f['command'].lower() for f in season.get('flagsets') or []}
+        commands |= {f['command'].lower() for f in self._ttp_flagsets or []}
+        return (season.get('randomCommand') or '').lower() or None, commands
+
+    def _ttp_speaker(self, message, race, state):
+        """Which racer said this, by racetime id when the runner knows both."""
+        user = message.get('user') or {}
+        runners = race.get('runners') or []
+        invite = race.get('invite') or []
+        if len(invite) == 2 and len(runners) == 2:
+            who = next((name for rid, name in zip(invite, runners) if user.get('id') == rid), None)
+        else:
+            wanted = (user.get('name') or '').lower()
+            who = next((name for name in runners if name.lower() == wanted), None) if wanted else None
+        if who is None:
+            return None
+        return next((n for n in (state['betterSeed'], state['otherSeed']) if n.lower() == who.lower()), who)
+
+    async def _ttp_command(self, command, message):
+        """!pick, !defer and the season's flagset commands. True when answered here."""
+        command = command.lower()
+        race = self.tournament_race()
+        edition = race.get('edition') if race else None
+        random_command, flagset_commands = self._ttp_season_commands(edition)
+        if command == 'race':
+            await self.send_message(picks.RACE_OFF)
+            return True
+        if random_command and command == random_command:
+            await self.send_message(picks.RANDOM_OFF)
+            return True
+        if command not in ('pick', 'defer') and command not in flagset_commands:
+            return False
+        if race is None or self.ttp_engine is None:
+            await self.send_message("I don't know this room's match yet, so picks can't be saved. Please try again in a moment.")
+            return True
+        try:
+            state, flagsets, _ = await self._ttp_read(race)
+        except Exception:
+            self.logger.warning('[%s] engine unread for a pick', self.data.get('name'), exc_info=True)
+            await self.send_message(picks.NOT_SAVED)
+            await self._ttp_tell_council(race, ENGINE_DOWN)
+            return True
+        reply = picks.reply_to_command(state, race['game'], self._ttp_speaker(message, race, state), command,
+                                       flagsets=flagsets, rolled=self.roll_state == picks.ROLLED)
+        if reply.text is None:
+            return False
+        if reply.op is None:
+            await self.send_message(reply.text)
+            return True
+        operation, payload = reply.op
+        write = {'decidePick': self.ttp_engine.decide_pick, 'choosePick': self.ttp_engine.choose_pick}[operation]
+        written = await write(dict(payload, edition=race.get('edition')))
+        if written.ok:
+            await self._ttp_say(reply.text)
+            if operation == 'choosePick':
+                # A roll already standing is checked against the new choice.
+                self._ttp_checked = None
+                await self._ttp_check_roll()
+            return True
+        if written.outcome == NOT_RECORDED:
+            try:
+                reason = json.loads(written.detail or '{}').get('error')
+            except (ValueError, AttributeError):
+                reason = None
+            await self.send_message("The bracket didn't take that: {}".format(reason or 'no reason given'))
+        else:
+            await self.send_message(picks.NOT_SAVED)
+            await self._ttp_notify_once(race, "TTPBot couldn't confirm a pick with the bracket.")
+        return True
+
     async def _send_autumn_invites(self):
-        """Invite a tournament room's two racers, exactly once."""
-        await self._send_invites(
-            TOURNAMENT_LABELS[self._tournament_event()], 'autumn_invited', self._autumn_invite_ids())
+        """Invite a tournament room's two racers, exactly once.
+
+        The runner calls this on every tick the race is in its window, which
+        is also when a TTP room learns its match: so its opening runs here too.
+        """
+        try:
+            await self._send_invites(
+                TOURNAMENT_LABELS[self._tournament_event()], 'autumn_invited', self._autumn_invite_ids())
+        finally:
+            if self.ttp_tournament_room:
+                await self._ttp_tick()
 
     async def _send_league_invites(self):
         """Invite the scheduled racers exactly once."""
@@ -498,10 +895,15 @@ class TTPRaceHandler(RaceHandler):
                 )
                 break
 
+        if self.ttp_tournament_room:
+            # A cancel since the roll counts, whichever bot rolled, so rolling
+            # follows the last bot word rather than any old "complete".
+            self._ttp_rebuild_from_history(messages)
+
         # Also detect if a seed was already rolled (avoids double-roll on restart).
         # SahasrahBot's rolls count too, or a !ttpbot could roll a second
         # seed. A third bot sending "Seed rolling complete." would lock rolling.
-        for msg in messages:
+        for msg in ([] if self.ttp_tournament_room else messages):
             if msg.get('is_bot'):
                 text = msg.get('message_plain', '') or ''
                 if 'Seed rolling complete.' in text:
@@ -544,6 +946,9 @@ class TTPRaceHandler(RaceHandler):
             self.state['welcomed'] = True
 
         await self._handle_recent_history_commands(messages)
+
+        if self.ttp_tournament_room:
+            await self._ttp_after_history()
 
     def _parse_history_timestamp(self, raw_timestamp):
         if not raw_timestamp:
@@ -771,6 +1176,12 @@ class TTPRaceHandler(RaceHandler):
                     '[%s] SahasrahBot detected live - seed commands deferred',
                     self.data.get('name'),
                 )
+            if self.ttp_tournament_room:
+                # TTPBot's own words are applied when it says them, so only
+                # the other bots' are read back here.
+                if message.get('bot') != 'TTPBot':
+                    await self._ttp_set_roll(picks.roll_state([message], start=self.roll_state))
+                return
             # Whichever bot rolled, the room has its seed. Matters after an
             # !ttpbot, when SahasrahBot may yet wake up and roll one.
             text = message.get('message_plain') or message.get('message') or ''
@@ -795,6 +1206,13 @@ class TTPRaceHandler(RaceHandler):
             method = 'ex_' + words[0][len(self.command_prefix):]
             args = text.split()[1:]  # preserve original case for flag strings
             command = words[0][len(self.command_prefix):]
+            if self.ttp_tournament_room:
+                try:
+                    if await self._ttp_command(command, message):
+                        return
+                except Exception:
+                    self.logger.error('Tournament pick command raised exception.', exc_info=True)
+                    return
             if hasattr(self, method):
                 self.logger.info('[%(race)s] Calling handler for %(word)s' % {
                     'race': self.data.get('name'),
@@ -948,9 +1366,18 @@ class TTPRaceHandler(RaceHandler):
                     confirmer=confirmer_name, method='ready-up',
                 )
 
+        if self.ttp_tournament_room:
+            try:
+                await self._ttp_race_data()
+            except Exception:
+                # The race goes on whatever the bracket says.
+                self.logger.error('Tournament pick check raised exception.', exc_info=True)
+
     async def end(self):
         if self.state.get('_autumn_send_invites') == self._send_autumn_invites:
             self.state.pop('_autumn_send_invites', None)
+        if self._ttp_task and not self._ttp_task.done():
+            self._ttp_task.cancel()
         if self.reminder_task and not self.reminder_task.done():
             self.reminder_task.cancel()
         if self.grace_task and not self.grace_task.done():
@@ -1065,6 +1492,8 @@ class TTPRaceHandler(RaceHandler):
         await self.send_message(seed_str)
         await self.send_message('Seed rolling complete.  See race info for details.')
         self.logger.info('[%s] Seed rolled via !flags: %s', self.data.get('name'), seed_str)
+        if self.ttp_tournament_room:
+            await self._ttp_set_roll(picks.ROLLED)
 
     @staticmethod
     def _is_ttpbot_command(message):
@@ -1110,6 +1539,9 @@ class TTPRaceHandler(RaceHandler):
             return
         self.seed_rolled = False
         await self.send_message('Seed cleared. You may now roll a new one.')
+        if self.ttp_tournament_room:
+            # Race info still shows the old string; this is what says it is gone.
+            await self._ttp_set_roll(picks.CANCELLED)
 
     async def ex_summary(self, args, message):
         """!summary [flagstring|preset] -- Describe a flag string in plain words.
@@ -1142,6 +1574,10 @@ class TTPRaceHandler(RaceHandler):
 
     async def ex_race(self, args, message):
         """!race <preset> -- Roll a seed by named preset."""
+        if self.ttp_tournament_room:
+            # Each game's flagset is picked; a preset would roll around the pick.
+            await self.send_message(picks.PRESET_OFF)
+            return
         if self.sahasrahbot_present:
             return
 
@@ -1287,6 +1723,9 @@ class TTPRaceHandler(RaceHandler):
         With SahasrahBot present TTPBot never rolls, to avoid two seeds, but
         staying silent would leave the command unanswered.
         """
+        if self.ttp_tournament_room:
+            await self.send_message(picks.PRESET_OFF)
+            return
         flags = registry.resolve(preset)
         if flags is None:
             await self.send_message(f'Unknown preset "{preset}". {PRESET_LIST}')
@@ -1302,6 +1741,9 @@ class TTPRaceHandler(RaceHandler):
 
     async def _league_week(self, week, message):
         name, flags = LEAGUE_WEEKS[week]
+        if self.ttp_tournament_room:
+            await self.send_message(picks.PRESET_OFF)
+            return
         if self.sahasrahbot_present:
             # SahasrahBot has no League presets.
             await self._hand_off_flags(f'League Week {week} ({name})', flags)
