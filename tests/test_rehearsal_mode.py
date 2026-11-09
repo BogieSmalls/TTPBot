@@ -47,6 +47,7 @@ class RoomForm(unittest.TestCase):
             form = autumn_room_form_data(race_)
         self.assertEqual(form['unlisted'], 'true')
         self.assertEqual(form['ranked'], 'false')
+        self.assertEqual(form['streaming_required'], 'false', 'testers join without streaming')
 
     def test_outside_a_rehearsal_rooms_stay_listed_and_ranked(self):
         race_ = SimpleNamespace()
@@ -55,6 +56,7 @@ class RoomForm(unittest.TestCase):
             form = autumn_room_form_data(race_)
         self.assertEqual(form['unlisted'], 'false')
         self.assertNotIn('ranked', form)
+        self.assertEqual(form['streaming_required'], 'true')
 
 
 class OnlyItsOwnRooms(unittest.TestCase):
