@@ -35,6 +35,7 @@ import re
 from urllib.parse import urlsplit
 
 from ..config import TIMEZONE
+from ..tournament_channels import TournamentChannels
 from .announce import post_live_ops, send_autumn_announcement
 from .engine import engine_from_env
 from .rooms import create_autumn_room, room_title, recover_autumn_room, read_autumn_room
@@ -129,6 +130,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
     """
     engine = engine_from_env(env, event=event, logger=logger)
     prefix = event.upper()
+    destinations = TournamentChannels(env)
     if event not in SCHEDULES:
         raise ValueError('unknown tournament event {!r}'.format(event))
     default_authority, default_url = SCHEDULES[event]
@@ -258,13 +260,14 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         # exact, then flattened, then the aliases -- so a racer is pinged whichever
         # way the form spelled them.
         ids = await _racer_ids(engine, race, logger)
+        destination = await destinations.races(event, race.identity.edition)
         posted = await send_autumn_announcement(
-            race, url, (env.get('TTPBOT_{}_DISCORD_WEBHOOK_URL'.format(prefix)) or '').strip()
-            or getattr(bot, event + '_webhook_url', None), logger,
+            race, url, None if destination else ((env.get('TTPBOT_{}_DISCORD_WEBHOOK_URL'.format(prefix)) or '').strip()
+            or getattr(bot, event + '_webhook_url', None)), logger,
             ids=ids, label=round_label(race),
             continuation=bool(booth and booth.is_continuation), correction=correction,
             crew=tuple(getattr(row, 'crew', ()) or ()) if (getattr(row, 'channel', '') or '').strip() else (),
-            channel_id=(env.get('TTPBOT_{}_DISCORD_CHANNEL_ID'.format(prefix)) or '').strip(),
+            channel_id=destination or (env.get('TTPBOT_{}_DISCORD_CHANNEL_ID'.format(prefix)) or '').strip(),
             bot_token=(env.get('TTPBOT_{}_DISCORD_BOT_TOKEN'.format(prefix))
                        or env.get('TTPBOT_LEAGUE_DISCORD_BOT_TOKEN') or '').strip())
         if not posted:
