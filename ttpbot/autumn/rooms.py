@@ -84,9 +84,11 @@ def autumn_room_form_data(race, label=None):
     }
     if rehearsal.enabled():
         # A staging rehearsal's rooms are real racetime rooms: kept off the
-        # category page and out of everyone's ratings.
+        # category page and out of everyone's ratings. Testers are not
+        # broadcasting, so the room must not wait on a stream.
         form['unlisted'] = 'true'
         form['ranked'] = 'false'
+        form['streaming_required'] = 'false'
     return form
 
 
