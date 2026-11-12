@@ -5,12 +5,12 @@ state, so a League failure cannot affect TTP scheduling.
 """
 
 import asyncio
-import json
 from datetime import timedelta
 from urllib.parse import urlsplit
 
 import aiohttp
 
+from ..booth_slate import SlateEntry, booking_signature
 from ..config import DEFAULT_SCHEDULE_URL
 from ..state import UNCERTAIN_RACE
 from .announce import send_league_announcement, send_league_continuation_notice
@@ -194,8 +194,10 @@ class LeagueScheduler:
                  roster_token=None, relay_wake_url=None, relay_wake_token=None,
                  wake_target='production', booth_url=None, booth_token=None,
                  threads=None, thread_store=None, result_context_store=None, results_recorder=None,
-                 chat_context=None, coop_four_racer_booth=False):
+                 chat_context=None, coop_four_racer_booth=False, slate=None):
         self.bot = bot
+        #: Each channel's later races, shared with the other schedulers. None sends no slate.
+        self.slate = slate
         #: One four-racer booth per co-op match instead of a two-racer booth
         #: per featured row. Off by default: a four-racer booth needs a lane
         #: that can host a large encoder.
@@ -289,6 +291,7 @@ class LeagueScheduler:
         # anything asked about it, and tomorrow's T-30 made a second one.
         self._carry_rooms_forward(races)
         self._prune(now)
+        self._publish_slate(races)
 
         for race in races:
             try:
@@ -342,6 +345,29 @@ class LeagueScheduler:
         self.thread_store.save(entries)
         self.opened_threads = set(
             self.thread_store.cleanup_before(now - THREAD_STATE_RETENTION))
+
+    def _four_racer_coop_booth(self, race):
+        """Whether a co-op match gets one four-racer booth rather than one booth per featured row."""
+        return bool(self.coop_four_racer_booth and race.featured_rows and race.key not in self._coop_lane_refused)
+
+    def _publish_slate(self, races):
+        """Every League race with a channel, as its booth will show it: a series or a
+        four-racer co-op booth is 4 racers, anything else 2 per booth."""
+        if self.slate is None:
+            return
+        entries = []
+        for race in races:
+            if getattr(race, 'series', False):
+                if race.channel:
+                    entries.append(SlateEntry(race.channel, race.start, 4))
+            elif getattr(race, 'coop', False):
+                if self._four_racer_coop_booth(race):
+                    entries.append(SlateEntry(race.featured_rows[0].channel, race.start, 4))
+                else:
+                    entries.extend(SlateEntry(row.channel, race.start, 2) for row in race.featured_rows)
+            elif race.channel:
+                entries.append(SlateEntry(race.channel, race.start, 2))
+        self.slate.publish('league', entries)
 
     def _carry_rooms_forward(self, races):
         """Re-key every room association onto its race's current start.
@@ -445,7 +471,10 @@ class LeagueScheduler:
                 race, _room_slug(room_url), self.crew, self.logger, coop=coop, series=series)
         if payload is None:
             return BoothOutcome()
-        signature = json.dumps(payload, sort_keys=True)
+        if self.slate is not None:
+            payload = {**payload, 'slate': self.slate.for_booking(payload.get('twitchChannel') or race.channel, race.start)}
+        # The slate is advisory: a booking whose later races changed is the same booking.
+        signature = booking_signature(payload)
         settled = self._booth_outcomes.get(race.key)
         if settled is not None and settled[0] == signature:
             return settled[1]
@@ -473,7 +502,7 @@ class LeagueScheduler:
             return await self._request_booth(race, room_url, series=True)
         if not race.coop:
             return await self._request_booth(race, room_url)
-        if self.coop_four_racer_booth and race.featured_rows and race.key not in self._coop_lane_refused:
+        if self._four_racer_coop_booth(race):
             payload = build_coop_broadcast_request(
                 race, _room_slug(room_url), self.crew, self.logger)
             if payload is not None:

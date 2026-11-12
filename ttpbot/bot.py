@@ -294,7 +294,8 @@ class TTPBot(Bot):
                 booth_token=booth_token_from_env(os.environ),
                 coop_four_racer_booth=(
                     os.environ.get('LEAGUE_COOP_FOUR_RACER_BOOTH', '').strip().lower()
-                    in ('1', 'true', 'yes', 'on')))
+                    in ('1', 'true', 'yes', 'on')),
+                slate=getattr(self, 'slate', None))
         except Exception:
             self.logger.error(
                 'League scheduling is off (roster or state is unusable); '
@@ -408,6 +409,10 @@ class TTPBot(Bot):
         self.loop.create_task(self.race_scheduler())
         self.loop.create_task(flagset_registry.run())
         self.loop.create_task(season_record.run())
+        # Each channel's coming races across League, the tournaments and TTP Nightly, so a
+        # booth booking can size its encoder for the races that follow it on its channel.
+        from .booth_slate import ChannelSlate
+        self.slate = ChannelSlate()
         scheduler = None
         if self.league_enabled:
             scheduler = self._build_league_scheduler()
@@ -502,7 +507,8 @@ class TTPBot(Bot):
                 crew=crew, logger=self.logger,
                 relay_wake_url=env.get('Z1RR_RELAY_URL', '').strip(),
                 relay_wake_token=env.get('Z1RR_WAKE_TOKEN', '').strip(),
-                wake_target=env.get('Z1RR_WAKE_TARGET', '').strip() or 'production')
+                wake_target=env.get('Z1RR_WAKE_TARGET', '').strip() or 'production',
+                slate=getattr(self, 'slate', None))
             if not nightly.configured or not env.get('TTPBOT_NIGHTLY_EDITION', '').strip():
                 self.logger.warning('TTP Nightly booths are enabled but not configured; staying off')
                 return None
@@ -576,6 +582,11 @@ class TTPBot(Bot):
         nightly = getattr(self, 'nightly', None)
         if nightly is not None:
             from .nightly import races_in_booth_window
+            # Before any booth asks: a booking carries the channel's later races, nightlies included.
+            try:
+                await nightly.publish_slate(now)
+            except Exception:
+                self.logger.warning('TTP Nightly slate unavailable; booths are unaffected', exc_info=True)
             for race_time in races_in_booth_window(now):
                 race_url = self.created_races.get(race_time.isoformat(), '')
                 room = race_url if race_url and race_url != UNCERTAIN_RACE else None

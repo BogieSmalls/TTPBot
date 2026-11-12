@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 
+from .booth_slate import SLATE_HORIZON, SlateEntry, booking_signature
 from .league.booth import request_booth
 from .league.wake import wake_control_plane
 from .config import ROOM_OPEN_MINUTES_BEFORE
@@ -38,6 +39,10 @@ BOOTH_MINUTES_BEFORE = ROOM_OPEN_MINUTES_BEFORE
 #: is how long the Council page keeps a started nightly listed.
 BOOTH_HOURS_AFTER_START = 3
 OWNER_TIMEOUT_SECONDS = 8
+#: A staffed nightly's place on the channel slate is re-read at most this often.
+SLATE_REFRESH = timedelta(minutes=10)
+#: A nightly booth always takes the large encoder, so on the slate it counts as four racers.
+NIGHTLY_SLATE_RACERS = 4
 
 
 def booth_window_open(race_time, now):
@@ -109,12 +114,24 @@ def booth_request(race_time, occurrence, room_url, crew, logger):
     return payload
 
 
+def _staffed_channel(occurrence):
+    """The channel a nightly will be on, when Council booked one and assigned crew; else None."""
+    if not occurrence:
+        return None
+    bookings = occurrence.get('bookings') or []
+    channel = bookings[0].get('channel') if bookings else None
+    people = occurrence.get('crew') or {}
+    if not channel or not any((person or {}).get('name') for person in people.values()):
+        return None
+    return channel
+
+
 class NightlyBooths:
     """Registers nightly occurrences and opens the booths Council staffed."""
 
     def __init__(self, *, owner_url, owner_environment, edition, actor, reader_token, writer_token,
                  booth_url, booth_token, crew, logger, relay_wake_url='', relay_wake_token='',
-                 wake_target='production', requester=None):
+                 wake_target='production', requester=None, slate=None):
         self.owner_url = (owner_url or '').rstrip('/')
         self.environment = owner_environment
         self.edition_id = 'ttp-nightly:' + edition
@@ -132,6 +149,13 @@ class NightlyBooths:
         self._registered_at = None
         # Last booth request per occurrence: a repeat is sent only when it changes (the room arrived).
         self._sent = {}
+        #: Each channel's later races, shared with the other schedulers. None sends and publishes nothing.
+        self.slate = slate
+        # Game id -> (when it was read, the occurrence) for the slate.
+        self._slate_reads = {}
+
+    def _game_id(self, race_time):
+        return '{}:{}:1'.format(self.edition_id, occurrence_match_id(race_time))
 
     @property
     def configured(self):
@@ -184,7 +208,7 @@ class NightlyBooths:
             return None
         if not booth_window_open(race_time, now):
             return None
-        game_id = '{}:{}:1'.format(self.edition_id, occurrence_match_id(race_time))
+        game_id = self._game_id(race_time)
         try:
             occurrence = await self._owner('GET', '/games/' + game_id, self.reader_token)
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError, RuntimeError, ValueError) as exc:
@@ -195,8 +219,12 @@ class NightlyBooths:
         payload = booth_request(race_time, occurrence, room_url, self.crew, self.logger)
         if payload is None:
             return None
+        if self.slate is not None:
+            payload = {**payload, 'slate': self.slate.for_booking(payload['twitchChannel'], race_time)}
         key = payload['requestKey']
-        if self._sent.get(key) == payload:
+        # The slate is advisory: a booking whose later races changed is the same booking.
+        signature = booking_signature(payload)
+        if self._sent.get(key) == signature:
             return None
         if self.relay_wake_url:
             try:
@@ -208,5 +236,35 @@ class NightlyBooths:
         outcome = await request_booth(payload, self.booth_url, self.booth_token, self.logger, self.requester,
                                       endpoint='/internal/relay/ttp/broadcast', label='TTP Nightly')
         if outcome.outcome is not None:
-            self._sent[key] = payload
+            self._sent[key] = signature
         return outcome
+
+    async def _slate_occurrence(self, race_time, now):
+        """A nightly's occurrence for the slate, read at most once per SLATE_REFRESH. Never raises."""
+        game_id = self._game_id(race_time)
+        held = self._slate_reads.get(game_id)
+        if held and now - held[0] < SLATE_REFRESH:
+            return held[1]
+        try:
+            occurrence = await self._owner('GET', '/games/' + game_id, self.reader_token)
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError, RuntimeError, ValueError) as exc:
+            self.logger.warning('TTP Nightly slate read failed (%s)', type(exc).__name__)
+            return held[1] if held else None
+        self._slate_reads[game_id] = (now, occurrence)
+        return occurrence
+
+    async def publish_slate(self, now):
+        """The staffed nightlies of the next 12 hours, each as a four-racer race, on the shared slate. Never raises."""
+        if self.slate is None or not self.configured:
+            return
+        until = now + SLATE_HORIZON
+        days = sorted({now.date(), until.date()})
+        races = [race_time for day in days for race_time in get_races_for_date(day) if now < race_time <= until]
+        entries = []
+        for race_time in races:
+            channel = _staffed_channel(await self._slate_occurrence(race_time, now))
+            if channel:
+                entries.append(SlateEntry(channel, race_time, NIGHTLY_SLATE_RACERS))
+        wanted = {self._game_id(race_time) for race_time in races}
+        self._slate_reads = {game: read for game, read in self._slate_reads.items() if game in wanted}
+        self.slate.publish('nightly', entries)

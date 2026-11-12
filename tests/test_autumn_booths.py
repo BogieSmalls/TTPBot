@@ -52,6 +52,24 @@ class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.wake.await_count, 2)
         self.assertEqual(self.crew.refresh.await_count, 2)
 
+    async def test_booking_carries_the_slate(self):
+        from datetime import timedelta
+        from ttpbot.autumn.booths import AutumnBooths
+        from ttpbot.booth_slate import ChannelSlate, SlateEntry
+        slate = ChannelSlate()
+        later = self.race.at + timedelta(hours=2)
+        slate.publish('league', [SlateEntry('Z1Rracing', later, 4)])
+        booths = AutumnBooths(engine=self.engine, crew=self.crew, logger=Log(), base_url='https://cp.example', token='secret',
+                              edition='2026', wake=self.wake, slate=slate)
+        with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
+            request.return_value = BoothOutcome('staged', 'one')
+            await booths.request(self.race, self.row, ROOM_URL)
+            self.assertEqual(request.await_args.args[0]['slate'], [{'scheduledAt': later.astimezone(__import__('datetime').timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'), 'racers': 4}])
+            # A changed slate is the same booking: the staged answer stands.
+            slate.publish('league', [])
+            await booths.request(self.race, self.row, ROOM_URL)
+            self.assertEqual(request.await_count, 1)
+
     async def test_unknown_booth_retries_the_same_key_then_caches_success(self):
         with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
             request.side_effect = [BoothOutcome(), BoothOutcome('staged', 'one')]
@@ -73,6 +91,15 @@ class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
         runner = build_autumn_runner({'Z1RR_ENGINE_TOKEN': 'engine', 'Z1RR_CONTROL_PLANE_URL': 'https://cp.example',
                                      'Z1RR_ROSTER_TOKEN': 'roster'}, SimpleNamespace(state={}), Log())
         self.assertTrue(callable(getattr(runner.scheduler, '_request_booth', None)))
+
+    async def test_the_runner_shares_the_bots_slate(self):
+        from ttpbot.autumn.wiring import build_autumn_runner
+        from ttpbot.booth_slate import ChannelSlate
+        slate = ChannelSlate()
+        runner = build_autumn_runner({'Z1RR_ENGINE_TOKEN': 'engine', 'Z1RR_CONTROL_PLANE_URL': 'https://cp.example',
+                                     'Z1RR_ROSTER_TOKEN': 'roster'}, SimpleNamespace(state={}, slate=slate), Log())
+        self.assertIs(runner.scheduler.slate, slate)
+        self.assertIs(runner.scheduler._request_booth.__self__.slate, slate)
 
 
 from tests.test_autumn_scheduler import SchedulerTests, START, ROOM, at, sheet, row, ready, run

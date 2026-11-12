@@ -1,11 +1,12 @@
 import logging
 from dataclasses import replace
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, Mock, patch
 
+from ttpbot.booth_slate import ChannelSlate, SlateEntry
 from ttpbot.config import TIMEZONE
 from ttpbot.league.coop import CoopMatch
 from tests.test_league_coop import rows as coop_rows
@@ -628,6 +629,57 @@ class BoothPhaseTests(unittest.IsolatedAsyncioTestCase):
         # The announcement is last because the endpoint's answer is what it
         # says: only the control plane knows this is a continuation.
         self.assertEqual(order, ['room', 'booth', 'announce'])
+
+    async def test_booking_carries_the_channels_later_races(self):
+        slate = ChannelSlate()
+        slate.publish('nightly', [SlateEntry('Z1Rracing', START + timedelta(hours=2), 4)])
+        scheduler = self.scheduler()
+        scheduler.slate = slate
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth', AsyncMock(return_value=BoothOutcome('staged', 'b1'))) as booth, \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)):
+            await scheduler.tick(START - timedelta(minutes=30))
+        later = (START + timedelta(hours=2)).astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        self.assertEqual(booth.await_args.args[0]['slate'], [{'scheduledAt': later, 'racers': 4}])
+
+    async def test_a_changed_slate_does_not_resend_a_settled_booking(self):
+        slate = ChannelSlate()
+        scheduler = self.scheduler()
+        scheduler.slate = slate
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth', AsyncMock(return_value=BoothOutcome('staged', 'b1'))) as booth, \
+             patch('ttpbot.league.scheduler.send_league_announcement', AsyncMock(return_value=True)):
+            await scheduler.tick(START - timedelta(minutes=30))
+            slate.publish('nightly', [SlateEntry('Z1Rracing', START + timedelta(hours=2), 4)])
+            await scheduler.tick(START - timedelta(minutes=29))
+        self.assertEqual(booth.await_count, 1)
+
+    def test_publishes_each_race_with_the_racers_its_booth_shows(self):
+        slate = ChannelSlate()
+        scheduler = self.scheduler()
+        scheduler.slate = slate
+        scheduler._publish_slate([STAGED_RACE, replace(STAGED_RACE, start=START + timedelta(hours=2), channel='Z1Rracing2')])
+        self.assertEqual(slate.for_booking('Z1Rracing', START - timedelta(minutes=1)), [
+            {'scheduledAt': START.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'), 'racers': 2}])
+        self.assertEqual([entry['racers'] for entry in slate.for_booking('Z1Rracing2', START)], [2])
+
+    def test_a_coop_match_publishes_one_four_racer_booth_only_when_that_booth_is_on(self):
+        coop = CoopMatch(rows=tuple(coop_rows(channel_one='Z1Rracing', channel_two='Z1Rracing2')))
+        before = coop.start - timedelta(minutes=1)
+        slate = ChannelSlate()
+        scheduler = self.scheduler()
+        scheduler.slate = slate
+        scheduler._publish_slate([coop])
+        self.assertEqual([e['racers'] for e in slate.for_booking('Z1Rracing', before)], [2])
+        self.assertEqual([e['racers'] for e in slate.for_booking('Z1Rracing2', before)], [2])
+        scheduler.coop_four_racer_booth = True
+        scheduler._publish_slate([coop])
+        self.assertEqual([e['racers'] for e in slate.for_booking('Z1Rracing', before)], [4])
+        self.assertEqual(slate.for_booking('Z1Rracing2', before), [])
+        # Once its lane refused a four-racer booth, the match runs per-row booths.
+        scheduler._coop_lane_refused.add(coop.key)
+        scheduler._publish_slate([coop])
+        self.assertEqual([e['racers'] for e in slate.for_booking('Z1Rracing', before)], [2])
 
     async def test_a_continuation_reaches_the_announcement(self):
         announce = AsyncMock(return_value=True)

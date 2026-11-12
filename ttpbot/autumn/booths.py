@@ -1,12 +1,15 @@
 """The tournament adapter to the League's proven crew and booth transport."""
-import json
+from ..booth_slate import booking_signature
 from ..league.booth import BoothOutcome, request_booth
 from .broadcast_request import build_broadcast_request
 
 
 class AutumnBooths:
-    def __init__(self, *, engine, crew, logger, base_url, token, edition, wake=None, roster_url=None, roster_token=None):
+    def __init__(self, *, engine, crew, logger, base_url, token, edition, wake=None, roster_url=None, roster_token=None,
+                 slate=None):
         self.engine = engine
+        #: Each channel's later races, shared with the other schedulers. None sends no slate.
+        self.slate = slate
         self.crew = crew
         self.logger = logger
         self.base_url = base_url
@@ -40,7 +43,10 @@ class AutumnBooths:
                                               self.logger, edition=self.edition, number=match.get('number'))
             if payload is None:
                 return BoothOutcome()
-            signature = json.dumps(payload, sort_keys=True)
+            if self.slate is not None:
+                payload = {**payload, 'slate': self.slate.for_booking(row.channel, row.at)}
+            # The slate is advisory: a booking whose later races changed is the same booking.
+            signature = booking_signature(payload)
             held = self._outcomes.get(payload['requestKey'])
             if held and held[0] == signature:
                 return held[1]

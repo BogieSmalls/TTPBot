@@ -37,6 +37,7 @@ import re
 from uuid import uuid4
 from datetime import datetime, timedelta
 
+from ..booth_slate import SlateEntry
 from ..config import TIMEZONE
 from ..state import UNCERTAIN_RACE
 from .engine import NOT_RECORDED
@@ -73,11 +74,13 @@ class AutumnScheduler:
                  open_room=None, wake_booth=None, announce=None, invite=None,
                  event='autumn', request_booth=None, booth_notice_store=None,
                  announce_continuation=None, recover_results=None, recover_room=None, before_tick=None,
-                 read_room=None, notify_live_ops=None):
+                 read_room=None, notify_live_ops=None, slate=None):
         self.source = source
         self.engine = engine
         self.logger = logger
         self.event = event
+        #: Each channel's later races, shared with the other schedulers. None publishes nothing.
+        self.slate = slate
 
         self.bindings_store = bindings_store
         self.created_store = created_store
@@ -262,6 +265,10 @@ class AutumnScheduler:
             # nobody can read -- including nothing *closed*, which is why this is
             # a return and not an empty list.
             return
+        if self.slate is not None:
+            # A tournament booth is two racers; a booking on the same channel sizes its block from these.
+            self.slate.publish('autumn:{}'.format(self.event),
+                               [SlateEntry(row.channel, row.at, 2) for row in schedule.rows if (row.channel or '').strip()])
 
         matching = match_rows(
             [row.as_row() for row in schedule.in_time_order()],
