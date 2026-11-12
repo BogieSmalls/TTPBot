@@ -410,6 +410,31 @@ updates the prepared draft. If the holding booth stops without rolling into
 the race, the control plane stages it as its own booth; a later resend is then
 answered `already_done` with that booth.
 
+### T-35 heads-up
+
+Five minutes before the real booking, League, Autumn and TTP Nightly races send
+the same booth request once with `prepareOnly: true` and no race room. Behind a
+holding booth, the control plane prepares the race for it to roll into (the
+crew can arm the roll before the room exists); otherwise it answers `not_due`
+and changes nothing. The heads-up never stands in for the booking: its answer is
+only logged, kept out of the booking caches and `booking_signature`, and the
+real booking still goes at T-30 with the room.
+
+It is sent only to a control plane that advertises it: the bot first reads
+`GET /internal/relay/booking-features` (same bearer, 8 s timeout) and sends the
+heads-up only when the answer has `prepareOnly: true`. An older control plane,
+an error or a timeout means no heads-up, since an older control plane would
+stage a booth from it. Nothing to configure.
+
+When it goes: League after the control plane's wake (T-35) and crew refresh
+succeed, Autumn after its wake (T-35 unless the tournament's `wakeLeadMinutes`
+says otherwise), and the nightly in its own T-35..T-30 window after its wake,
+each only before the room opens. A wake that first succeeds at T-30 or
+later sends no heads-up. It goes at most once per race, marked sent when
+attempted whatever the answer, so a heads-up lost to a failed post is not
+retried. A four-racer co-op heads-up refused
+`large_encoder_requires_ondemand_lane` is handled as the booking would be.
+
 
 ### Autumn result suggestions
 
