@@ -115,6 +115,35 @@ class NightlyBoothsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await booths(requests).maybe_open_booth(EIGHT, None, EIGHT - timedelta(minutes=20)))
         self.assertFalse(any('ttp/broadcast' in c['url'] for c in requests.calls))
 
+    async def test_nightly_heads_up_at_thirty_five_then_booking_at_thirty(self):
+        requests = _Requests({'/games/': _Response(200, staffed()),
+                              '/internal/relay/booking-features': _Response(200, {'prepareOnly': True, 'slate': True}),
+                              '/internal/relay/ttp/broadcast': _Response(200, {'outcome': 'not_due'})})
+        nightly = booths(requests)
+        self.assertEqual((await nightly.maybe_prepare_booth(EIGHT, EIGHT - timedelta(minutes=35))).outcome, 'not_due')
+        self.assertIsNone(await nightly.maybe_prepare_booth(EIGHT, EIGHT - timedelta(minutes=34)))
+        await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=30))
+        posts = [c['json'] for c in requests.calls if 'ttp/broadcast' in c['url']]
+        self.assertEqual(len(posts), 2)
+        self.assertIs(posts[0]['prepareOnly'], True)
+        self.assertNotIn('raceSlug', posts[0])
+        # The real booking still goes, with its room, whatever the heads-up answered.
+        self.assertNotIn('prepareOnly', posts[1])
+        self.assertEqual(posts[1]['raceSlug'], 'z1r/brave-goriya-1234')
+
+    async def test_nightly_heads_up_only_in_its_window(self):
+        requests = _Requests({'/games/': _Response(200, staffed()),
+                              '/internal/relay/booking-features': _Response(200, {'prepareOnly': True})})
+        nightly = booths(requests)
+        self.assertIsNone(await nightly.maybe_prepare_booth(EIGHT, EIGHT - timedelta(minutes=36)))
+        self.assertIsNone(await nightly.maybe_prepare_booth(EIGHT, EIGHT - timedelta(minutes=30)))
+        self.assertEqual(requests.calls, [])
+
+    def test_races_in_heads_up_window(self):
+        from ttpbot.nightly import races_in_heads_up_window
+        self.assertIn(EIGHT, races_in_heads_up_window(EIGHT - timedelta(minutes=33)))
+        self.assertNotIn(EIGHT, races_in_heads_up_window(EIGHT - timedelta(minutes=30)))
+
     async def test_the_same_request_is_not_resent(self):
         requests = _Requests({'/games/': _Response(200, staffed()),
                               '/internal/relay/ttp/broadcast': _Response(200, {'outcome': 'staged', 'broadcastId': 'b1'})})

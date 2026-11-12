@@ -327,6 +327,7 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         notify_live_ops=notify_live_ops,
         wake_booth=booths.prepare if booths else wake,
         request_booth=booths.request if booths else None,
+        heads_up_booth=booths.heads_up if booths else None,
         announce=announce,
         invite=seed_invites,
         event=event,

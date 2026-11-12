@@ -87,6 +87,23 @@ class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.booths.request(self.race, self.row, ROOM_URL)).broadcast_id, 'b0')
             self.assertEqual(request.await_count, 1)
 
+    async def test_heads_up_is_sent_once_without_a_room(self):
+        with patch('ttpbot.autumn.booths.send_heads_up', new_callable=AsyncMock) as heads_up, \
+             patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
+            heads_up.return_value = BoothOutcome('not_due')
+            self.assertEqual((await self.booths.heads_up(self.race, self.row)).outcome, 'not_due')
+            await self.booths.heads_up(self.race, self.row)
+            heads_up.assert_awaited_once()
+            payload = heads_up.await_args.args[0]
+            self.assertNotIn('raceSlug', payload)
+            self.assertEqual(payload['requestKey'], 'tournament:autumn:2026:W1-1:game:1')
+            self.assertEqual(heads_up.await_args.kwargs['endpoint'], '/internal/relay/tournament/broadcast')
+            # The heads-up is no booking: the real one still goes, with its room.
+            request.return_value = BoothOutcome('staged', 'one')
+            await self.booths.request(self.race, self.row, ROOM_URL)
+            request.assert_awaited_once()
+            self.assertIn('raceSlug', request.await_args.args[0])
+
     async def test_a_completed_or_replaced_match_cannot_get_a_booth(self):
         with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
             self.engine.draw.return_value['matches'][0]['state'] = 'played'
@@ -146,6 +163,22 @@ class BoothNightTests(SchedulerTests):
         self.assertEqual(notices, [ROOM])
         self.assertEqual(len(initial), 1)
         self.assertEqual(self.store('autumn_booth_notices').load(), {'autumn|W1-1': True})
+
+    def test_heads_up_after_wake_then_real_booking(self):
+        notices, initial = [], []
+        scheduler = self.configured_scheduler([BoothOutcome('staged', 'b1')], notices, initial)
+        heads_up = AsyncMock(return_value=BoothOutcome('next_race', 'b0'))
+        scheduler._heads_up_booth = heads_up
+        run(scheduler.tick(at(START, 35)))
+        run(scheduler.tick(at(START, 34)))
+        heads_up.assert_awaited_once()
+        self.assertEqual(len(self.woken), 1)
+        # No room, booking or announcement before T-30.
+        self.assertEqual(self.opened, [])
+        self.assertEqual(initial, [])
+        run(scheduler.tick(at(START, 30)))
+        heads_up.assert_awaited_once()
+        self.assertEqual([booth.outcome for booth in initial], ['staged'])
 
     def test_immediate_continuation_warning_is_in_first_announcement(self):
         notices, initial = [], []

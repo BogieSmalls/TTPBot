@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import aiohttp
 
 from .booth_slate import SLATE_HORIZON, SlateEntry, booking_signature
-from .league.booth import request_booth
+from .league.booth import request_booth, send_heads_up
 from .league.wake import wake_control_plane
 from .config import ROOM_OPEN_MINUTES_BEFORE
 from .schedule import get_races_for_date
@@ -38,6 +38,9 @@ BOOTH_MINUTES_BEFORE = ROOM_OPEN_MINUTES_BEFORE
 #: a race can go on stream last minute, like any other (Bogie, 2026-10-25). Three hours
 #: is how long the Council page keeps a started nightly listed.
 BOOTH_HOURS_AFTER_START = 3
+#: The heads-up goes five minutes before the booth: behind a booth already on the
+#: channel, the nightly is prepared for it to roll into. The T-30 timing is unchanged.
+HEADS_UP_MINUTES_BEFORE = 35
 OWNER_TIMEOUT_SECONDS = 8
 #: A staffed nightly's place on the channel slate is re-read at most this often.
 SLATE_REFRESH = timedelta(minutes=10)
@@ -56,6 +59,20 @@ def races_in_booth_window(now):
     races = []
     for day in (now - timedelta(days=1), now):
         races.extend(race for race in get_races_for_date(day.date()) if booth_window_open(race, now))
+    return races
+
+
+def heads_up_window_open(race_time, now):
+    """From T-35 until the booth's own window opens at T-30."""
+    return (race_time - timedelta(minutes=HEADS_UP_MINUTES_BEFORE) <= now
+            < race_time - timedelta(minutes=BOOTH_MINUTES_BEFORE))
+
+
+def races_in_heads_up_window(now):
+    """Today's and tomorrow's nightly races due their heads-up (a midnight race is tomorrow's)."""
+    races = []
+    for day in (now, now + timedelta(days=1)):
+        races.extend(race for race in get_races_for_date(day.date()) if heads_up_window_open(race, now))
     return races
 
 
@@ -149,6 +166,8 @@ class NightlyBooths:
         self._registered_at = None
         # Last booth request per occurrence: a repeat is sent only when it changes (the room arrived).
         self._sent = {}
+        # Occurrences whose heads-up has gone: apart from _sent, so the booking still goes.
+        self._heads_up_sent = set()
         #: Each channel's later races, shared with the other schedulers. None sends and publishes nothing.
         self.slate = slate
         # Game id -> (when it was read, the occurrence) for the slate.
@@ -237,6 +256,43 @@ class NightlyBooths:
                                       endpoint='/internal/relay/ttp/broadcast', label='TTP Nightly')
         if outcome.outcome is not None:
             self._sent[key] = signature
+        return outcome
+
+    async def maybe_prepare_booth(self, race_time, now):
+        """A staffed nightly's heads-up at T-35, once: the booking without a room, so a
+        booth already on the channel can roll into it. Its answer is only logged; the
+        booking still goes at T-30. Never raises."""
+        if not self.configured or not self.booth_url or not self.booth_token:
+            return None
+        if not heads_up_window_open(race_time, now):
+            return None
+        key = occurrence_key(race_time)
+        if key in self._heads_up_sent:
+            return None
+        try:
+            occurrence = await self._owner('GET', '/games/' + self._game_id(race_time), self.reader_token)
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError, RuntimeError, ValueError) as exc:
+            self.logger.warning('TTP Nightly staffing read failed (%s)', type(exc).__name__)
+            return None
+        if not occurrence:
+            return None
+        payload = booth_request(race_time, occurrence, None, self.crew, self.logger)
+        if payload is None:
+            return None
+        if self.slate is not None:
+            payload = {**payload, 'slate': self.slate.for_booking(payload['twitchChannel'], race_time)}
+        if self.relay_wake_url:
+            try:
+                await wake_control_plane(self.relay_wake_url, self.logger, token=self.relay_wake_token,
+                                         target=self.wake_target)
+            except Exception:
+                self.logger.warning('TTP Nightly: control plane wake failed; will retry', exc_info=True)
+                return None
+        self._heads_up_sent.add(key)
+        outcome = await send_heads_up(payload, self.booth_url, self.booth_token, self.logger, self.requester,
+                                      endpoint='/internal/relay/ttp/broadcast', label='TTP Nightly')
+        if outcome is not None and outcome.outcome is not None:
+            self.logger.info('TTP Nightly heads-up for %s: %s', key, outcome.outcome)
         return outcome
 
     async def _slate_occurrence(self, race_time, now):

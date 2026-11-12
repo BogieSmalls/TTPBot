@@ -567,6 +567,80 @@ class WakePhaseTests(unittest.IsolatedAsyncioTestCase):
         create.assert_awaited_once()
 
 
+class HeadsUpTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.created = DestinationStateStore(
+            'league_races.json', DESTINATION, 'league_created_races', data_dir=root)
+        self.webhooks = DestinationStateStore(
+            'league_webhooks.json', DESTINATION, 'league_sent_webhooks', data_dir=root)
+
+    def scheduler(self):
+        return LeagueScheduler(
+            bot=FakeBot(), source=FakeSource([STAGED_RACE]),
+            created_store=self.created, webhook_store=self.webhooks,
+            webhook_url='https://discord.com/api/webhooks/1/token',
+            logger=QUIET, crew=FakeCrew(),
+            roster_url='https://cp.example', roster_token='tok',
+            relay_wake_url='http://127.0.0.1:3005', relay_wake_token='ci-tok',
+            booth_url='https://cp.example', booth_token='tok',
+        )
+
+    async def test_heads_up_goes_once_at_wake_and_the_real_booking_still_goes_at_thirty(self):
+        scheduler = self.scheduler()
+        heads_up = AsyncMock(return_value=BoothOutcome('next_race', 'b0'))
+        booking = AsyncMock(return_value=BoothOutcome('staged', 'b1'))
+        announce = AsyncMock(return_value=True)
+        with patch('ttpbot.league.scheduler.wake_control_plane', AsyncMock(return_value=True)), \
+             patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.send_heads_up', heads_up), \
+             patch('ttpbot.league.scheduler.request_booth', booking), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce):
+            await scheduler.tick(START - timedelta(minutes=35))
+            await scheduler.tick(START - timedelta(minutes=34))
+
+            heads_up.assert_awaited_once()
+            payload = heads_up.await_args.args[0]
+            self.assertEqual(payload['leagueKey'], STAGED_RACE.key)
+            self.assertNotIn('raceSlug', payload)
+            self.assertEqual(heads_up.await_args.kwargs['endpoint'], '/internal/relay/league/broadcast')
+            # A heads-up answer is only logged: no booking settled, nothing announced.
+            booking.assert_not_awaited()
+            announce.assert_not_awaited()
+            self.assertEqual(scheduler._booth_outcomes, {})
+
+            await scheduler.tick(START - timedelta(minutes=30))
+
+        heads_up.assert_awaited_once()
+        booking.assert_awaited_once()
+        self.assertNotIn('prepareOnly', booking.await_args.args[0])
+        self.assertEqual(booking.await_args.args[0]['raceSlug'], 'z1r/clever-slug-1234')
+        self.assertEqual(list(scheduler._booth_outcomes), [STAGED_RACE.key])
+        self.assertEqual(scheduler._booth_outcomes[STAGED_RACE.key][1].outcome, 'staged')
+        announce.assert_awaited_once()
+
+    async def test_heads_up_answer_not_due_changes_nothing(self):
+        scheduler = self.scheduler()
+        booking = AsyncMock(return_value=BoothOutcome('staged', 'b1'))
+        announce = AsyncMock(return_value=True)
+        create = AsyncMock(return_value=ROOM)
+        with patch('ttpbot.league.scheduler.wake_control_plane', AsyncMock(return_value=True)), \
+             patch('ttpbot.league.scheduler.create_league_room', create), \
+             patch('ttpbot.league.scheduler.send_heads_up', AsyncMock(return_value=BoothOutcome('not_due'))), \
+             patch('ttpbot.league.scheduler.request_booth', booking), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce):
+            await scheduler.tick(START - timedelta(minutes=35))
+            self.assertEqual(scheduler._booth_outcomes, {})
+            create.assert_not_awaited()
+            announce.assert_not_awaited()
+            await scheduler.tick(START - timedelta(minutes=30))
+
+        booking.assert_awaited_once()
+        self.assertFalse(announce.await_args.kwargs['continuation'])
+
+
 class BoothPhaseTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.directory = TemporaryDirectory()

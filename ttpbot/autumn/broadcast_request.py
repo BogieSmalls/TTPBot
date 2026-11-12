@@ -6,11 +6,12 @@ from ..room_policy import tournament_name
 from urllib.parse import urlsplit
 
 
-def build_broadcast_request(race, row, room_url, document, crew, logger, *, edition, number=None):
+def build_broadcast_request(race, row, room_url, document, crew, logger, *, edition, number=None, prepare_only=False):
     if row is None or not row.channel:
         return None
     slug = urlsplit(room_url or '').path.strip('/')
-    if not slug or len(slug.split('/')) != 2:
+    # A heads-up (prepare_only) goes before the room exists and carries none.
+    if not (prepare_only and not room_url) and (not slug or len(slug.split('/')) != 2):
         logger.warning('Autumn %s has no usable race room for a booth', race.match_id)
         return None
     streams = document.get('twitchChannels') or {}
@@ -64,5 +65,7 @@ def build_broadcast_request(race, row, room_url, document, crew, logger, *, edit
         'trackerUserId': crew_id(row.tracker),
         'tracker2UserId': crew_id(row.tracker2),
     }
+    if not slug:
+        del payload['raceSlug']
 
     return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None

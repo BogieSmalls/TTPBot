@@ -74,7 +74,7 @@ class AutumnScheduler:
                  open_room=None, wake_booth=None, announce=None, invite=None,
                  event='autumn', request_booth=None, booth_notice_store=None,
                  announce_continuation=None, recover_results=None, recover_room=None, before_tick=None,
-                 read_room=None, notify_live_ops=None, slate=None):
+                 read_room=None, notify_live_ops=None, slate=None, heads_up_booth=None):
         self.source = source
         self.engine = engine
         self.logger = logger
@@ -96,6 +96,8 @@ class AutumnScheduler:
         self._open_room = open_room
         self._wake_booth = wake_booth
         self._request_booth = request_booth
+        # The T-35 heads-up: sent once the booth has woken, before the room opens.
+        self._heads_up_booth = heads_up_booth
         self._announce = announce
         self._announce_continuation = announce_continuation
         self._invite = invite
@@ -362,11 +364,11 @@ class AutumnScheduler:
             if work is None:
                 return
             if work.get('mayWake') or (work.get('room') and not work['room'].get('obsolete')):
-                await self._wake(race, row)
+                await self._wake(race, row, heads_up=now < opens_at)
             url = await self._room_v2(race, row, work)
         else:
             if now >= wakes_at:
-                await self._wake(race, row)
+                await self._wake(race, row, heads_up=now < opens_at)
             if now < opens_at:
                 return
             url = await self._room(race, row)
@@ -438,12 +440,15 @@ class AutumnScheduler:
 
     # -- the side effects --------------------------------------------------
 
-    async def _wake(self, race, row):
+    async def _wake(self, race, row, heads_up=False):
         """Ask the booth to wake, once it has actually woken.
 
         Marked done *after* the call rather than before. Before meant a single
         transient failure became a permanent omission: the flag said it had been
         asked, and no later tick asked again.
+
+        With `heads_up` (before the room opens), a successful wake is followed by
+        the booking's heads-up. Its answer is only logged; the booking still goes.
         """
         if self._wake_booth is None or not getattr(row, 'crew_available', True):
             return
@@ -465,6 +470,11 @@ class AutumnScheduler:
                 race.match_id, exc_info=True)
             return
         self._woken[key] = signature
+        if heads_up and self._heads_up_booth is not None:
+            try:
+                await self._heads_up_booth(race, row)
+            except Exception:
+                self.logger.warning('Autumn: heads-up failed for %s', race.match_id, exc_info=True)
 
     async def _cancel_missing(self, races):
         active = {(race.match_id, race.identity.game) for race in races if race.status == 'scheduled'}

@@ -64,13 +64,20 @@ def _crew_user_id(crew, name, logger):
     return user_id
 
 
-def _series_request(race, race_slug, crew, logger):
+def _drop_missing_room(payload):
+    """A heads-up (`prepare_only`) goes before the race room exists: it carries no raceSlug at all."""
+    if not payload.get('raceSlug'):
+        payload.pop('raceSlug', None)
+    return payload
+
+
+def _series_request(race, race_slug, crew, logger, prepare_only=False):
     """One booth for a series game: four racers, each row a pairing.
 
     Slots run row by row, lower seed then higher (1-2 the first pairing, 3-4
     the second), so a quad layout reads as two head-to-heads.
     """
-    if not race.channel or not race_slug:
+    if not race.channel or not (race_slug or prepare_only):
         return None
     lower, higher = race.away_runners, race.home_runners
     if len(lower) != 2 or len(higher) != 2 or None in lower + higher:
@@ -96,12 +103,13 @@ def _series_request(race, race_slug, crew, logger):
         # Team-scored by summed times: the finishing order is not the result.
         'series': True,
     }
+    _drop_missing_room(payload)
     return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None
 
 
-def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=False):
+def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=False, prepare_only=False):
     if series:
-        return _series_request(race, race_slug, crew, logger)
+        return _series_request(race, race_slug, crew, logger, prepare_only)
     """The booth request body, or None when this race must not get a booth.
 
     `crew` resolves a schedule name to a managed-user id - not a Discord id.
@@ -126,9 +134,10 @@ def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=Fa
             race.slug, race.fixture.away, race.fixture.home,
         )
         return None
-    if not race_slug:
+    if not race_slug and not prepare_only:
         # The draft carries raceSlug so the booth can sync flags, seed and
         # results. A booth with no room to sync from is not worth building.
+        # A heads-up is the exception: it goes before the room exists.
         logger.warning('League race %s has no race room yet; skipping the booth', race.slug)
         return None
 
@@ -159,6 +168,7 @@ def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=Fa
         # is not the match result, so the control plane keeps the winner
         # banner off for this race room.
         payload['coop'] = True
+    _drop_missing_room(payload)
     return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None
 
 
@@ -166,7 +176,7 @@ def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=Fa
 MAX_COMMENTATORS = 2
 
 
-def build_coop_broadcast_request(match, race_slug, crew, logger):
+def build_coop_broadcast_request(match, race_slug, crew, logger, prepare_only=False):
     """One four-racer booth for a whole co-op match, or None.
 
     Both teams on one canvas: the away pair in slots 1-2 and the home pair in
@@ -180,7 +190,7 @@ def build_coop_broadcast_request(match, race_slug, crew, logger):
     two-racer booths.
     """
     featured = match.featured_rows
-    if not featured or not race_slug:
+    if not featured or not (race_slug or prepare_only):
         return None
     primary = featured[0]
     runners = match.away_runners + match.home_runners
@@ -225,4 +235,5 @@ def build_coop_broadcast_request(match, race_slug, crew, logger):
         'tracker2UserId': _crew_user_id(crew, trackers[1] if len(trackers) > 1 else None, logger),
         'coop': True,
     }
+    _drop_missing_room(payload)
     return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None

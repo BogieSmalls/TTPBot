@@ -581,12 +581,15 @@ class TTPBot(Bot):
         # and is retried until three hours after its start (a late booking still goes on stream).
         nightly = getattr(self, 'nightly', None)
         if nightly is not None:
-            from .nightly import races_in_booth_window
+            from .nightly import races_in_booth_window, races_in_heads_up_window
             # Before any booth asks: a booking carries the channel's later races, nightlies included.
             try:
                 await nightly.publish_slate(now)
             except Exception:
                 self.logger.warning('TTP Nightly slate unavailable; booths are unaffected', exc_info=True)
+            # T-35: a booth already on the channel gets the nightly ready to roll into.
+            for race_time in races_in_heads_up_window(now):
+                await nightly.maybe_prepare_booth(race_time, now)
             for race_time in races_in_booth_window(now):
                 race_url = self.created_races.get(race_time.isoformat(), '')
                 room = race_url if race_url and race_url != UNCERTAIN_RACE else None

@@ -14,7 +14,7 @@ from ..booth_slate import SlateEntry, booking_signature
 from ..config import DEFAULT_SCHEDULE_URL
 from ..state import UNCERTAIN_RACE
 from .announce import send_league_announcement, send_league_continuation_notice
-from .booth import BoothOutcome, request_booth
+from .booth import BoothOutcome, request_booth, send_heads_up
 from .broadcast_request import build_broadcast_request, build_coop_broadcast_request
 
 #: The control plane's refusal for a booth too large for the channel's lane.
@@ -237,6 +237,9 @@ class LeagueScheduler:
         #: know *what* the answer was - a continuation has a correction to
         #: post even after the booth itself is settled.
         self._booth_outcomes = {}
+        #: Race keys whose T-35 heads-up has gone. Apart from `_booth_outcomes` on
+        #: purpose: a heads-up answer never stands in for the booking.
+        self._heads_up_sent = set()
 
     async def run(self):
         """Tick forever. Never let a League failure kill the process."""
@@ -408,8 +411,11 @@ class LeagueScheduler:
             return url
         return None
 
-    async def _prepare_control_plane(self, race):
+    async def _prepare_control_plane(self, race, heads_up=False):
         """Wake the control plane, then force a fresh crew lookup.
+
+        With `heads_up` (the T-35 window, before the room opens), the booking's
+        heads-up follows once the plane is up and the crew are current.
 
         Retried on every tick until it works: /api/wake is idempotent, so a
         repeat against an already-woken plane costs nothing, and a relay that
@@ -440,6 +446,8 @@ class LeagueScheduler:
             return
         if self.crew is None or not self.roster_url or not self.roster_token:
             self._prepared[race.key] = signature
+            if heads_up:
+                await self._send_heads_up(race)
             return
         try:
             refreshed = await self.crew.refresh(self.roster_url, self.roster_token)
@@ -457,22 +465,47 @@ class LeagueScheduler:
             return
         self._crew_refreshed_at = None
         self._prepared[race.key] = signature
+        if heads_up:
+            await self._send_heads_up(race)
 
-    async def _request_booth(self, race, room_url, coop=False, payload=None, series=False):
+    async def _send_heads_up(self, race):
+        """The booking, early and without a room: once per race. Its answer is only logged."""
+        if race.key in self._heads_up_sent:
+            return
+        self._heads_up_sent.add(race.key)
+        try:
+            outcome = await self._request_booths(race, None, prepare_only=True)
+        except Exception:
+            self.logger.warning('League heads-up failed for %s', race.title, exc_info=True)
+            return
+        if outcome.outcome is not None:
+            self.logger.info('League heads-up for %s: %s', race.title, outcome.outcome)
+
+    async def _request_booth(self, race, room_url, coop=False, payload=None, series=False, prepare_only=False):
         """Ask the control plane for a booth. Never raises.
 
         The answer decides what the announcement says, which is why this runs
-        before it rather than after.
+        before it rather than after. A heads-up (`prepare_only`) neither reads
+        nor settles the booking's outcome.
         """
         if not race.channel or not self.booth_url or not self.booth_token:
             return BoothOutcome()
         if payload is None:
             payload = build_broadcast_request(
-                race, _room_slug(room_url), self.crew, self.logger, coop=coop, series=series)
+                race, None if prepare_only else _room_slug(room_url), self.crew, self.logger,
+                coop=coop, series=series, prepare_only=prepare_only)
         if payload is None:
             return BoothOutcome()
         if self.slate is not None:
             payload = {**payload, 'slate': self.slate.for_booking(payload.get('twitchChannel') or race.channel, race.start)}
+        if prepare_only:
+            try:
+                outcome = await send_heads_up(payload, self.booth_url, self.booth_token, self.logger,
+                                              endpoint='/internal/relay/league/broadcast', label='League')
+            except Exception:
+                self.logger.warning('League heads-up failed for %s', race.title, exc_info=True)
+                return BoothOutcome()
+            return outcome or BoothOutcome()
         # The slate is advisory: a booking whose later races changed is the same booking.
         signature = booking_signature(payload)
         settled = self._booth_outcomes.get(race.key)
@@ -489,7 +522,7 @@ class LeagueScheduler:
             self._booth_outcomes[race.key] = (signature, outcome)
         return outcome
 
-    async def _request_booths(self, race, room_url):
+    async def _request_booths(self, race, room_url, *, prepare_only=False):
         """A 1v1 race's booth, or one booth per featured row of a co-op match.
 
         A co-op match is one room, but each restreamed channel is its own
@@ -499,16 +532,17 @@ class LeagueScheduler:
         """
         if getattr(race, 'series', False):
             # A series game is four racers in one race: one booth shows them all.
-            return await self._request_booth(race, room_url, series=True)
+            return await self._request_booth(race, room_url, series=True, prepare_only=prepare_only)
         if not race.coop:
-            return await self._request_booth(race, room_url)
+            return await self._request_booth(race, room_url, prepare_only=prepare_only)
         if self._four_racer_coop_booth(race):
             payload = build_coop_broadcast_request(
-                race, _room_slug(room_url), self.crew, self.logger)
+                race, None if prepare_only else _room_slug(room_url), self.crew, self.logger,
+                prepare_only=prepare_only)
             if payload is not None:
                 # Keyed by the primary row, like the booth it stands in for.
                 outcome = await self._request_booth(
-                    race.featured_rows[0], room_url, payload=payload)
+                    race.featured_rows[0], room_url, payload=payload, prepare_only=prepare_only)
                 if outcome.refusal != LARGE_LANE_REFUSAL:
                     return outcome
                 # Refused before anything was drafted, so the same key can
@@ -518,7 +552,7 @@ class LeagueScheduler:
                     race.slug, race.featured_rows[0].channel)
                 self._coop_lane_refused.add(race.key)
         outcomes = [
-            await self._request_booth(row, room_url, coop=True)
+            await self._request_booth(row, room_url, coop=True, prepare_only=prepare_only)
             for row in race.featured_rows
         ]
         for outcome in outcomes:
@@ -551,7 +585,9 @@ class LeagueScheduler:
             if minutes_until < -120 or not room or room == UNCERTAIN_RACE or not await self._room_active(room):
                 return
         if minutes_until <= LEAGUE_WAKE_MINUTES_BEFORE:
-            await self._prepare_control_plane(race)
+            # The heads-up only before the room opens: from T-30 the booking itself goes.
+            await self._prepare_control_plane(
+                race, heads_up=minutes_until > LEAGUE_ROOM_OPEN_MINUTES_BEFORE)
         if minutes_until > LEAGUE_ROOM_OPEN_MINUTES_BEFORE:
             return
 
