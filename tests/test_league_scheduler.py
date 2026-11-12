@@ -692,6 +692,18 @@ class BoothPhaseTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(announce.await_args.kwargs['continuation'])
 
+    async def test_a_next_race_booking_announces_the_channel_is_on_air(self):
+        announce = AsyncMock(return_value=True)
+        scheduler = self.scheduler()
+        with patch('ttpbot.league.scheduler.create_league_room', AsyncMock(return_value=ROOM)), \
+             patch('ttpbot.league.scheduler.request_booth',
+                   AsyncMock(return_value=BoothOutcome('next_race', 'b0'))), \
+             patch('ttpbot.league.scheduler.send_league_announcement', announce):
+            await scheduler.tick(START - timedelta(minutes=30))
+
+        # The continuation flag is what adds ALREADY_ON_AIR to the post.
+        self.assertTrue(announce.await_args.kwargs['continuation'])
+
     async def test_a_staged_booth_announces_normally(self):
         announce = AsyncMock(return_value=True)
         scheduler = self.scheduler()

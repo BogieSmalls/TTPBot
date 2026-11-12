@@ -56,6 +56,16 @@ class RequestBoothTests(unittest.IsolatedAsyncioTestCase):
         # the control plane knows this is a continuation.
         self.assertEqual(result.outcome, 'continuation')
 
+    async def test_next_race_reads_as_continuation(self):
+        result = await request_booth(
+            PAYLOAD, 'https://cp.example', 'tok', QUIET,
+            requester=requester(_Response(200, {'outcome': 'next_race', 'draftId': 'd1', 'broadcastId': 'b0'})),
+        )
+
+        # The race is the booth on air's next one: the channel is already on air.
+        self.assertIs(result.is_continuation, True)
+        self.assertEqual(result.broadcast_id, 'b0')
+
     async def test_unwraps_an_already_done_replay(self):
         result = await request_booth(
             PAYLOAD, 'https://cp.example', 'tok', QUIET,

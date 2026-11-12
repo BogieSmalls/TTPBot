@@ -80,6 +80,13 @@ class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(request.await_args_list[0].args[0]['requestKey'], request.await_args_list[1].args[0]['requestKey'])
             self.assertEqual(request.await_args.kwargs['endpoint'], '/internal/relay/tournament/broadcast')
 
+    async def test_a_next_race_answer_is_not_resent(self):
+        with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
+            request.return_value = BoothOutcome('next_race', 'b0')
+            await self.booths.request(self.race, self.row, ROOM_URL)
+            self.assertEqual((await self.booths.request(self.race, self.row, ROOM_URL)).broadcast_id, 'b0')
+            self.assertEqual(request.await_count, 1)
+
     async def test_a_completed_or_replaced_match_cannot_get_a_booth(self):
         with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
             self.engine.draw.return_value['matches'][0]['state'] = 'played'

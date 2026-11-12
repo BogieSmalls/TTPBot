@@ -38,7 +38,9 @@ class BoothOutcome:
 
     @property
     def is_continuation(self) -> bool:
-        return self.outcome == 'continuation'
+        # `next_race`: the booth on air will roll into this race, so the
+        # channel is already on air, exactly as for a continuation.
+        return self.outcome in ('continuation', 'next_race')
 
 
 def _unwrap(payload):

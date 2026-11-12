@@ -52,7 +52,7 @@ class AutumnBooths:
                 return held[1]
             outcome = await request_booth(payload, self.base_url, self.token, self.logger,
                                           endpoint='/internal/relay/tournament/broadcast', label='Autumn')
-            if outcome.outcome in ('staged', 'continuation'):
+            if outcome.outcome in ('staged', 'continuation', 'next_race'):
                 self._outcomes[payload['requestKey']] = (signature, outcome)
             return outcome
         except Exception:
