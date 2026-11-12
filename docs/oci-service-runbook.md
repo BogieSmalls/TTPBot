@@ -376,6 +376,27 @@ Replacing `/opt/ttpbot` files, hot-reloading, stopping or restarting its service
 requires the agreed TTPBot activation window; testing an isolated candidate is
 not activation. Preserve `/var/lib/ttpbot` and `/etc/ttpbot.env` on deployment.
 
+### Booth slate
+
+Every League, tournament (Autumn) and TTP Nightly booth request carries a
+`slate`: the later races on the same Twitch channel, so the control plane can
+size the encoder for the whole back-to-back block. The bot keeps one in-memory
+`ChannelSlate` that the League scheduler, the Autumn scheduler and the nightly
+loop each republish on their own tick. A request lists at most 24 entries,
+starting after the booked race and within 12 hours of it, each with its
+channel, UTC start and racer count (2-4). A League series race or four-racer
+co-op booth counts 4; other League and Autumn rows count 2; a staffed nightly (a booked channel and
+at least one crew name) counts 4. Nightly occurrences are re-read at most
+every 10 minutes for the slate, and a failed slate refresh is logged without
+holding the booth.
+
+The slate is advisory. It is left out of the resend check
+(`booking_signature`), so a changed slate never resends a booking that has
+already settled, and an empty or missing slate just means the control plane
+sizes the booth for its own race. TTP Nightly bookings carry it, but the
+control plane ignores it for TTP. Nothing to configure; the slate needs no
+state file and a restart rebuilds it on the first tick.
+
 
 ### Autumn result suggestions
 
