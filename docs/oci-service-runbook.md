@@ -397,6 +397,19 @@ sizes the booth for its own race. TTP Nightly bookings carry it, but the
 control plane ignores it for TTP. Nothing to configure; the slate needs no
 state file and a restart rebuilds it on the first tick.
 
+### Next-race answers
+
+When another automation booth (League, tournament or TTP Nightly) holds the
+channel, the control plane answers a booth request with `next_race`: the race's
+draft is ready for that booth to roll into, and nothing new is staged. The bot
+treats it exactly like `continuation`: the announcement carries the
+already-on-air wording, the League scheduler and nightly loop keep the answer,
+and Autumn caches it like `staged` and `continuation`, so a settled booking is
+not resent each tick. A resend with changed crew or details is still sent and
+updates the prepared draft. If the holding booth stops without rolling into
+the race, the control plane stages it as its own booth; a later resend is then
+answered `already_done` with that booth.
+
 
 ### Autumn result suggestions
 
