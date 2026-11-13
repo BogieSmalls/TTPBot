@@ -38,7 +38,9 @@ class BoothOutcome:
 
     @property
     def is_continuation(self) -> bool:
-        return self.outcome == 'continuation'
+        # `next_race`: the booth on air will roll into this race, so the
+        # channel is already on air, exactly as for a continuation.
+        return self.outcome in ('continuation', 'next_race')
 
 
 def _unwrap(payload):
@@ -93,6 +95,50 @@ async def request_booth(payload, base_url, token, logger, requester=None, *,
             label, type(exc).__name__,
         )
         return BoothOutcome()
+
+
+#: Reading the feature list is a small GET; it must not hold up a scheduler tick.
+FEATURES_TIMEOUT_SECONDS = 8
+
+
+async def fetch_booking_features(base_url, token, logger, requester=None):
+    """What the control plane's booking routes understand beyond the original
+    contract (`prepareOnly`, `slate`): the advertised flags that are true.
+    An older control plane answers 404, which reads as none. Never raises."""
+    if not base_url or not token:
+        return frozenset()
+    request = requester if requester is not None else aiohttp.request
+    try:
+        async with request(
+            method='get',
+            url=base_url.rstrip('/') + '/internal/relay/booking-features',
+            headers={'Authorization': 'Bearer {}'.format(token)},
+            timeout=aiohttp.ClientTimeout(total=FEATURES_TIMEOUT_SECONDS),
+        ) as response:
+            if response.status != 200:
+                return frozenset()
+            body = await response.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, TypeError) as exc:
+        logger.warning('Booking features unavailable (%s)', type(exc).__name__)
+        return frozenset()
+    if not isinstance(body, dict):
+        return frozenset()
+    return frozenset(key for key, value in body.items() if value is True)
+
+
+async def send_heads_up(payload, base_url, token, logger, requester=None, *, endpoint, label):
+    """The T-35 heads-up: the booking sent early with `prepareOnly` and no room.
+
+    Behind a booth already on the channel the control plane prepares the race
+    for it to roll into; otherwise it answers `not_due`. It never stands in
+    for the booking, which still goes at T-30. Sent only to a control plane
+    that advertises `prepareOnly` - an older one would stage a booth on it -
+    and None when it does not. Never raises.
+    """
+    if 'prepareOnly' not in await fetch_booking_features(base_url, token, logger, requester):
+        return None
+    return await request_booth({**payload, 'prepareOnly': True}, base_url, token, logger, requester,
+                               endpoint=endpoint, label=label + ' heads-up')
 
 
 async def _safe_json(response):

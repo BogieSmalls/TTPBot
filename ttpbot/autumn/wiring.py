@@ -279,6 +279,8 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         await announce(race, row, url, correction=True)
 
     wake = _wake_adapter(env, logger)
+    # The bot's shared channel slate: this tournament publishes its races and its bookings carry the channel's.
+    slate = getattr(bot, 'slate', None)
     booth_url = (env.get('Z1RR_CONTROL_PLANE_URL') or '').strip()
     booth_token = booth_token_from_env(env)
     booths = None
@@ -289,7 +291,8 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
             logger=logger, base_url=booth_url, token=booth_token,
             edition=engine.edition, wake=wake,
             roster_url=(env.get('Z1RR_ROSTER_URL') or '').strip() or None,
-            roster_token=(env.get('Z1RR_ROSTER_TOKEN') or '').strip())
+            roster_token=(env.get('Z1RR_ROSTER_TOKEN') or '').strip(),
+            slate=slate)
 
     async def select_edition():
         edition = await source.selected_edition()
@@ -324,11 +327,13 @@ def build_autumn_runner(env, bot, logger, stores=None, event='autumn'):
         notify_live_ops=notify_live_ops,
         wake_booth=booths.prepare if booths else wake,
         request_booth=booths.request if booths else None,
+        heads_up_booth=booths.heads_up if booths else None,
         announce=announce,
         invite=seed_invites,
         event=event,
         recover_results=results.recover if results else None,
         before_tick=select_edition if authority == 'engine' else None,
+        slate=slate,
     )
     return AutumnRunner(scheduler, engine, logger, results, live_ops=notify_live_ops)
 

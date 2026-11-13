@@ -376,6 +376,65 @@ Replacing `/opt/ttpbot` files, hot-reloading, stopping or restarting its service
 requires the agreed TTPBot activation window; testing an isolated candidate is
 not activation. Preserve `/var/lib/ttpbot` and `/etc/ttpbot.env` on deployment.
 
+### Booth slate
+
+Every League, tournament (Autumn) and TTP Nightly booth request carries a
+`slate`: the later races on the same Twitch channel, so the control plane can
+size the encoder for the whole back-to-back block. The bot keeps one in-memory
+`ChannelSlate` that the League scheduler, the Autumn scheduler and the nightly
+loop each republish on their own tick. A request lists at most 24 entries,
+starting after the booked race and within 12 hours of it, each with its
+channel, UTC start and racer count (2-4). A League series race or four-racer
+co-op booth counts 4; other League and Autumn rows count 2; a staffed nightly (a booked channel and
+at least one crew name) counts 4. Nightly occurrences are re-read at most
+every 10 minutes for the slate, and a failed slate refresh is logged without
+holding the booth.
+
+The slate is advisory. It is left out of the resend check
+(`booking_signature`), so a changed slate never resends a booking that has
+already settled, and an empty or missing slate just means the control plane
+sizes the booth for its own race. TTP Nightly bookings carry it, but the
+control plane ignores it for TTP. Nothing to configure; the slate needs no
+state file and a restart rebuilds it on the first tick.
+
+### Next-race answers
+
+When another automation booth (League, tournament or TTP Nightly) holds the
+channel, the control plane answers a booth request with `next_race`: the race's
+draft is ready for that booth to roll into, and nothing new is staged. The bot
+treats it exactly like `continuation`: the announcement carries the
+already-on-air wording, the League scheduler and nightly loop keep the answer,
+and Autumn caches it like `staged` and `continuation`, so a settled booking is
+not resent each tick. A resend with changed crew or details is still sent and
+updates the prepared draft. If the holding booth stops without rolling into
+the race, the control plane stages it as its own booth; a later resend is then
+answered `already_done` with that booth.
+
+### T-35 heads-up
+
+Five minutes before the real booking, League, Autumn and TTP Nightly races send
+the same booth request once with `prepareOnly: true` and no race room. Behind a
+holding booth, the control plane prepares the race for it to roll into (the
+crew can arm the roll before the room exists); otherwise it answers `not_due`
+and changes nothing. The heads-up never stands in for the booking: its answer is
+only logged, kept out of the booking caches and `booking_signature`, and the
+real booking still goes at T-30 with the room.
+
+It is sent only to a control plane that advertises it: the bot first reads
+`GET /internal/relay/booking-features` (same bearer, 8 s timeout) and sends the
+heads-up only when the answer has `prepareOnly: true`. An older control plane,
+an error or a timeout means no heads-up, since an older control plane would
+stage a booth from it. Nothing to configure.
+
+When it goes: League after the control plane's wake (T-35) and crew refresh
+succeed, Autumn after its wake (T-35 unless the tournament's `wakeLeadMinutes`
+says otherwise), and the nightly in its own T-35..T-30 window after its wake,
+each only before the room opens. A wake that first succeeds at T-30 or
+later sends no heads-up. It goes at most once per race, marked sent when
+attempted whatever the answer, so a heads-up lost to a failed post is not
+retried. A four-racer co-op heads-up refused
+`large_encoder_requires_ondemand_lane` is handled as the booking would be.
+
 
 ### Autumn result suggestions
 

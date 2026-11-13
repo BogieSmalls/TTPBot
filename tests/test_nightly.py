@@ -1,10 +1,11 @@
 """TTP Nightly booths (Bogie, 2026-10-24): Council staffs a nightly race; TTPBot opens its booth."""
 import logging
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from ttpbot.booth_slate import ChannelSlate, SlateEntry
 from ttpbot.config import TIMEZONE
 from ttpbot.nightly import NightlyBooths, booth_request, occurrence_key, occurrence_match_id
 
@@ -114,6 +115,35 @@ class NightlyBoothsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await booths(requests).maybe_open_booth(EIGHT, None, EIGHT - timedelta(minutes=20)))
         self.assertFalse(any('ttp/broadcast' in c['url'] for c in requests.calls))
 
+    async def test_nightly_heads_up_at_thirty_five_then_booking_at_thirty(self):
+        requests = _Requests({'/games/': _Response(200, staffed()),
+                              '/internal/relay/booking-features': _Response(200, {'prepareOnly': True, 'slate': True}),
+                              '/internal/relay/ttp/broadcast': _Response(200, {'outcome': 'not_due'})})
+        nightly = booths(requests)
+        self.assertEqual((await nightly.maybe_prepare_booth(EIGHT, EIGHT - timedelta(minutes=35))).outcome, 'not_due')
+        self.assertIsNone(await nightly.maybe_prepare_booth(EIGHT, EIGHT - timedelta(minutes=34)))
+        await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=30))
+        posts = [c['json'] for c in requests.calls if 'ttp/broadcast' in c['url']]
+        self.assertEqual(len(posts), 2)
+        self.assertIs(posts[0]['prepareOnly'], True)
+        self.assertNotIn('raceSlug', posts[0])
+        # The real booking still goes, with its room, whatever the heads-up answered.
+        self.assertNotIn('prepareOnly', posts[1])
+        self.assertEqual(posts[1]['raceSlug'], 'z1r/brave-goriya-1234')
+
+    async def test_nightly_heads_up_only_in_its_window(self):
+        requests = _Requests({'/games/': _Response(200, staffed()),
+                              '/internal/relay/booking-features': _Response(200, {'prepareOnly': True})})
+        nightly = booths(requests)
+        self.assertIsNone(await nightly.maybe_prepare_booth(EIGHT, EIGHT - timedelta(minutes=36)))
+        self.assertIsNone(await nightly.maybe_prepare_booth(EIGHT, EIGHT - timedelta(minutes=30)))
+        self.assertEqual(requests.calls, [])
+
+    def test_races_in_heads_up_window(self):
+        from ttpbot.nightly import races_in_heads_up_window
+        self.assertIn(EIGHT, races_in_heads_up_window(EIGHT - timedelta(minutes=33)))
+        self.assertNotIn(EIGHT, races_in_heads_up_window(EIGHT - timedelta(minutes=30)))
+
     async def test_the_same_request_is_not_resent(self):
         requests = _Requests({'/games/': _Response(200, staffed()),
                               '/internal/relay/ttp/broadcast': _Response(200, {'outcome': 'staged', 'broadcastId': 'b1'})})
@@ -121,6 +151,43 @@ class NightlyBoothsTests(unittest.IsolatedAsyncioTestCase):
         await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=30))
         await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=29))
         self.assertEqual(len([c for c in requests.calls if 'ttp/broadcast' in c['url']]), 1)
+
+    async def test_the_same_request_is_not_resent_when_only_the_slate_changes(self):
+        requests = _Requests({'/games/': _Response(200, staffed()),
+                              '/internal/relay/ttp/broadcast': _Response(200, {'outcome': 'staged', 'broadcastId': 'b1'})})
+        slate = ChannelSlate()
+        nightly = booths(requests)
+        nightly.slate = slate
+        await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=30))
+        slate.publish('league', [SlateEntry('Z1Rracing5', TEN, 2)])
+        await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=29))
+        sent = [c for c in requests.calls if 'ttp/broadcast' in c['url']]
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]['json']['slate'], [])
+
+    async def test_publish_slate_counts_each_staffed_nightly_as_four(self):
+        # 7 PM: the 8 PM and 10 PM races are staffed on Z1Rracing5; midnight has a channel but no crew.
+        midnight = TEN + timedelta(hours=2)
+        requests = _Requests({
+            occurrence_match_id(EIGHT): _Response(200, staffed()),
+            occurrence_match_id(TEN): _Response(200, staffed()),
+            occurrence_match_id(midnight): _Response(200, {'crew': {}, 'bookings': [{'channel': 'Z1Rracing5'}]}),
+        })
+        slate = ChannelSlate()
+        nightly = booths(requests)
+        nightly.slate = slate
+        now = EIGHT - timedelta(hours=1)
+        await nightly.publish_slate(now)
+        utc = lambda moment: moment.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        self.assertEqual(slate.for_booking('Z1Rracing5', now),
+                         [{'scheduledAt': utc(EIGHT), 'racers': 4}, {'scheduledAt': utc(TEN), 'racers': 4}])
+        reads = len(requests.calls)
+        self.assertEqual(reads, 3)
+        # Each occurrence is read at most once per 10 minutes.
+        await nightly.publish_slate(now + timedelta(minutes=9))
+        self.assertEqual(len(requests.calls), reads)
+        await nightly.publish_slate(now + timedelta(minutes=10))
+        self.assertEqual(len(requests.calls), 2 * reads)
 
     async def test_a_late_booking_still_opens_the_booth_after_the_start(self):
         # Council books the channel after the reminder; the race is already running.
@@ -169,7 +236,8 @@ class SchedulerBoothTests(unittest.IsolatedAsyncioTestCase):
             return ROOM
         fake = SimpleNamespace(created_races={}, sent_webhooks=set(), _save_created_races=lambda: None,
                                _save_sent_webhooks=lambda: None, _create_race_room=create, nightly=nightly,
-                               loop=SimpleNamespace(create_task=lambda coro: coro.close()), _send_webhook=_done)
+                               loop=SimpleNamespace(create_task=lambda coro: coro.close()), _send_webhook=_done,
+                               logger=QUIET)
         fake.rooms = rooms
         return fake
 
@@ -181,6 +249,43 @@ class SchedulerBoothTests(unittest.IsolatedAsyncioTestCase):
         await _tick(bot, EIGHT - timedelta(minutes=30))
         self.assertEqual(bot.rooms, [EIGHT])
         self.assertEqual([c['json']['raceSlug'] for c in self.booth_calls()], ['z1r/brave-goriya-1234'])
+
+    async def test_the_tick_publishes_the_slate_before_any_booth_asks(self):
+        bot = self.bot()
+        order = []
+        publish, open_booth = bot.nightly.publish_slate, bot.nightly.maybe_open_booth
+
+        async def published(now):
+            order.append('slate')
+            return await publish(now)
+
+        async def opened(*args):
+            order.append('booth')
+            return await open_booth(*args)
+        bot.nightly.publish_slate, bot.nightly.maybe_open_booth = published, opened
+        await _tick(bot, EIGHT - timedelta(minutes=30))
+        self.assertEqual(order[0], 'slate')
+        self.assertIn('booth', order)
+
+    async def test_a_failing_slate_never_costs_a_nightly_its_booth(self):
+        bot = self.bot()
+
+        async def broken(now):
+            raise ValueError('slate')
+        bot.nightly.publish_slate = broken
+        await _tick(bot, EIGHT - timedelta(minutes=30))
+        self.assertEqual(len(self.booth_calls()), 1)
+
+    def test_the_builder_shares_the_bots_slate(self):
+        from ttpbot.bot import TTPBot
+        slate = ChannelSlate()
+        bot = SimpleNamespace(logger=QUIET, slate=slate)
+        env = {'TTPBOT_NIGHTLY_BOOTHS_ENABLED': '1', 'COMPETITIONS_URL': 'https://data.example',
+               'COMPETITIONS_ENVIRONMENT': 'staging', 'TTPBOT_NIGHTLY_EDITION': '2026',
+               'TTPBOT_NIGHTLY_ACTOR': '123456789012345678', 'COMPETITIONS_READER_TOKEN': 'read'}
+        with patch.dict('os.environ', env, clear=False):
+            nightly = TTPBot._build_nightly_booths(bot, Mock())
+        self.assertIs(nightly.slate, slate)
 
     async def test_late_retry_keeps_its_room(self):
         bot = self.bot(booth_status=500)

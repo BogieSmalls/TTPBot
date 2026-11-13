@@ -10,7 +10,7 @@ tests below are checking that a room is found, not that a workaround fires.
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -179,6 +179,19 @@ class OneMatchEndToEnd(SchedulerTests):
         self.assertEqual(self.opened, ['W1-1'])
         self.assertEqual(self.woken, [('W1-1', 'z1rracing')])
         self.assertEqual(len(it.engine.mirrored), 1, 'the time was sent once')
+
+    def test_the_tick_publishes_its_channels_races_to_the_slate(self):
+        from ttpbot.booth_slate import ChannelSlate
+        slate = ChannelSlate()
+        it = self.scheduler(
+            sheet(row(START, '(46) ISUMatt', '(7) chessjerk', 'z1rracing'),
+                  row(START + timedelta(hours=1), 'RhinoHero', 'poolfloatg')),
+            {'W1-1': ready('ISUMatt', 'chessjerk')},
+        )
+        it.slate = slate
+        run(it.tick(START - timedelta(hours=5)))
+        self.assertEqual(slate.for_booking('Z1Rracing', START - timedelta(minutes=1)),
+                         [{'scheduledAt': START.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'), 'racers': 2}])
 
     def test_the_time_is_only_sent_once_unless_it_changes(self):
         it = self.scheduler(

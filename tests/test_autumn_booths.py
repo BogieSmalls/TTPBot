@@ -52,6 +52,24 @@ class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.wake.await_count, 2)
         self.assertEqual(self.crew.refresh.await_count, 2)
 
+    async def test_booking_carries_the_slate(self):
+        from datetime import timedelta
+        from ttpbot.autumn.booths import AutumnBooths
+        from ttpbot.booth_slate import ChannelSlate, SlateEntry
+        slate = ChannelSlate()
+        later = self.race.at + timedelta(hours=2)
+        slate.publish('league', [SlateEntry('Z1Rracing', later, 4)])
+        booths = AutumnBooths(engine=self.engine, crew=self.crew, logger=Log(), base_url='https://cp.example', token='secret',
+                              edition='2026', wake=self.wake, slate=slate)
+        with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
+            request.return_value = BoothOutcome('staged', 'one')
+            await booths.request(self.race, self.row, ROOM_URL)
+            self.assertEqual(request.await_args.args[0]['slate'], [{'scheduledAt': later.astimezone(__import__('datetime').timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'), 'racers': 4}])
+            # A changed slate is the same booking: the staged answer stands.
+            slate.publish('league', [])
+            await booths.request(self.race, self.row, ROOM_URL)
+            self.assertEqual(request.await_count, 1)
+
     async def test_unknown_booth_retries_the_same_key_then_caches_success(self):
         with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
             request.side_effect = [BoothOutcome(), BoothOutcome('staged', 'one')]
@@ -61,6 +79,30 @@ class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(request.await_count, 2)
             self.assertEqual(request.await_args_list[0].args[0]['requestKey'], request.await_args_list[1].args[0]['requestKey'])
             self.assertEqual(request.await_args.kwargs['endpoint'], '/internal/relay/tournament/broadcast')
+
+    async def test_a_next_race_answer_is_not_resent(self):
+        with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
+            request.return_value = BoothOutcome('next_race', 'b0')
+            await self.booths.request(self.race, self.row, ROOM_URL)
+            self.assertEqual((await self.booths.request(self.race, self.row, ROOM_URL)).broadcast_id, 'b0')
+            self.assertEqual(request.await_count, 1)
+
+    async def test_heads_up_is_sent_once_without_a_room(self):
+        with patch('ttpbot.autumn.booths.send_heads_up', new_callable=AsyncMock) as heads_up, \
+             patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
+            heads_up.return_value = BoothOutcome('not_due')
+            self.assertEqual((await self.booths.heads_up(self.race, self.row)).outcome, 'not_due')
+            await self.booths.heads_up(self.race, self.row)
+            heads_up.assert_awaited_once()
+            payload = heads_up.await_args.args[0]
+            self.assertNotIn('raceSlug', payload)
+            self.assertEqual(payload['requestKey'], 'tournament:autumn:2026:W1-1:game:1')
+            self.assertEqual(heads_up.await_args.kwargs['endpoint'], '/internal/relay/tournament/broadcast')
+            # The heads-up is no booking: the real one still goes, with its room.
+            request.return_value = BoothOutcome('staged', 'one')
+            await self.booths.request(self.race, self.row, ROOM_URL)
+            request.assert_awaited_once()
+            self.assertIn('raceSlug', request.await_args.args[0])
 
     async def test_a_completed_or_replaced_match_cannot_get_a_booth(self):
         with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
@@ -73,6 +115,15 @@ class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
         runner = build_autumn_runner({'Z1RR_ENGINE_TOKEN': 'engine', 'Z1RR_CONTROL_PLANE_URL': 'https://cp.example',
                                      'Z1RR_ROSTER_TOKEN': 'roster'}, SimpleNamespace(state={}), Log())
         self.assertTrue(callable(getattr(runner.scheduler, '_request_booth', None)))
+
+    async def test_the_runner_shares_the_bots_slate(self):
+        from ttpbot.autumn.wiring import build_autumn_runner
+        from ttpbot.booth_slate import ChannelSlate
+        slate = ChannelSlate()
+        runner = build_autumn_runner({'Z1RR_ENGINE_TOKEN': 'engine', 'Z1RR_CONTROL_PLANE_URL': 'https://cp.example',
+                                     'Z1RR_ROSTER_TOKEN': 'roster'}, SimpleNamespace(state={}, slate=slate), Log())
+        self.assertIs(runner.scheduler.slate, slate)
+        self.assertIs(runner.scheduler._request_booth.__self__.slate, slate)
 
 
 from tests.test_autumn_scheduler import SchedulerTests, START, ROOM, at, sheet, row, ready, run
@@ -112,6 +163,22 @@ class BoothNightTests(SchedulerTests):
         self.assertEqual(notices, [ROOM])
         self.assertEqual(len(initial), 1)
         self.assertEqual(self.store('autumn_booth_notices').load(), {'autumn|W1-1': True})
+
+    def test_heads_up_after_wake_then_real_booking(self):
+        notices, initial = [], []
+        scheduler = self.configured_scheduler([BoothOutcome('staged', 'b1')], notices, initial)
+        heads_up = AsyncMock(return_value=BoothOutcome('next_race', 'b0'))
+        scheduler._heads_up_booth = heads_up
+        run(scheduler.tick(at(START, 35)))
+        run(scheduler.tick(at(START, 34)))
+        heads_up.assert_awaited_once()
+        self.assertEqual(len(self.woken), 1)
+        # No room, booking or announcement before T-30.
+        self.assertEqual(self.opened, [])
+        self.assertEqual(initial, [])
+        run(scheduler.tick(at(START, 30)))
+        heads_up.assert_awaited_once()
+        self.assertEqual([booth.outcome for booth in initial], ['staged'])
 
     def test_immediate_continuation_warning_is_in_first_announcement(self):
         notices, initial = [], []

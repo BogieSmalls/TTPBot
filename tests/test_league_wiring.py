@@ -43,6 +43,38 @@ class BuildLeagueSchedulerTests(unittest.TestCase):
         self.assertIsNone(result)
         bot.logger.error.assert_called()
 
+    def test_the_scheduler_shares_the_bots_slate(self):
+        from ttpbot.booth_slate import ChannelSlate
+        bot = bot_for_league()
+        bot.slate = ChannelSlate()
+        bot.league_matchups_url = None
+        bot.league_discord_bot_token = None
+        bot.league_scheduling_channel_id = None
+        with patch('ttpbot.league.roster.load_roster', return_value=Mock()), \
+             patch('ttpbot.bot.DestinationStateStore', side_effect=lambda *a, **kw: Mock(load=Mock(return_value={}))), \
+             patch('ttpbot.league.database_source.configured_source', return_value=None):
+            scheduler = bot._build_league_scheduler()
+        self.assertIsNotNone(scheduler, bot.logger.error.call_args)
+        self.assertIs(scheduler.slate, bot.slate)
+
+    def test_run_shares_one_slate_with_every_scheduler(self):
+        bot = bot_for_league(league_enabled=False)
+        bot.loop = FakeLoop()
+        bot.handle_exception = Mock()
+        bot.reauthorize = lambda: 'reauthorize-marker'
+        bot.refresh_races = lambda: 'refresh-races-marker'
+        bot.race_scheduler = lambda: 'race-scheduler-marker'
+        seen = []
+        bot._build_nightly_booths = lambda crew: seen.append(bot.slate)
+        for builder in ('_build_autumn_runner', '_build_corto_runner', '_build_ttp_runner'):
+            setattr(bot, builder, Mock(return_value=None))
+        with patch('ttpbot.bot.flagset_registry.run', new=lambda: 'flagset-registry-marker'), \
+             patch('ttpbot.bot.season_record.run', new=lambda: 'season-record-marker'), \
+             patch('ttpbot.bot.season_record.load_cache'):
+            bot.run()
+        from ttpbot.booth_slate import ChannelSlate
+        self.assertIsInstance(seen[0], ChannelSlate)
+
     def test_returns_none_and_logs_when_a_store_load_fails(self):
         bot = bot_for_league()
         with patch('ttpbot.league.roster.load_roster', return_value=Mock()), \

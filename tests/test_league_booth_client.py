@@ -2,7 +2,7 @@ import logging
 import unittest
 from unittest.mock import Mock
 
-from ttpbot.league.booth import request_booth
+from ttpbot.league.booth import fetch_booking_features, request_booth, send_heads_up
 
 QUIET = logging.getLogger('test-league-booth')
 QUIET.addHandler(logging.NullHandler())
@@ -34,6 +34,51 @@ def requester(response, seen=None):
     return _request
 
 
+def routed(answers, calls):
+    """Answers by URL fragment, 404 otherwise; records each call."""
+    def _request(**kwargs):
+        calls.append(kwargs)
+        for fragment, response in answers.items():
+            if fragment in kwargs['url']:
+                return response
+        return _Response(404, {})
+    return _request
+
+
+class HeadsUpTests(unittest.IsolatedAsyncioTestCase):
+    async def test_heads_up_is_not_sent_to_a_control_plane_that_does_not_advertise_it(self):
+        calls = []
+        result = await send_heads_up(PAYLOAD, 'https://cp.example', 'tok', QUIET, requester=routed({}, calls),
+                                     endpoint='/internal/relay/league/broadcast', label='League')
+
+        # An older control plane would stage a booth on a heads-up.
+        self.assertIsNone(result)
+        self.assertEqual([call['url'] for call in calls], ['https://cp.example/internal/relay/booking-features'])
+
+    async def test_heads_up_carries_prepare_only_and_no_room(self):
+        calls = []
+        answers = {
+            '/booking-features': _Response(200, {'prepareOnly': True, 'slate': True}),
+            '/league/broadcast': _Response(200, {'outcome': 'next_race', 'draftId': 'd1', 'broadcastId': 'b0', 'prepared': True}),
+        }
+        result = await send_heads_up(PAYLOAD, 'https://cp.example', 'tok', QUIET, requester=routed(answers, calls),
+                                     endpoint='/internal/relay/league/broadcast', label='League')
+
+        self.assertEqual(result.outcome, 'next_race')
+        self.assertEqual(calls[0]['method'], 'get')
+        self.assertEqual(calls[0]['headers']['Authorization'], 'Bearer tok')
+        self.assertEqual(calls[-1]['url'], 'https://cp.example/internal/relay/league/broadcast')
+        self.assertEqual(calls[-1]['json'], {**PAYLOAD, 'prepareOnly': True})
+        self.assertNotIn('raceSlug', calls[-1]['json'])
+
+    async def test_booking_features_keep_only_the_flags_that_are_true(self):
+        answers = {'/booking-features': _Response(200, {'prepareOnly': True, 'slate': False, 'other': 'yes'})}
+        self.assertEqual(await fetch_booking_features('https://cp.example', 'tok', QUIET, requester=routed(answers, [])),
+                         frozenset({'prepareOnly'}))
+        self.assertEqual(await fetch_booking_features('https://cp.example', 'tok', QUIET, requester=routed({}, [])),
+                         frozenset())
+
+
 class RequestBoothTests(unittest.IsolatedAsyncioTestCase):
     async def test_reports_a_staged_booth(self):
         seen = {}
@@ -55,6 +100,16 @@ class RequestBoothTests(unittest.IsolatedAsyncioTestCase):
         # The announcement has to carry the already-on-air warning, and only
         # the control plane knows this is a continuation.
         self.assertEqual(result.outcome, 'continuation')
+
+    async def test_next_race_reads_as_continuation(self):
+        result = await request_booth(
+            PAYLOAD, 'https://cp.example', 'tok', QUIET,
+            requester=requester(_Response(200, {'outcome': 'next_race', 'draftId': 'd1', 'broadcastId': 'b0'})),
+        )
+
+        # The race is the booth on air's next one: the channel is already on air.
+        self.assertIs(result.is_continuation, True)
+        self.assertEqual(result.broadcast_id, 'b0')
 
     async def test_unwraps_an_already_done_replay(self):
         result = await request_booth(
