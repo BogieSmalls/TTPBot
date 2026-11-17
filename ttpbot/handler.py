@@ -17,7 +17,7 @@ _LEAGUE_RESULTS = set()
 TOURNAMENT_LABELS = {'autumn': 'Autumn', 'corto': 'Torneo Corto', 'ttp': 'TTP tournament'}
 
 from .flag_summary import FlagStringError, decode as decode_flags, format_summary
-from .flagset_registry import reduce as reduce_word, registry
+from .flagset_registry import reduce as reduce_word, registry, zora_registry
 from .grace import GRACE_START, STARTED, GraceRace, entrants_from
 from .matchup import matchup_reply
 
@@ -35,15 +35,17 @@ from .config import (
     TTP5_PRESETS,
     TIMEZONE,
     Z1RR_DISCORD_URL,
+    ZORA_PRESET_LIST,
 )
 from .paths import ensure_parent_dir, runtime_path
 from .room_policy import (
     room_identity, is_corto_room, is_autumn_room, is_league_room, is_ttp_scheduled_room,
-    is_ttp_tournament_room,
+    is_ttp_tournament_room, is_zora_room,
 )
 from .schedule import find_nearest_scheduled_race, get_todays_remaining_races
 from .season_record import flags_text, info_text, seasons, welcome_text
 from . import tournament_room as picks
+from . import zora
 from .autumn.engine import NOT_RECORDED
 
 #: How often a TTP tournament room looks at the clock for its opening and reminders.
@@ -68,6 +70,18 @@ GENERIC_WELCOME_MESSAGE = (
     "Hi, I'm TTPBot. I can help with seed rolling, hash confirmation, "
     "and Z1RR links. Type !help to see available commands."
 )
+
+ZORA_HELP = '\n'.join([
+    'TTPBot commands:',
+    '  Seed rolling:',
+    '    !race <preset>              Roll a seed by preset name',
+    '    !<preset>                   The same, for a preset\'s shortcut (e.g. !asnb)',
+    '    !flags <flagstring> [zora flags]  Roll a seed with a Z1R flag string and, optionally, a ZORA one',
+    '    !cancel                     Clear the rolled seed to roll again',
+    '  Flags:',
+    "    !summary [flagstring]       Summarize a flag string or preset (default: this room's seed)",
+    f'  {ZORA_PRESET_LIST}',
+])
 
 # Merged alias dict built once at import, extended by learned aliases
 _all_aliases = dict(HASH_ALIASES)
@@ -193,6 +207,9 @@ class TTPRaceHandler(RaceHandler):
 
     #: Class defaults, so a handler built without __init__ still reads them.
     ttp_tournament_room = False
+    #: A room in ZORA's own category (ttpbot/zora.py): TTPBot's seed commands
+    #: with a ZORA flag string, and nothing else.
+    zora_room = False
     roll_state = picks.NONE
     _ttp_history_seen = False
     _ttp_started = False
@@ -214,6 +231,7 @@ class TTPRaceHandler(RaceHandler):
         self.autumn_room = False
         self.corto_room = False
         self.ttp_tournament_room = False
+        self.zora_room = False
         self.reminder_task = None
         self.pending_hash = None
         self.pending_hash_user = None
@@ -259,6 +277,7 @@ class TTPRaceHandler(RaceHandler):
         return status not in ('pending', 'in_progress', 'finished', 'cancelled')
 
     async def begin(self):
+        self.zora_room = is_zora_room(self.data)
         self.ttp_scheduled_room = is_ttp_scheduled_room(self.data)
         self.league_room = is_league_room(self.data)
         self.autumn_room = is_autumn_room(self.data)
@@ -994,10 +1013,14 @@ class TTPRaceHandler(RaceHandler):
             # follows the last bot word rather than any old "complete".
             self._ttp_rebuild_from_history(messages)
 
+        if self.zora_room:
+            # The last bot word wins, so a restart after a !cancel can roll again.
+            self.seed_rolled = picks.roll_state(messages) == picks.ROLLED
+
         # Also detect if a seed was already rolled (avoids double-roll on restart).
         # SahasrahBot's rolls count too, or a !ttpbot could roll a second
         # seed. A third bot sending "Seed rolling complete." would lock rolling.
-        for msg in ([] if self.ttp_tournament_room else messages):
+        for msg in ([] if self.ttp_tournament_room or self.zora_room else messages):
             if msg.get('is_bot'):
                 text = msg.get('message_plain', '') or ''
                 if 'Seed rolling complete.' in text:
@@ -1021,7 +1044,7 @@ class TTPRaceHandler(RaceHandler):
             or 'Welcome to Triforce Triple Play!' in text
             or GENERIC_WELCOME_MESSAGE in text
             for text in bot_messages
-        )
+        ) or (self.zora_room and any(zora.ZORA_WELCOME_MESSAGE in text for text in bot_messages))
 
         # Check which reminders were already sent
         for minutes_before, reminder_text in REMINDER_SCHEDULE:
@@ -1033,7 +1056,9 @@ class TTPRaceHandler(RaceHandler):
             # a race under way is no place to say hello again.
             self.state['welcomed'] = True
         elif not self.state.get('welcomed'):
-            if self.ttp_scheduled_room:
+            if self.zora_room:
+                await self.send_message(zora.ZORA_WELCOME_MESSAGE)
+            elif self.ttp_scheduled_room:
                 await self.send_message(welcome_text(seasons.current(datetime.now(TIMEZONE))))
             else:
                 await self.send_message(GENERIC_WELCOME_MESSAGE)
@@ -1300,6 +1325,12 @@ class TTPRaceHandler(RaceHandler):
             method = 'ex_' + words[0][len(self.command_prefix):]
             args = text.split()[1:]  # preserve original case for flag strings
             command = words[0][len(self.command_prefix):]
+            if self.zora_room:
+                try:
+                    await self._zora_command(command, args, message)
+                except Exception:
+                    self.logger.error('Command raised exception.', exc_info=True)
+                return
             if self.ttp_tournament_room:
                 try:
                     if await self._ttp_command(command, message):
@@ -1546,6 +1577,9 @@ class TTPRaceHandler(RaceHandler):
 
         Z1R flagstrings are single tokens; only args[0] is used.
         """
+        if self.zora_room:
+            await self._zora_flags(args)
+            return
         if self.sahasrahbot_present:
             return
 
@@ -1644,7 +1678,8 @@ class TTPRaceHandler(RaceHandler):
         flag string it reads the one this room's seed was rolled with.
         """
         # A shortcut, e.g. !summary ttp5uphill, stands for its latest string.
-        flags = (registry.resolve(args[0]) or args[0]) if args else self._room_flag_string()
+        presets = zora_registry if self.zora_room else registry
+        flags = (presets.resolve(args[0]) or args[0]) if args else self._room_flag_string()
         if not flags:
             await self.send_message(
                 'Usage: !summary <flagstring> (no seed has been rolled here yet)'
@@ -1668,6 +1703,9 @@ class TTPRaceHandler(RaceHandler):
 
     async def ex_race(self, args, message):
         """!race <preset> -- Roll a seed by named preset."""
+        if self.zora_room:
+            await self._zora_race(args)
+            return
         if self.ttp_tournament_room:
             # Each game's flagset is picked; a preset would roll around the pick.
             await self.send_message(picks.PRESET_OFF)
@@ -1924,8 +1962,77 @@ class TTPRaceHandler(RaceHandler):
             text = 'I could not confirm your TC choice was saved. Try again, or tell Council.'
         await self.send_message(text)
 
+    # -- zora rooms (ttpbot/zora.py) ------------------------------------------
+
+    async def _zora_command(self, command, args, message):
+        """A zora room's commands: TTPBot's seed commands and ZORA preset shortcuts.
+
+        Every other command (TTP, League, tournaments, Z1RR) is silent here.
+        """
+        if command in zora.ZORA_COMMANDS:
+            self.logger.info('[%s] Calling handler for !%s', self.data.get('name'), command)
+            await getattr(self, 'ex_' + command)(args, message)
+        elif zora_registry.is_shortcut(command):
+            await self._zora_race([command])
+
+    async def _zora_flags(self, args):
+        """!flags <flagstring> [zora flags]: z1r's checks on the Z1R string, and a ZORA string if given."""
+        if self.seed_rolled:
+            await self.send_message('A seed has already been rolled for this race.')
+            return
+        if not args:
+            await self.send_message('You must specify a set of flags!')
+            return
+        flags = args[0]
+        registered = zora_registry.is_registered(flags)
+        if not registered and zora_registry.is_shortcut(flags):
+            await self.send_message(f'"{flags}" is a shortcut, not a flag string. Use !{reduce_word(flags)} to roll it.')
+            return
+        try:
+            decode_flags(flags)
+        except FlagStringError:
+            await self.send_message(f'"{flags}" is not a flag string. {zora.ZORA_FLAGS_USAGE}')
+            return
+        if not registered and len(flags) < MIN_FLAG_STRING_LENGTH:
+            await self.send_message(f'"{flags}" is too short to be a flag string. {zora.ZORA_FLAGS_USAGE}')
+            return
+        zora_string = ''
+        if len(args) > 1:
+            zora_string = zora.zora_flags(args[1])
+            if zora_string is None:
+                await self.send_message(f'"{args[1]}" is not a ZORA flag string. {zora.ZORA_FLAGS_USAGE}')
+                return
+        await self._zora_roll(flags, zora_string)
+
+    async def _zora_race(self, args):
+        """!race <preset>, or a preset's shortcut, from zora.gg's presets."""
+        if self.seed_rolled:
+            await self.send_message('A seed has already been rolled for this race.')
+            return
+        if not args:
+            await self.send_message(f'No preset specified. {ZORA_PRESET_LIST}')
+            return
+        preset = args[0].lower()
+        pair = zora_registry.resolve_pair(args[0])
+        if pair is None:
+            await self.send_message(f'Unknown preset "{preset}". {ZORA_PRESET_LIST}')
+            return
+        await self._zora_roll(*pair, preset=preset)
+
+    async def _zora_roll(self, flags, zora_string, preset=None):
+        """Roll, and write race info whole: a zora room has no scheduling prefix to keep."""
+        info = zora.race_info(random.randint(0, zora.SEED_MAX), flags, zora_string)
+        self.seed_rolled = True  # Set before awaits to block concurrent invocations
+        await self.set_bot_raceinfo(info)
+        await self.send_message(f'{preset} - {info}' if preset else info)
+        await self.send_message('Seed rolling complete.  See race info for details.')
+        self.logger.info('[%s] ZORA seed rolled: %s', self.data.get('name'), info)
+
     async def ex_help(self, args, message):
         """!help -- List available TTPBot commands."""
+        if self.zora_room:
+            await self.send_message(ZORA_HELP)
+            return
         lines = [
             'TTPBot commands:',
             '  TC qualifiers: !optout sits out this TC bracket; !optin undoes it before offers start.',
