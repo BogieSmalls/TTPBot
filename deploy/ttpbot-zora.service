@@ -1,0 +1,27 @@
+[Unit]
+Description=TTPBot for the ZORA Racetime category
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ttpbot
+Group=ttpbot
+WorkingDirectory=/opt/ttpbot
+EnvironmentFile=/etc/ttpbot-zora.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/flock --nonblock /run/ttpbot-zora/scheduler.lock /opt/ttpbot/.venv/bin/python -m ttpbot
+# always, not on-failure: the bot can exit 0 when its event loop is
+# stopped, and an exit code of 0 is not the same as a job that is done.
+Restart=always
+RestartSec=5
+RuntimeDirectory=ttpbot-zora
+RuntimeDirectoryMode=0750
+StateDirectory=ttpbot-zora
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ttpbot-zora
+
+[Install]
+WantedBy=multi-user.target

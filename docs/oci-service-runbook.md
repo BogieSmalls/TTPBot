@@ -461,3 +461,47 @@ series does not advance. Challonge entry remains manual.
 
 Do not remove `autumn_results.json` or its quarantine marker to suppress a
 warning. A cancelled/uncertain room is not permission to invent a result.
+
+## ZORA category
+
+ZORA's own racetime.gg category, `zora`, is served by a second service from the
+same checkout: `ttpbot-zora.service`, beside `ttpbot.service`. A process whose
+`TTPBOT_CATEGORY_SLUG` is `zora` runs in zora mode: it joins every open room in
+the category (unlisted ones too, listed with its own bot token), rolls seeds
+with a Z1R and an optional ZORA flag string, and runs nothing of z1r's. The z1r
+service is unchanged by it.
+
+- Service: `ttpbot-zora.service`
+- Secrets: `/etc/ttpbot-zora.env`, from `deploy/ttpbot-zora.env.example`
+- State: `/var/lib/ttpbot-zora`
+- Lock: `/run/ttpbot-zora/scheduler.lock`
+
+A racetime.gg bot belongs to one category, so the zora service needs the zora
+category's own client id and secret, created by the category's owner under
+Manage bots. The z1r bot's credentials answer `401 invalid_client` here.
+
+```bash
+sudo install -m 0640 -o root -g ttpbot /opt/ttpbot/deploy/ttpbot-zora.env.example /etc/ttpbot-zora.env
+sudoedit /etc/ttpbot-zora.env
+sudo install -m 0644 /opt/ttpbot/deploy/ttpbot-zora.service /etc/systemd/system/ttpbot-zora.service
+sudo systemctl daemon-reload
+sudo systemd-run --quiet --wait --pipe --collect -p User=ttpbot -p EnvironmentFile=/etc/ttpbot-zora.env -E TTPBOT_ENV_FILE=/nonexistent -p WorkingDirectory=/opt/ttpbot /usr/local/bin/ttpbot-preflight
+sudo systemctl enable --now ttpbot-zora
+sudo journalctl -u ttpbot-zora -f
+```
+
+The preflight checks the zora service's own lock, so it passes while the z1r
+service runs; it reports the lock held only while `ttpbot-zora` itself runs.
+Zora mode refuses to start (exit 2, `zora mode refused: ...`) with a z1r
+feature switched on or with `TTPBOT_DATA_DIR=/var/lib/ttpbot`.
+
+Verify: the log shows `Zora mode: joining every room in zora`, and a test room
+in the category gets the ZORA welcome and answers `!flags <z1r flags> <zora
+flags>` with race info ending in a zora.gg link.
+
+`ZORA_PRESETS_URL` reads zora.gg's `presets.json` once ZORA 2.0.1 publishes it;
+blank keeps the built-in `ZORA_PRESETS` in `ttpbot/config.py`. A copy that fails
+its checks changes nothing and logs `ZORA presets not refreshed`.
+
+Rollback: `sudo systemctl disable --now ttpbot-zora`. The z1r service is
+unaffected either way.
