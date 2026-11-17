@@ -24,6 +24,8 @@ ZORA_URL = 'https://zora.gg/'
 # `<version>.<payload>`, as zora.gg's flags spec writes it (zora.pattern). The
 # payload's digits are the Z1R alphabet; `_` is read as `!`.
 ZORA_FLAGS = re.compile(r'[1-9][0-9]*\.[0-9A-Za-z!_]{1,200}')
+# As ZORA writes one, with `!` and never `_`: what a presets file must hold.
+WRITTEN_ZORA_FLAGS = re.compile(r'[1-9][0-9]*\.[0-9A-Za-z!]{1,200}')
 
 # What a zora room says where z1r would say GENERIC_WELCOME_MESSAGE.
 ZORA_WELCOME_MESSAGE = (

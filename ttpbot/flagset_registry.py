@@ -5,7 +5,10 @@ and this polls that file. A file is checked whole; a bad one changes nothing, an
 the last good copy stays, here and on disk. The built-in lists in config.py apply
 only when no copy has ever loaded, so a deleted shortcut stays deleted.
 
-Imports only config, so flag_summary can use it with no import cycle.
+Imports only config and zora, so flag_summary can use it with no import cycle.
+
+The same reader serves zora.gg's ZORA presets (`zora_registry`), whose strings
+carry a second, ZORA flag string beside the Z1R one.
 """
 import asyncio
 import json
@@ -17,7 +20,8 @@ from pathlib import Path
 
 import aiohttp
 
-from .config import PRESET_ALIASES, SEED_PRESETS
+from .config import PRESET_ALIASES, SEED_PRESETS, ZORA_PRESETS
+from .zora import WRITTEN_ZORA_FLAGS
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +46,14 @@ def _is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def validate_snapshot(snapshot):
-    """Problems with a whole snapshot; empty when valid. Same contract as every reader."""
+def validate_snapshot(snapshot, zora=False):
+    """Problems with a whole snapshot; empty when valid. Same contract as every reader.
+
+    zora=True reads zora.gg's presets: a string may carry `zora`, a ZORA flag
+    string or "", and a string is unique with its ZORA string, so one Z1R string
+    can sit in two flagsets with different ZORA strings. Council's files have no
+    `zora`, so they mean the same either way.
+    """
     if not isinstance(snapshot, dict):
         return ['snapshot must be an object']
     problems = []
@@ -109,19 +119,36 @@ def validate_snapshot(snapshot):
                 problems.append(f'"{name}": isLatest must be true or false')
             if entry.get('isLatest') is True:
                 latest += 1
-            owner = string_owner.get(entry['flags'])
+            identity = entry['flags']
+            if zora:
+                zora_string = entry.get('zora', '')
+                if zora_string != '' and (not isinstance(zora_string, str)
+                                          or not WRITTEN_ZORA_FLAGS.fullmatch(zora_string)):
+                    problems.append(f'"{name}": invalid ZORA flag string {zora_string!r}')
+                    continue
+                identity = (entry['flags'], zora_string)
+            owner = string_owner.get(identity)
             if owner is not None:
-                problems.append(f'flag string {entry["flags"]} is on both "{owner}" and "{name}"')
+                shown = ' '.join(filter(None, identity)) if zora else entry['flags']
+                problems.append(f'flag string {shown} is on both "{owner}" and "{name}"')
             else:
-                string_owner[entry['flags']] = name
+                string_owner[identity] = name
         if latest != 1:
             problems.append(f'"{name}": exactly one flag string must be latest')
     return problems
 
 
 class FlagsetRegistry:
-    def __init__(self, url, cache_path, presets, aliases):
+    def __init__(self, url, cache_path, presets, aliases, zora_strings=None,
+                 setting='Z1RR_FLAGSETS_URL', label='Flag registry'):
+        """zora_strings (key -> ZORA flag string) makes this a ZORA preset reader.
+
+        setting and label only name it in the log.
+        """
         self.url = url
+        self.zora = zora_strings is not None
+        self.setting = setting
+        self.label = label
         self.cache_path = Path(cache_path) if cache_path else None
         self._built_in = {reduce(key): flags for key, flags in presets.items()}
         for alias, key in aliases.items():
@@ -131,6 +158,11 @@ class FlagsetRegistry:
         self._forms = None
         self._shortcuts = None
         self._names = None
+        self._built_in_zora = {reduce(key): zora for key, zora in (zora_strings or {}).items()}
+        for alias, key in aliases.items():
+            if key in (zora_strings or {}):
+                self._built_in_zora[reduce(alias)] = zora_strings[key]
+        self._zora_forms = None
 
     @property
     def loaded(self):
@@ -141,6 +173,14 @@ class FlagsetRegistry:
         """A name or shortcut's latest string, or None."""
         forms = self._built_in if self._forms is None else self._forms
         return forms.get(reduce(word))
+
+    def resolve_pair(self, word):
+        """A ZORA preset's latest (Z1R string, ZORA string), or None. The ZORA string may be ""."""
+        flags = self.resolve(word)
+        if flags is None:
+            return None
+        zora = self._built_in_zora if self._zora_forms is None else self._zora_forms
+        return flags, zora.get(reduce(word), '')
 
     def is_shortcut(self, word):
         """Whether a bare !word rolls: listed shortcuts only. A name alone is for !race and
@@ -161,16 +201,21 @@ class FlagsetRegistry:
         forms = {}
         shortcuts = set()
         names = {}
+        zora_forms = {}
         for flagset in snapshot['flagsets']:
-            latest = next(entry['flags'] for entry in flagset['strings'] if entry['isLatest'])
+            latest_entry = next(entry for entry in flagset['strings'] if entry['isLatest'])
+            latest = latest_entry['flags']
             for typed in [flagset['name'], *flagset['shortcuts']]:
                 forms[reduce(typed)] = latest
+                zora_forms[reduce(typed)] = latest_entry.get('zora') or ''
             shortcuts.update(reduce(shortcut) for shortcut in flagset['shortcuts'])
             for entry in flagset['strings']:
                 names[entry['flags']] = flagset['name']
         self._forms = forms
         self._shortcuts = shortcuts
         self._names = names
+        if self.zora:
+            self._zora_forms = zora_forms
 
     def load_cache(self):
         """The last good copy from disk, so a restart needs nothing from the network."""
@@ -181,11 +226,11 @@ class FlagsetRegistry:
         except FileNotFoundError:
             return
         except (OSError, ValueError) as exc:
-            logger.warning('Flag registry cache unreadable: %s', exc)
+            logger.warning('%s cache unreadable: %s', self.label, exc)
             return
-        problems = validate_snapshot(snapshot)
+        problems = validate_snapshot(snapshot, zora=self.zora)
         if problems:
-            logger.warning('Flag registry cache ignored: %s', problems[0])
+            logger.warning('%s cache ignored: %s', self.label, problems[0])
             return
         self.install(snapshot)
 
@@ -196,7 +241,7 @@ class FlagsetRegistry:
                 raise RuntimeError(f'HTTP {response.status}')
             text = await response.text()
         snapshot = json.loads(text)
-        problems = validate_snapshot(snapshot)
+        problems = validate_snapshot(snapshot, zora=self.zora)
         if problems:
             raise ValueError(f'invalid file: {problems[0]}')
         self.install(snapshot)
@@ -222,14 +267,14 @@ class FlagsetRegistry:
         """Keep the copy fresh for the life of the process. Nothing here can stop the bot."""
         self.load_cache()
         if not self.url:
-            logger.info('Flag registry off: no Z1RR_FLAGSETS_URL')
+            logger.info('%s off: no %s', self.label, self.setting)
             return
         async with aiohttp.ClientSession() as session:
             while True:
                 try:
                     await self.refresh(session)
                 except Exception as exc:
-                    logger.warning('Flag registry not refreshed; keeping the last good copy: %s', exc)
+                    logger.warning('%s not refreshed; keeping the last good copy: %s', self.label, exc)
                 await asyncio.sleep(REFRESH_SECONDS)
 
 
@@ -246,4 +291,24 @@ registry = FlagsetRegistry(
     _default_cache_path(),
     SEED_PRESETS,
     PRESET_ALIASES,
+)
+
+
+def _default_zora_cache_path():
+    configured = (os.environ.get('ZORA_PRESETS_CACHE') or '').strip()
+    if configured:
+        return configured
+    data_dir = (os.environ.get('TTPBOT_DATA_DIR') or '').strip()
+    return Path(data_dir) / 'zora_presets.json' if data_dir else None
+
+
+# zora.gg's presets.json, for zora rooms. Blank ZORA_PRESETS_URL keeps the built-ins.
+zora_registry = FlagsetRegistry(
+    (os.environ.get('ZORA_PRESETS_URL') or '').strip() or None,
+    _default_zora_cache_path(),
+    {key: flags for key, (flags, _zora) in ZORA_PRESETS.items()},
+    {},
+    zora_strings={key: zora for key, (_flags, zora) in ZORA_PRESETS.items()},
+    setting='ZORA_PRESETS_URL',
+    label='ZORA presets',
 )
