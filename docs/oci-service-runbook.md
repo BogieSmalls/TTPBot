@@ -477,8 +477,18 @@ service is unchanged by it.
 - Lock: `/run/ttpbot-zora/scheduler.lock`
 
 A racetime.gg bot belongs to one category, so the zora service needs the zora
-category's own client id and secret, created by the category's owner under
-Manage bots. The z1r bot's credentials answer `401 invalid_client` here.
+category's own client id and secret. The z1r bot's credentials answer
+`401 invalid_client` here. To make them, as someone with rights to manage the
+zora category's bots:
+
+1. Open https://racetime.gg/zora, then **Manage** -> **Manage bots**.
+2. Add a bot named `TTPBot`. The name is what racers see beside its messages.
+3. Copy its client ID and client secret into `TTPBOT_RACETIME_CLIENT_ID` and
+   `TTPBOT_RACETIME_CLIENT_SECRET` in `/etc/ttpbot-zora.env` (below). Never
+   paste them anywhere else.
+
+Deactivating a bot on that page invalidates its credentials; reactivating it
+issues new ones, which go into the env file the same way.
 
 ```bash
 sudo install -m 0640 -o root -g ttpbot /opt/ttpbot/deploy/ttpbot-zora.env.example /etc/ttpbot-zora.env
