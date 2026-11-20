@@ -482,7 +482,9 @@ category's own client id and secret. The z1r bot's credentials answer
 zora category's bots:
 
 1. Open https://racetime.gg/zora, then **Manage** -> **Manage bots**.
-2. Add a bot named `TTPBot`. The name is what racers see beside its messages.
+2. Add a bot named `Z1RRbot`. The name is what racers see beside its messages,
+   and it must match `TTPBOT_RACETIME_BOT_NAME` in the env file: TTPBot finds
+   its own messages by that name, and a zora room's welcome and `!help` use it.
 3. Copy its client ID and client secret into `TTPBOT_RACETIME_CLIENT_ID` and
    `TTPBOT_RACETIME_CLIENT_SECRET` in `/etc/ttpbot-zora.env` (below). Never
    paste them anywhere else.
@@ -490,18 +492,29 @@ zora category's bots:
 Deactivating a bot on that page invalidates its credentials; reactivating it
 issues new ones, which go into the env file the same way.
 
+Cut over from ZoraBot only while no open zora room holds a ZoraBot seed, and
+switch ZoraBot off at the same time. On joining, TTPBot reads a seed from race
+info in its own format (`Seed: N - Flags: ... - ZORA: ...`); a ZoraBot seed
+(`Z1R Flags:`, `ZORA Flags:`) is protected only while its "Seed rolling
+complete." is in the room's chat history, so a preset could replace it.
+Check the rooms on https://racetime.gg/zora, and ask the category's owners
+about unlisted ones, just before `systemctl enable --now`.
+
 ```bash
 sudo install -m 0640 -o root -g ttpbot /opt/ttpbot/deploy/ttpbot-zora.env.example /etc/ttpbot-zora.env
 sudoedit /etc/ttpbot-zora.env
 sudo install -m 0644 /opt/ttpbot/deploy/ttpbot-zora.service /etc/systemd/system/ttpbot-zora.service
 sudo systemctl daemon-reload
-sudo systemd-run --quiet --wait --pipe --collect -p User=ttpbot -p EnvironmentFile=/etc/ttpbot-zora.env -E TTPBOT_ENV_FILE=/nonexistent -p WorkingDirectory=/opt/ttpbot /usr/local/bin/ttpbot-preflight
+sudo systemd-run --quiet --wait --pipe --collect -p User=ttpbot -p EnvironmentFile=/etc/ttpbot-zora.env -p StateDirectory=ttpbot-zora -E TTPBOT_ENV_FILE=/nonexistent -p WorkingDirectory=/opt/ttpbot /usr/local/bin/ttpbot-preflight
 sudo systemctl enable --now ttpbot-zora
 sudo journalctl -u ttpbot-zora -f
 ```
 
 The preflight checks the zora service's own lock, so it passes while the z1r
 service runs; it reports the lock held only while `ttpbot-zora` itself runs.
+`-p StateDirectory=ttpbot-zora` gives the preflight `/var/lib/ttpbot-zora`,
+owned by `ttpbot`, as the service would: on a first install that directory does
+not exist yet, and the preflight requires it.
 Zora mode refuses to start (exit 2, `zora mode refused: ...`) with a z1r
 feature switched on or with `TTPBOT_DATA_DIR=/var/lib/ttpbot`.
 
@@ -509,9 +522,20 @@ Verify: the log shows `Zora mode: joining every room in zora`, and a test room
 in the category gets the ZORA welcome and answers `!flags <z1r flags> <zora
 flags>` with race info ending in a zora.gg link.
 
-`ZORA_PRESETS_URL` reads zora.gg's `presets.json` once ZORA 2.0.1 publishes it;
-blank keeps the built-in `ZORA_PRESETS` in `ttpbot/config.py`. A copy that fails
-its checks changes nothing and logs `ZORA presets not refreshed`.
+`ZORA_PRESETS_URL` reads zora.gg's `presets.json`. A copy that fails its checks
+changes nothing and logs `ZORA presets not refreshed`. Blank uses the built-in
+`ZORA_PRESETS` in `ttpbot/config.py` only while no copy has ever loaded: once a
+feed has loaded, its last good copy stays in `ZORA_PRESETS_CACHE` and still
+applies after the URL is blanked. To go back to the built-ins, blank the URL,
+stop the service, delete the cache, then start it. Stop first: the running
+process still has the old URL and can write the cache again before a restart.
+
+```bash
+sudoedit /etc/ttpbot-zora.env   # ZORA_PRESETS_URL=
+sudo systemctl stop ttpbot-zora
+sudo rm /var/lib/ttpbot-zora/zora_presets.json
+sudo systemctl start ttpbot-zora
+```
 
 Rollback: `sudo systemctl disable --now ttpbot-zora`. The z1r service is
 unaffected either way.

@@ -39,9 +39,11 @@ class ZoraServiceTests(unittest.TestCase):
         env = env_file(DEPLOY / 'ttpbot-zora.env.example')
         self.assertEqual(env['TTPBOT_CATEGORY_SLUG'], 'zora')
         self.assertEqual(env['TTPBOT_DATA_DIR'], '/var/lib/ttpbot-zora')
+        # The zora category's bot is named Z1RRbot under Manage bots.
+        self.assertEqual(env['TTPBOT_RACETIME_BOT_NAME'], 'Z1RRbot')
         self.assertEqual(set(env), {
             'TTPBOT_RACETIME_ORIGIN', 'TTPBOT_CATEGORY_SLUG', 'TTPBOT_RACETIME_CLIENT_ID',
-            'TTPBOT_RACETIME_CLIENT_SECRET', 'TTPBOT_DATA_DIR', 'TTPBOT_ENVIRONMENT',
+            'TTPBOT_RACETIME_CLIENT_SECRET', 'TTPBOT_RACETIME_BOT_NAME', 'TTPBOT_DATA_DIR', 'TTPBOT_ENVIRONMENT',
             'ZORA_PRESETS_URL', 'ZORA_PRESETS_CACHE',
         })
         config = resolve_bot_config(SimpleNamespace(), {**env, 'TTPBOT_RACETIME_CLIENT_ID': 'id',
@@ -53,6 +55,15 @@ class ZoraServiceTests(unittest.TestCase):
         for name in ('ttpbot.service', 'ttpbot.env.example', 'ttpbot-preflight'):
             self.assertNotIn('zora', (DEPLOY / name).read_text(encoding='utf-8').lower(), name)
 
+
+    def test_the_runbooks_first_preflight_has_its_state_directory(self):
+        # On a fresh host /var/lib/ttpbot-zora does not exist until a unit with
+        # StateDirectory=ttpbot-zora runs, and the preflight runs before the service.
+        runbook = (ROOT / 'docs' / 'oci-service-runbook.md').read_text(encoding='utf-8')
+        zora = runbook[runbook.index('## ZORA category'):]
+        preflight = next(line for line in zora.splitlines() if 'systemd-run' in line)
+        self.assertIn('-p EnvironmentFile=/etc/ttpbot-zora.env', preflight)
+        self.assertIn('-p StateDirectory=ttpbot-zora', preflight)
 
 class PreflightLockTests(unittest.TestCase):
     def lock(self, category):

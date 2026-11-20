@@ -27,11 +27,24 @@ ZORA_FLAGS = re.compile(r'[1-9][0-9]*\.[0-9A-Za-z!_]{1,200}')
 # As ZORA writes one, with `!` and never `_`: what a presets file must hold.
 WRITTEN_ZORA_FLAGS = re.compile(r'[1-9][0-9]*\.[0-9A-Za-z!]{1,200}')
 
-# What a zora room says where z1r would say GENERIC_WELCOME_MESSAGE.
-ZORA_WELCOME_MESSAGE = (
-    "Hi, I'm TTPBot. I can help with ZORA seed rolling and hash confirmation. "
-    "Type !help to see available commands."
-)
+
+# A zora roll's seed, as race_info writes it: in race info, and in the chat
+# line that announces the roll.
+ROLL_SEED = re.compile(r'Seed: (\d+) - Flags: \S+ - ZORA: ')
+
+
+def rolled_seed(text):
+    """The seed of the zora roll in this text, or None."""
+    found = ROLL_SEED.search(text or '') if isinstance(text, str) else None
+    return found.group(1) if found else None
+
+
+def welcome_message(name):
+    """What a zora room says where z1r would say GENERIC_WELCOME_MESSAGE, under the bot's racetime name."""
+    return (f"Hi, I'm {name}. I can help with ZORA seed rolling and hash confirmation. "
+            "Type !help to see available commands.")
+
+
 ZORA_FLAGS_USAGE = 'Usage: !flags <flagstring> [zora flags]'
 
 # The commands a zora room answers. Every other command is silent there.
