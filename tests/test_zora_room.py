@@ -5,13 +5,16 @@ stand-in zora.gg feed or the built-ins; z1r's Council registry is never asked.
 """
 
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from ttpbot.config import ZORA_PRESETS
 from ttpbot.handler import TTPRaceHandler
-from ttpbot.zora import ZORA_WELCOME_MESSAGE
+from ttpbot.zora import welcome_message
 from tests.test_handler_commands import command_handler
 from tests.test_zora_presets import ASNB, FEED, ZTE1, zora_reader
+
+ZORA_WELCOME_MESSAGE = welcome_message('TTPBot')
 
 SEED = 8368178622449674251
 ZTE5 = ZORA_PRESETS['zte5']
@@ -19,6 +22,8 @@ INFO = ('Seed: 8368178622449674251 - Flags: 143oNtDD4PAvB!U8nSk4mxFW0br2w5YUspe7
         ' - https://zora.gg/?flags=143oNtDD4PAvB%21U8nSk4mxFW0br2w5YUspe7sx&zora=13.7Zg4ZxiL'
         '&seed=8368178622449674251')
 ROLLED = 'Seed rolling complete.  See race info for details.'
+OTHER_INFO = INFO.replace('8368178622449674251', '1554758598395670874')
+PUBLISHED = INFO.replace('8368178622449674251', '1234')
 CLEARED = 'Seed cleared. You may now roll a new one.'
 
 
@@ -172,6 +177,23 @@ class ZoraRoomTests(unittest.IsolatedAsyncioTestCase):
             await self.say(handler, '!summary')
             summary.assert_called_with(ZTE5[0])
 
+    async def test_its_own_late_completion_does_not_undo_a_cancel(self):
+        # A !cancel typed while the bot was still sending its roll is read
+        # before the bot's own "Seed rolling complete." comes back from racetime.
+        handler = zora_handler()
+        await self.say(handler, '!zte5')
+        await self.say(handler, '!cancel')
+        self.assertEqual(handler.messages[-1], CLEARED)
+        await handler.chat_message({'message': {'is_bot': True, 'bot': 'TTPBot', 'message_plain': ROLLED}})
+        self.assertFalse(handler.seed_rolled)
+        await self.say(handler, '!asnb')
+        self.assertEqual(len(handler.race_info_updates), 2)
+
+    async def test_another_bots_completion_still_counts(self):
+        handler = zora_handler()
+        await handler.chat_message({'message': {'is_bot': True, 'bot': 'ZoraBot', 'message_plain': ROLLED}})
+        self.assertTrue(handler.seed_rolled)
+
     async def test_help_lists_the_zora_commands(self):
         handler = zora_handler()
         await self.say(handler, '!help')
@@ -182,8 +204,9 @@ class ZoraRoomTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ZoraRoomHistoryTests(unittest.IsolatedAsyncioTestCase):
-    async def history(self, *texts):
+    async def history(self, *texts, info=''):
         handler = zora_handler()
+        handler.data['info_bot'] = info
         messages = [{'is_bot': True, 'bot': 'TTPBot', 'message_plain': text} for text in texts]
         with patch.object(TTPRaceHandler, '_handle_recent_history_commands', new=AsyncMock()):
             await handler.chat_history({'messages': messages})
@@ -205,6 +228,92 @@ class ZoraRoomHistoryTests(unittest.IsolatedAsyncioTestCase):
         handler = await self.history(ZORA_WELCOME_MESSAGE, ROLLED, CLEARED, ROLLED)
         self.assertTrue(handler.seed_rolled)
 
+
+    async def test_a_seed_in_race_info_stands_when_its_completion_was_never_sent(self):
+        # A disconnect after race info was written, before the chat lines went out.
+        handler = await self.history(ZORA_WELCOME_MESSAGE, info=INFO)
+        self.assertTrue(handler.seed_rolled)
+        await self.say_to(handler, '!zte5')
+        self.assertEqual(handler.messages[-1], 'A seed has already been rolled for this race.')
+
+    async def test_a_cancel_after_the_seed_was_announced_still_frees_the_room(self):
+        handler = await self.history(ZORA_WELCOME_MESSAGE, INFO, ROLLED, CLEARED, info=INFO)
+        self.assertFalse(handler.seed_rolled)
+
+    async def test_a_seed_published_after_a_cancel_stands(self):
+        handler = await self.history(ZORA_WELCOME_MESSAGE, INFO, ROLLED, CLEARED, info=OTHER_INFO)
+        self.assertTrue(handler.seed_rolled)
+
+    async def say_to(self, handler, text):
+        with patch.object(TTPRaceHandler, '_log_chat'):
+            await handler.chat_message({'message': {'message': text, 'message_plain': text,
+                                                    'user': {'name': 'Racer'}}})
+
+
+class ZoraRoomReconnectTests(unittest.IsolatedAsyncioTestCase):
+    """A new handler after a dropped connection: commands wait for the room's history.
+
+    Seed 1234 is in race info, published just before the connection dropped, so
+    neither its announcement nor "Seed rolling complete." reached chat.
+    """
+
+    def setUp(self):
+        for item in (patch('ttpbot.handler.zora_registry', zora_reader()),
+                     patch('ttpbot.handler.random.randint', return_value=SEED),
+                     patch.object(TTPRaceHandler, '_log_chat'),
+                     patch('ttpbot.handler.asyncio.sleep', new=AsyncMock())):
+            item.start()
+            self.addCleanup(item.stop)
+
+    async def joined(self, info=PUBLISHED):
+        handler = zora_handler()
+        handler.data = {'name': 'zora/test-room', 'category': {'slug': 'zora'}, 'status': {'value': 'open'},
+                        'goal': {'name': 'Beat the game'}, 'info_bot': info}
+        handler.ws = AsyncMock()
+        await handler.begin()
+        return handler
+
+    async def live(self, handler, text, at=40, key=None):
+        await handler.chat_message({'message': self.racer(text, at, key)})
+
+    def racer(self, text, at, key=None):
+        return {'id': key, 'is_bot': False, 'is_system': False, 'message': text, 'message_plain': text,
+                'user': {'name': 'Racer'}, 'posted_at': f'2026-11-20T20:00:{at:02d}+00:00'}
+
+    async def history(self, handler, *extra):
+        welcome = {'is_bot': True, 'bot': 'TTPBot', 'message_plain': ZORA_WELCOME_MESSAGE,
+                   'posted_at': '2026-11-20T20:00:01+00:00'}
+        await handler.chat_history({'messages': [welcome, *extra]})
+
+    async def test_a_preset_after_history_is_refused(self):
+        handler = await self.joined()
+        await self.history(handler)
+        await self.live(handler, '!asnb')
+        self.assertEqual(handler.messages, ['A seed has already been rolled for this race.'])
+        self.assertEqual(handler.race_info_updates, [])
+
+    async def test_a_preset_before_history_is_refused_once_history_is_in(self):
+        handler = await self.joined()
+        await self.live(handler, '!asnb')
+        self.assertEqual((handler.messages, handler.race_info_updates), ([], []))
+        await self.history(handler)
+        self.assertEqual(handler.messages, ['A seed has already been rolled for this race.'])
+        self.assertEqual(handler.race_info_updates, [])
+
+    async def test_a_command_held_and_replayed_from_history_runs_once(self):
+        # In a room under 90 seconds old, history replays the same !help.
+        handler = await self.joined()
+        handler.history_command_cutoff_utc = datetime(2026, 11, 20, 20, 0, 0, tzinfo=timezone.utc)
+        await self.live(handler, '!help', key='m1')
+        await self.history(handler, self.racer('!help', 40, 'm1'))
+        self.assertEqual(len(handler.messages), 1)
+
+    async def test_a_held_preset_rolls_when_no_seed_stands(self):
+        handler = await self.joined(info='')
+        await self.live(handler, '!asnb')
+        await self.history(handler)
+        self.assertEqual(len(handler.race_info_updates), 1)
+        self.assertTrue(handler.race_info_updates[0].startswith(f'Seed: {SEED} - Flags: {ASNB[0]} - '))
 
 class ZoraRoomBeginTests(unittest.IsolatedAsyncioTestCase):
     async def begin(self, data):

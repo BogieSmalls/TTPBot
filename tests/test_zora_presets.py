@@ -126,6 +126,19 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
             await zora_reader(url=None).run()
         self.assertEqual(logs.output, ['INFO:ttpbot.flagset_registry:ZORA presets off: no ZORA_PRESETS_URL'])
 
+    async def test_a_blank_url_keeps_a_cached_feed_until_the_cache_is_deleted(self):
+        # What the runbook says about going back to the built-in presets.
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / 'zora_presets.json'
+            cache.write_text(json.dumps(FEED), encoding='utf-8')
+            reader = zora_reader(cache_path=cache, url=None)
+            await reader.run()
+            self.assertIsNone(reader.resolve_pair('zte5'))
+            cache.unlink()
+            reader = zora_reader(cache_path=cache, url=None)
+            await reader.run()
+            self.assertEqual(reader.resolve_pair('zte5'), ZORA_PRESETS['zte5'])
+
 
 class Z1rRegistryUnchangedTests(unittest.IsolatedAsyncioTestCase):
     def test_the_z1r_registry_is_not_a_zora_reader(self):

@@ -22,6 +22,7 @@ from .grace import GRACE_START, STARTED, GraceRace, entrants_from
 from .matchup import matchup_reply
 
 from .config import (
+    BOT_NAME,
     HASH_ALIASES,
     HASH_ALIASES_MULTI,
     LEAGUE_ROOM_INFO_PREFIX,
@@ -71,8 +72,13 @@ GENERIC_WELCOME_MESSAGE = (
     "and Z1RR links. Type !help to see available commands."
 )
 
-ZORA_HELP = '\n'.join([
-    'TTPBot commands:',
+
+def is_own_message(message):
+    """Whether a chat message is this bot's, by its racetime name (BOT_NAME)."""
+    return bool(message.get('is_bot')) and message.get('bot') == BOT_NAME
+
+
+_ZORA_HELP_LINES = (
     '  Seed rolling:',
     '    !race <preset>              Roll a seed by preset name',
     '    !<preset>                   The same, for a preset\'s shortcut (e.g. !asnb)',
@@ -81,7 +87,13 @@ ZORA_HELP = '\n'.join([
     '  Flags:',
     "    !summary [flagstring]       Summarize a flag string or preset (default: this room's seed)",
     f'  {ZORA_PRESET_LIST}',
-])
+)
+
+
+def zora_help(name):
+    """A zora room's !help, under the bot's racetime name."""
+    return '\n'.join([f'{name} commands:', *_ZORA_HELP_LINES])
+
 
 # Merged alias dict built once at import, extended by learned aliases
 _all_aliases = dict(HASH_ALIASES)
@@ -210,6 +222,12 @@ class TTPRaceHandler(RaceHandler):
     #: A room in ZORA's own category (ttpbot/zora.py): TTPBot's seed commands
     #: with a ZORA flag string, and nothing else.
     zora_room = False
+    #: A zora room holds commands from begin() until chat history says whether
+    #: a seed stands (_zora_pending), and runs each command once (_zora_run,
+    #: racetime's message ids).
+    _zora_awaiting_history = False
+    _zora_pending = ()
+    _zora_run = frozenset()
     roll_state = picks.NONE
     _ttp_history_seen = False
     _ttp_started = False
@@ -278,6 +296,11 @@ class TTPRaceHandler(RaceHandler):
 
     async def begin(self):
         self.zora_room = is_zora_room(self.data)
+        if self.zora_room:
+            # A new handler knows nothing of the room's roll until history is in,
+            # and a roll before then could replace the seed racers are using.
+            self._zora_awaiting_history = True
+            self._zora_pending = []
         self.ttp_scheduled_room = is_ttp_scheduled_room(self.data)
         self.league_room = is_league_room(self.data)
         self.autumn_room = is_autumn_room(self.data)
@@ -588,9 +611,9 @@ class TTPRaceHandler(RaceHandler):
             text = msg.get('message_plain') or msg.get('message') or ''
             if picks.roll_state([msg]) != picks.NONE:
                 since_roll = []
-            elif msg.get('is_bot') and msg.get('bot') == 'TTPBot':
+            elif is_own_message(msg):
                 since_roll.append(text)
-            if msg.get('is_bot') and msg.get('bot') == 'TTPBot' and text not in said:
+            if is_own_message(msg) and text not in said:
                 said.append(text)
         self.state['ttp_roll_said'] = since_roll
 
@@ -1014,8 +1037,7 @@ class TTPRaceHandler(RaceHandler):
             self._ttp_rebuild_from_history(messages)
 
         if self.zora_room:
-            # The last bot word wins, so a restart after a !cancel can roll again.
-            self.seed_rolled = picks.roll_state(messages) == picks.ROLLED
+            self.seed_rolled = self._zora_roll_stands(messages)
 
         # Also detect if a seed was already rolled (avoids double-roll on restart).
         # SahasrahBot's rolls count too, or a !ttpbot could roll a second
@@ -1044,7 +1066,7 @@ class TTPRaceHandler(RaceHandler):
             or 'Welcome to Triforce Triple Play!' in text
             or GENERIC_WELCOME_MESSAGE in text
             for text in bot_messages
-        ) or (self.zora_room and any(zora.ZORA_WELCOME_MESSAGE in text for text in bot_messages))
+        ) or (self.zora_room and any(zora.welcome_message(BOT_NAME) in text for text in bot_messages))
 
         # Check which reminders were already sent
         for minutes_before, reminder_text in REMINDER_SCHEDULE:
@@ -1057,14 +1079,21 @@ class TTPRaceHandler(RaceHandler):
             self.state['welcomed'] = True
         elif not self.state.get('welcomed'):
             if self.zora_room:
-                await self.send_message(zora.ZORA_WELCOME_MESSAGE)
+                await self.send_message(zora.welcome_message(BOT_NAME))
             elif self.ttp_scheduled_room:
                 await self.send_message(welcome_text(seasons.current(datetime.now(TIMEZONE))))
             else:
                 await self.send_message(GENERIC_WELCOME_MESSAGE)
             self.state['welcomed'] = True
 
+        # History is applied: a zora room's commands run from here, those it
+        # replays from history first, then those held since begin().
+        self._zora_awaiting_history = False
         await self._handle_recent_history_commands(messages)
+        if self.zora_room:
+            held, self._zora_pending = self._zora_pending, []
+            for command, args, message in held:
+                await self._zora_dispatch(command, args, message)
 
         if self.ttp_tournament_room:
             await self._ttp_after_history()
@@ -1085,9 +1114,7 @@ class TTPRaceHandler(RaceHandler):
     def _latest_own_bot_message_timestamp(self, messages):
         timestamps = []
         for message in messages:
-            if not message.get('is_bot'):
-                continue
-            if message.get('bot') != 'TTPBot':
+            if not is_own_message(message):
                 continue
             posted_at = self._parse_history_timestamp(message.get('posted_at'))
             if posted_at:
@@ -1298,8 +1325,12 @@ class TTPRaceHandler(RaceHandler):
             if self.ttp_tournament_room:
                 # TTPBot's own words are applied when it says them, so only
                 # the other bots' are read back here.
-                if message.get('bot') != 'TTPBot':
+                if not is_own_message(message):
                     await self._ttp_set_roll(picks.roll_state([message], start=self.roll_state))
+                return
+            if self.zora_room and is_own_message(message):
+                # Its own rolls and cancels took effect when it made them. Read
+                # back, a "complete" that arrives after a !cancel would undo it.
                 return
             # Whichever bot rolled, the room has its seed. Matters after an
             # !ttpbot, when SahasrahBot may yet wake up and roll one.
@@ -1326,10 +1357,7 @@ class TTPRaceHandler(RaceHandler):
             args = text.split()[1:]  # preserve original case for flag strings
             command = words[0][len(self.command_prefix):]
             if self.zora_room:
-                try:
-                    await self._zora_command(command, args, message)
-                except Exception:
-                    self.logger.error('Command raised exception.', exc_info=True)
+                await self._zora_dispatch(command, args, message)
                 return
             if self.ttp_tournament_room:
                 try:
@@ -1964,6 +1992,26 @@ class TTPRaceHandler(RaceHandler):
 
     # -- zora rooms (ttpbot/zora.py) ------------------------------------------
 
+    async def _zora_dispatch(self, command, args, message):
+        """A zora room's command: held until chat history is in, and run once.
+
+        A command can arrive live and also be replayed from history; racetime's
+        message id runs it once.
+        """
+        if self._zora_awaiting_history:
+            self.logger.info('[%s] Holding !%s until chat history is in', self.data.get('name'), command)
+            self._zora_pending.append((command, args, message))
+            return
+        key = message.get('id')
+        if key in self._zora_run:
+            return
+        if key:
+            self._zora_run = self._zora_run | {key}
+        try:
+            await self._zora_command(command, args, message)
+        except Exception:
+            self.logger.error('Command raised exception.', exc_info=True)
+
     async def _zora_command(self, command, args, message):
         """A zora room's commands: TTPBot's seed commands and ZORA preset shortcuts.
 
@@ -2019,6 +2067,31 @@ class TTPRaceHandler(RaceHandler):
             return
         await self._zora_roll(*pair, preset=preset)
 
+    def _zora_roll_stands(self, messages):
+        """Whether a zora room's roll stands, read back after a restart.
+
+        Race info is what racers roll from, and a roll writes it before the chat
+        lines that announce it. So a seed in race info stands unless the room's
+        last cancel came after that seed was announced: a disconnect between
+        the two keeps the seed, and a !cancel still frees the room.
+        """
+        ordered = sorted(
+            messages,
+            key=lambda msg: self._parse_history_timestamp(msg.get('posted_at'))
+            or datetime.min.replace(tzinfo=timezone.utc))
+        state = picks.roll_state(ordered)
+        seed = zora.rolled_seed(self.data.get('info_bot'))
+        if seed is None:
+            return state == picks.ROLLED
+        announced = cancelled = None
+        for msg in ordered:
+            if not msg.get('is_bot'):
+                continue
+            announced = zora.rolled_seed(msg.get('message_plain') or msg.get('message')) or announced
+            if picks.roll_state([msg]) == picks.CANCELLED:
+                cancelled = announced
+        return not (state == picks.CANCELLED and cancelled == seed)
+
     async def _zora_roll(self, flags, zora_string, preset=None):
         """Roll, and write race info whole: a zora room has no scheduling prefix to keep."""
         info = zora.race_info(random.randint(0, zora.SEED_MAX), flags, zora_string)
@@ -2031,7 +2104,7 @@ class TTPRaceHandler(RaceHandler):
     async def ex_help(self, args, message):
         """!help -- List available TTPBot commands."""
         if self.zora_room:
-            await self.send_message(ZORA_HELP)
+            await self.send_message(zora_help(BOT_NAME))
             return
         lines = [
             'TTPBot commands:',

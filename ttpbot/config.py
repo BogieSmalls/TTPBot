@@ -76,6 +76,11 @@ def _env_or_default(name, default):
     return value.strip() or default
 
 
+# The bot's name on racetime.gg, set under Manage bots: racetime sends it beside
+# every bot message, and TTPBot finds its own messages by it. ZORA's category
+# calls it Z1RRbot.
+BOT_NAME = _env_or_default('TTPBOT_RACETIME_BOT_NAME', 'TTPBot')
+
 Z1RR_DISCORD_URL = _env_or_default(
     'TTPBOT_Z1RR_DISCORD_URL',
     'https://discord.gg/MX6EB26HYB',
