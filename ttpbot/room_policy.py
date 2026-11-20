@@ -4,7 +4,7 @@ import re
 from .config import (
     AUTUMN_ROOM_INFO_PREFIX, LEAGUE_ROOM_INFO_PREFIX,
     POST_SEASON_GOAL_NAME,
-    POST_SEASON_ROOM_INFO_PREFIX,
+    POST_SEASON_ROOM_INFO_PREFIX, ZORA_CATEGORY_SLUG,
 )
 from .season_record import seasons
 
@@ -22,6 +22,18 @@ def is_ttp_scheduled_room(race_data):
         info_bot.startswith(f'{prefix} | Scheduled:')
         for prefix in (*seasons.room_prefixes(), POST_SEASON_ROOM_INFO_PREFIX)
     )
+
+
+def is_zora_room(race_data):
+    """Return True for a room in ZORA's own category.
+
+    A z1r room never is one: the category is in the room's name
+    (`zora/clever-link-1234`) and in its data.
+    """
+    category = (race_data.get('category') or {}).get('slug')
+    if category:
+        return category == ZORA_CATEGORY_SLUG
+    return (race_data.get('name') or '').startswith(ZORA_CATEGORY_SLUG + '/')
 
 
 def is_autumn_room(race_data):

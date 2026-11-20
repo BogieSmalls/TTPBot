@@ -14,7 +14,7 @@ from .config import (
     TIMEZONE,
     WEBHOOK_MINUTES_BEFORE,
 )
-from .flagset_registry import registry as flagset_registry
+from .flagset_registry import registry as flagset_registry, zora_registry
 from .handler import TTPRaceHandler
 from .paths import data_dir as configured_data_dir, runtime_path
 from .schedule import get_upcoming_races, race_goal_for_time, race_info_for_time, slate_date, slot_name
@@ -24,6 +24,7 @@ from .room_policy import (
 )
 from .state import DestinationStateStore, UNCERTAIN_RACE
 from . import rehearsal
+from . import zora
 
 from .provider import ProviderConfigurationError
 
@@ -172,11 +173,19 @@ class TTPBot(Bot):
         """
         if not super().should_handle(race_data):
             return False
+        if self._zora_mode():
+            # ZORA's category is ZORA's alone, so every open room is one to serve.
+            return True
         if rehearsal.enabled():
             return race_data.get('name') in self._own_rooms()
         return (is_ttp_scheduled_room(race_data) or is_league_room(race_data)
                 or is_autumn_room(race_data) or is_corto_room(race_data)
                 or is_ttp_tournament_room(race_data))
+
+    def _zora_mode(self):
+        """Whether this process serves ZORA's own category (ttpbot/zora.py)."""
+        provider = getattr(self, 'provider', None)
+        return provider is not None and zora.is_zora_category(provider.category)
 
     def _build_results_recorder(self):
         """Construct the results recorder, or None if it is switched off.
@@ -405,6 +414,9 @@ class TTPBot(Bot):
         if rehearsal.enabled():
             self._run_rehearsal()
             return
+        if self._zora_mode():
+            self._run_zora()
+            return
         self.loop.create_task(self.refresh_races())
         self.loop.create_task(self.race_scheduler())
         self.loop.create_task(flagset_registry.run())
@@ -464,13 +476,13 @@ class TTPBot(Bot):
                 self.logger.error('Rehearsal: joining own rooms failed', exc_info=True)
             await asyncio.sleep(self.scan_races_every)
 
-    async def _read_room(self, name):
+    async def _read_room(self, name, label='Rehearsal'):
         try:
             async with aiohttp.request('get', self.provider.http_url('/' + name + '/data'),
                                        timeout=aiohttp.ClientTimeout(total=10)) as response:
                 return await response.json() if response.status == 200 else None
         except Exception:
-            self.logger.warning('Rehearsal: could not read %s', name, exc_info=True)
+            self.logger.warning('%s: could not read %s', label, name, exc_info=True)
             return None
 
     async def _join_own_rooms_once(self):
@@ -480,6 +492,61 @@ class TTPBot(Bot):
             race_data = await self._read_room(name)
             if not race_data or name in self.handlers or not self.should_handle(race_data):
                 continue
+            handler = self.create_handler(race_data)
+            self.handlers[name] = self.loop.create_task(handler.handle())
+            self.handlers[name].add_done_callback(lambda _task, key=name: self.handlers.pop(key, None))
+
+    def _run_zora(self):
+        """Zora mode: ZORA presets and every room in the category, nothing else.
+
+        No nightly room scheduler, League, tournaments or grace minutes: those are
+        the z1r category's. Rooms are found with the bot's own token, so unlisted
+        ones are joined too.
+        """
+        self.logger.info('Zora mode: joining every room in %s', self.provider.category)
+        self.loop.create_task(zora_registry.run())
+        self.loop.create_task(self.join_category_rooms())
+        self.loop.set_exception_handler(self.handle_exception)
+        self.loop.run_forever()
+
+    async def join_category_rooms(self):
+        """Zora mode: join every open room in the category, every scan."""
+        while True:
+            try:
+                await self._join_category_rooms_once()
+            except Exception:
+                self.logger.error('Zora mode: joining rooms failed', exc_info=True)
+            await asyncio.sleep(self.scan_races_every)
+
+    async def _category_room_names(self):
+        """The category's current rooms, unlisted ones included.
+
+        The public `/<category>/data` leaves unlisted rooms out; `/o/<category>/data`
+        lists them for a token belonging to one of the category's bots. If that
+        call fails, the public list still finds the listed rooms.
+        """
+        category = self.provider.category
+        for path, headers in (('/o/{}/data'.format(category), {'Authorization': 'Bearer ' + self.access_token}),
+                              ('/{}/data'.format(category), {})):
+            try:
+                async with aiohttp.request('get', self.provider.http_url(path), headers=headers,
+                                           timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        races = (await response.json()).get('current_races') or []
+                        return [race.get('name') for race in races if race.get('name')]
+                    self.logger.warning('Zora mode: %s answered HTTP %s', path, response.status)
+            except Exception:
+                self.logger.warning('Zora mode: could not list %s', path, exc_info=True)
+        return []
+
+    async def _join_category_rooms_once(self):
+        for name in await self._category_room_names():
+            if name in self.handlers:
+                continue
+            race_data = await self._read_room(name, label='Zora mode')
+            if not race_data or name in self.handlers or not self.should_handle(race_data):
+                continue
+            self.logger.info('Zora mode: joining %s', name)
             handler = self.create_handler(race_data)
             self.handlers[name] = self.loop.create_task(handler.handle())
             self.handlers[name].add_done_callback(lambda _task, key=name: self.handlers.pop(key, None))

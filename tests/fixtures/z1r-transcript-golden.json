@@ -1,0 +1,686 @@
+{
+ "z1r/casual-room !FLAGS oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A 13.7Zg4ZxiL": {
+  "messages": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !asnb": {
+  "messages": [],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !cancel": {
+  "messages": [
+   "No seed has been rolled yet."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !consternation": {
+  "messages": [
+   "consternation - Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !flags": {
+  "messages": [
+   "You must specify a set of flags!"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !flags asnb": {
+  "messages": [
+   "\"asnb\" is too short to be a flag string. Usage: !flags <flagstring>"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !flags consternation": {
+  "messages": [
+   "\"consternation\" is a shortcut, not a flag string. Use !consternation to roll it."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !flags doesn't": {
+  "messages": [
+   "\"doesn't\" is not a flag string. Usage: !flags <flagstring>"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !flags oIbnPf": {
+  "messages": [
+   "\"oIbnPf\" is too short to be a flag string. Usage: !flags <flagstring>"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !flags oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A": {
+  "messages": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !help": {
+  "messages": [
+   "TTPBot commands:\n  TC qualifiers: !optout sits out this TC bracket; !optin undoes it before offers start.\n  Seed rolling (when SahasrahBot is offline):\n    !ttpbot                     Roll seeds here when SahasrahBot is not answering\n    !cancel                     Clear the rolled seed to roll again\n    !race <preset>              Roll a seed by preset name\n    !flags <flagstring>         Roll a seed with a custom flag string\n    !ttp2                       Random TTP Season 2 preset\n    !ttp3                       Random TTP Season 3 preset\n    !ttp4                       Random TTP Season 4 preset\n    !ttp4rp / !ttp4hopla / !ttp4consternation  TTP4 presets directly\n    !ttp5                       Random TTP Season 5 preset\n    !ttp5uphill / !ttp5muffle / !ttp5pick5  TTP5 presets directly\n    !leagueweek1 ... !leagueweek7  Z1RR League weekly flagsets\n  Flags:\n    !summary [flagstring]       Summarize a flag string or preset (default: this room's seed)\n  Season info:\n    !schedule                   Today's remaining race times\n    !info                       TTP Season 5 details\n    !ttpflags                   TTP flagset details\n    !matchup <racer1> <racer2>  Head-to-head record from the Z1RR stats\n    !z1rr                       Z1RR Discord invite\n    !grace [name]               Grace minutes left before a forced start"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !info": {
+  "messages": [
+   "TTP Season 5 regular season runs Aug 31 - Dec 19, 2026. Rooms use the TTP Season 5 goal during this window. Races: Mon-Sat at 8 PM, 10 PM, 12 AM ET, plus 6 PM on Saturday (the 12 AM race closes out the previous evening). No Sunday evening races."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !leagueweek3": {
+  "messages": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb011Sy7qwMZCd02sSqmmF7EOlypJGA",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb011Sy7qwMZCd02sSqmmF7EOlypJGA"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !lock": {
+  "messages": [],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !matchup a": {
+  "messages": [
+   "Usage: !matchup <racer1> <racer2>"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !presets": {
+  "messages": [],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !race": {
+  "messages": [
+   "No preset specified. See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !race Consternation": {
+  "messages": [
+   "consternation - Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !race asnb": {
+  "messages": [
+   "Unknown preset \"asnb\". See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !race consternation": {
+  "messages": [
+   "consternation - Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !race tc34": {
+  "messages": [
+   "tc34 - Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !race zte5": {
+  "messages": [
+   "Unknown preset \"zte5\". See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !summary": {
+  "messages": [
+   "Usage: !summary <flagstring> (no seed has been rolled here yet)"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !summary zte5": {
+  "messages": [
+   "Flags: Quest: Random, Dungeon Quest: 1st Quest, Hints: Helpful, Item Shuffle: Item Only, Wood Sword: Swordless, Triforces Required: 3 triforces, A/C/WS: Random / Random / Random, Starting Hearts: 1, L9 Items: Random / Random"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !tc34": {
+  "messages": [
+   "tc34 - Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !torneocorto34": {
+  "messages": [
+   "tc34 - Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !ttp4": {
+  "messages": [
+   "Unknown preset \"ttp4rp\". See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !ttp4hopla": {
+  "messages": [
+   "Unknown preset \"ttp4hopla\". See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !ttp4rr": {
+  "messages": [
+   "Unknown preset \"ttp4rr\". See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !ttp5": {
+  "messages": [
+   "ttp5uphill - Flags: 2487lt0moGMFabcdefghijklmnopqrstuvw13 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Flags: 2487lt0moGMFabcdefghijklmnopqrstuvw13 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !ttp5uphill": {
+  "messages": [
+   "ttp5uphill - Flags: 2487lt0moGMFabcdefghijklmnopqrstuvw13 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Flags: 2487lt0moGMFabcdefghijklmnopqrstuvw13 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room !ttpbot": {
+  "messages": [
+   "SahasrahBot hasn't been seen here, so TTPBot is already rolling seeds. Use !flags <flagstring> or !race <preset>."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !ttpflags": {
+  "messages": [
+   "TTP5 flagset presets:\n  !ttp5 -- Random pick from the three TTP5 flagsets\n  !ttp5uphill -- Uphill Battle\n  !ttp5muffle -- Muffle Rug\n  !ttp5pick5 -- Pick 5\nIn-season races have no required flagset -- flags are chosen by mutual agreement (majority vote if disagreement). The three official flagsets are encouraged but not required during the season."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !unlock": {
+  "messages": [],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !z1rr": {
+  "messages": [
+   "Join the Z1RR Discord! https://discord.gg/MX6EB26HYB"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room !zte5": {
+  "messages": [],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/casual-room history 0": {
+  "messages": [
+   "Hi, I'm TTPBot. I can help with seed rolling, hash confirmation, and Z1RR links. Type !help to see available commands.",
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room history 1": {
+  "messages": [
+   "Hi, I'm TTPBot. I can help with seed rolling, hash confirmation, and Z1RR links. Type !help to see available commands.",
+   "A seed has already been rolled for this race."
+  ],
+  "race_info": [],
+  "seed_rolled": true
+ },
+ "z1r/casual-room history 2": {
+  "messages": [
+   "Hi, I'm TTPBot. I can help with seed rolling, hash confirmation, and Z1RR links. Type !help to see available commands.",
+   "A seed has already been rolled for this race."
+  ],
+  "race_info": [],
+  "seed_rolled": true
+ },
+ "z1r/casual-room history 3": {
+  "messages": [
+   "Hi, I'm TTPBot. I can help with seed rolling, hash confirmation, and Z1RR links. Type !help to see available commands.",
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/casual-room sequence 0": {
+  "messages": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed rolling complete.  See race info for details.",
+   "A seed has already been rolled for this race.",
+   "Seed cleared. You may now roll a new one.",
+   "tc34 - Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details.",
+   "Seed cleared. You may now roll a new one.",
+   "No seed has been rolled yet."
+  ],
+  "race_info": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A | Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789"
+  ],
+  "seed_rolled": false
+ },
+ "z1r/casual-room sequence 1": {
+  "messages": [
+   "consternation - Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details.",
+   "A seed has already been rolled for this race.",
+   "Flags (Consternation): Quest: 1st Quest, Dungeon Quest: Shapes, Hints: Community, Start Screen: Full start shuffle, Item Shuffle: Item Only, Enemy HP: +/- 4, Boss HP: +/- 4, A/C/WS: Random / Random / Random, L9 Items: Random / Random, Allow OW Blocks of Wood Sword, Extra Candles, Allow Impt Items in 9, Book: Atlas \u00b7 Add: 2Q Rooms"
+  ],
+  "race_info": [
+   "Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !FLAGS oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A 13.7Zg4ZxiL": {
+  "messages": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !asnb": {
+  "messages": [],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !cancel": {
+  "messages": [
+   "No seed has been rolled yet."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !consternation": {
+  "messages": [
+   "consternation - Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !flags": {
+  "messages": [
+   "You must specify a set of flags!"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !flags asnb": {
+  "messages": [
+   "\"asnb\" is too short to be a flag string. Usage: !flags <flagstring>"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !flags consternation": {
+  "messages": [
+   "\"consternation\" is a shortcut, not a flag string. Use !consternation to roll it."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !flags doesn't": {
+  "messages": [
+   "\"doesn't\" is not a flag string. Usage: !flags <flagstring>"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !flags oIbnPf": {
+  "messages": [
+   "\"oIbnPf\" is too short to be a flag string. Usage: !flags <flagstring>"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !flags oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A": {
+  "messages": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !help": {
+  "messages": [
+   "TTPBot commands:\n  TC qualifiers: !optout sits out this TC bracket; !optin undoes it before offers start.\n  Seed rolling (when SahasrahBot is offline):\n    !ttpbot                     Roll seeds here when SahasrahBot is not answering\n    !cancel                     Clear the rolled seed to roll again\n    !race <preset>              Roll a seed by preset name\n    !flags <flagstring>         Roll a seed with a custom flag string\n    !ttp2                       Random TTP Season 2 preset\n    !ttp3                       Random TTP Season 3 preset\n    !ttp4                       Random TTP Season 4 preset\n    !ttp4rp / !ttp4hopla / !ttp4consternation  TTP4 presets directly\n    !ttp5                       Random TTP Season 5 preset\n    !ttp5uphill / !ttp5muffle / !ttp5pick5  TTP5 presets directly\n    !leagueweek1 ... !leagueweek7  Z1RR League weekly flagsets\n  Flags:\n    !summary [flagstring]       Summarize a flag string or preset (default: this room's seed)\n  Season info:\n    !schedule                   Today's remaining race times\n    !info                       TTP Season 5 details\n    !ttpflags                   TTP flagset details\n    !matchup <racer1> <racer2>  Head-to-head record from the Z1RR stats\n    !z1rr                       Z1RR Discord invite\n    !grace [name]               Grace minutes left before a forced start"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !info": {
+  "messages": [
+   "TTP Season 5 regular season runs Aug 31 - Dec 19, 2026. Rooms use the TTP Season 5 goal during this window. Races: Mon-Sat at 8 PM, 10 PM, 12 AM ET, plus 6 PM on Saturday (the 12 AM race closes out the previous evening). No Sunday evening races."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !leagueweek3": {
+  "messages": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb011Sy7qwMZCd02sSqmmF7EOlypJGA",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Seed: 1234567890123456789 - Flags: oIbnPfPb011Sy7qwMZCd02sSqmmF7EOlypJGA"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !lock": {
+  "messages": [],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !matchup a": {
+  "messages": [
+   "Usage: !matchup <racer1> <racer2>"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !presets": {
+  "messages": [],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !race": {
+  "messages": [
+   "No preset specified. See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !race Consternation": {
+  "messages": [
+   "consternation - Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !race asnb": {
+  "messages": [
+   "Unknown preset \"asnb\". See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !race consternation": {
+  "messages": [
+   "consternation - Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !race tc34": {
+  "messages": [
+   "tc34 - Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !race zte5": {
+  "messages": [
+   "Unknown preset \"zte5\". See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !summary": {
+  "messages": [
+   "Usage: !summary <flagstring> (no seed has been rolled here yet)"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !summary zte5": {
+  "messages": [
+   "Flags: Quest: Random, Dungeon Quest: 1st Quest, Hints: Helpful, Item Shuffle: Item Only, Wood Sword: Swordless, Triforces Required: 3 triforces, A/C/WS: Random / Random / Random, Starting Hearts: 1, L9 Items: Random / Random"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !tc34": {
+  "messages": [
+   "tc34 - Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !torneocorto34": {
+  "messages": [
+   "tc34 - Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !ttp4": {
+  "messages": [
+   "Unknown preset \"ttp4rp\". See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !ttp4hopla": {
+  "messages": [
+   "Unknown preset \"ttp4hopla\". See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !ttp4rr": {
+  "messages": [
+   "Unknown preset \"ttp4rr\". See https://z1rracing.com/flagsets/ for the list."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !ttp5": {
+  "messages": [
+   "ttp5uphill - Flags: 2487lt0moGMFabcdefghijklmnopqrstuvw13 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Flags: 2487lt0moGMFabcdefghijklmnopqrstuvw13 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !ttp5uphill": {
+  "messages": [
+   "ttp5uphill - Flags: 2487lt0moGMFabcdefghijklmnopqrstuvw13 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Flags: 2487lt0moGMFabcdefghijklmnopqrstuvw13 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room !ttpbot": {
+  "messages": [
+   "SahasrahBot hasn't been seen here, so TTPBot is already rolling seeds. Use !flags <flagstring> or !race <preset>."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !ttpflags": {
+  "messages": [
+   "TTP5 flagset presets:\n  !ttp5 -- Random pick from the three TTP5 flagsets\n  !ttp5uphill -- Uphill Battle\n  !ttp5muffle -- Muffle Rug\n  !ttp5pick5 -- Pick 5\nIn-season races have no required flagset -- flags are chosen by mutual agreement (majority vote if disagreement). The three official flagsets are encouraged but not required during the season."
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !unlock": {
+  "messages": [],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !z1rr": {
+  "messages": [
+   "Join the Z1RR Discord! https://discord.gg/MX6EB26HYB"
+  ],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room !zte5": {
+  "messages": [],
+  "race_info": [],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room history 0": {
+  "messages": [
+   "Welcome to TTP Season 5! I'll help out with hash confirmation and other bot duties. Type !schedule for today's race times, !info for TTP details, or !ttpflags for flagset details.",
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room history 1": {
+  "messages": [
+   "Welcome to TTP Season 5! I'll help out with hash confirmation and other bot duties. Type !schedule for today's race times, !info for TTP details, or !ttpflags for flagset details.",
+   "A seed has already been rolled for this race."
+  ],
+  "race_info": [],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room history 2": {
+  "messages": [
+   "Welcome to TTP Season 5! I'll help out with hash confirmation and other bot duties. Type !schedule for today's race times, !info for TTP details, or !ttpflags for flagset details.",
+   "A seed has already been rolled for this race."
+  ],
+  "race_info": [],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room history 3": {
+  "messages": [
+   "Welcome to TTP Season 5! I'll help out with hash confirmation and other bot duties. Type !schedule for today's race times, !info for TTP details, or !ttpflags for flagset details.",
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed rolling complete.  See race info for details."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A"
+  ],
+  "seed_rolled": true
+ },
+ "z1r/scheduled-room sequence 0": {
+  "messages": [
+   "Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "Seed rolling complete.  See race info for details.",
+   "A seed has already been rolled for this race.",
+   "Seed cleared. You may now roll a new one.",
+   "tc34 - Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details.",
+   "Seed cleared. You may now roll a new one.",
+   "No seed has been rolled yet."
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Seed: 1234567890123456789 - Flags: oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A",
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Flags: oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr Seed: 1234567890123456789"
+  ],
+  "seed_rolled": false
+ },
+ "z1r/scheduled-room sequence 1": {
+  "messages": [
+   "consternation - Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789",
+   "Seed rolling complete.  See race info for details.",
+   "A seed has already been rolled for this race.",
+   "Flags (Consternation): Quest: 1st Quest, Dungeon Quest: Shapes, Hints: Community, Start Screen: Full start shuffle, Item Shuffle: Item Only, Enemy HP: +/- 4, Boss HP: +/- 4, A/C/WS: Random / Random / Random, L9 Items: Random / Random, Allow OW Blocks of Wood Sword, Extra Candles, Allow Impt Items in 9, Book: Atlas \u00b7 Add: 2Q Rooms"
+  ],
+  "race_info": [
+   "TTP Season 5 | Scheduled: 9:00 PM EST | Flags: oIbnPfPb01Hll3DXSuaYUK63ewxQii0LiNxS6 Seed: 1234567890123456789"
+  ],
+  "seed_rolled": true
+ }
+}

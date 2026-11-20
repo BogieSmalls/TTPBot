@@ -295,3 +295,33 @@ LEAGUE_WEEKS = {
 SEED_PRESETS.update(
     {f'leagueweek{week}': flags for week, (_name, flags) in LEAGUE_WEEKS.items()}
 )
+
+# ZORA, a Z1R variant with a second flag string, in its own RaceTime.gg
+# category. A process serving this category runs in zora mode (ttpbot/zora.py).
+ZORA_CATEGORY_SLUG = 'zora'
+
+# Built-in ZORA presets: key -> (Z1R flag string, ZORA flag string). The ZORA
+# string is empty for a preset that is a Z1R string alone. Used until a copy of
+# zora.gg's presets.json loads (ZORA_PRESETS_URL), as SEED_PRESETS is for
+# Council's flag registry.
+ZORA_PRESETS = {
+    'zte1':                ('143oNtDD4PAvB!U8nSk4yS8L09lgT10vRVe7sx', '10.J2EGOED'),
+    'zte2':                ('143oNtDD4PAvB!U8nSk4yS8L09lgT10vRVe7sx', '10.J2EkcYg'),
+    'zte3':                ('143oNtDD4PAvB!U8nSk4m!DgIQ6oraWI4Me7sx', '10.JpkCdvd'),
+    'zte4':                ('143oNtDD4PAvB!U8nSk4mxFW0br2w5YUspe7sx', '10.JpaUYAv'),
+    'zte5':                ('143oNtDD4PAvB!U8nSk4mxFW0br2w5YUspe7sx', '13.7Zg4ZxiL'),
+    'consternation':       ('oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A', ''),
+    'consternationplus':   ('oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUULH', '18.1DzN7gO9LZ4p'),
+    'remastered':          ('oIbnPfPb01Hll3D295IGDxxjR4UwfEok8P4MD', ''),
+    'hopla':               ('oIbnRjuMUKqwdnOXzOMO7PuDtwAvU3boJnaXW', ''),
+    'consternation-noenc': ('8hq4BeR1JXo89BJ2!TFpTP02u8UJ3A', ''),
+    'asnb':                ('8hq4BeR1JXo7yjOOHjbxryVQW!UJ3A', '4.T9Jvg'),
+    'vanilla':             ('CEERPCkLslB6BApr1Him1SiR28Y', ''),
+    'ohk0hpla':            ('oIbnRjuQKp1DXiYCys9LwvSpzqZbXk1pRmZzr', ''),
+    'mufflerug':           ('2487lt0moGMFLRug1ofQdxPuUBWnJVSsi7d202I', ''),
+    'pick5':               ('p8GIOeYEAonHy5131VdG6b94Ts3EMMvBaQoWR', ''),
+    'uphill':              ('143oNtDD4Pw3Yw6SRryTCXlqTsRz2fxg4s4pJW', ''),
+    'sglive2026':          ('12TDBKH6mxLfnSz4T7ME4bcIaaUe9sE7UVmj7RA', ''),
+}
+# Where a zora room points for the list, as PRESET_LIST points at Council's.
+ZORA_PRESET_LIST = 'See https://zora.gg/ for the presets.'

@@ -83,6 +83,23 @@ bracket's canonical names and verified account mappings. There is no need to
 retype a schedule entry just to match capitalization; a genuinely unknown racer
 or missing account mapping still needs correction.
 
+### ZORA category
+
+A second service, `ttpbot-zora.service`, serves ZORA's own category
+(`https://racetime.gg/zora`) from the same code, with `TTPBOT_CATEGORY_SLUG=zora`.
+It joins every open room there, unlisted ones included, and answers TTPBot's
+seed commands with a second, optional flag string for ZORA:
+
+- `!flags <flagstring> [zora flags]` rolls with a Z1R flag string and a ZORA one
+- `!race <preset>` and `!<preset>` roll a ZORA preset (zora.gg's `presets.json`
+  through `ZORA_PRESETS_URL`, or the built-in `ZORA_PRESETS`)
+- `!cancel`, `!summary` and `!help` work as in z1r
+
+Race info reads `Seed: N - Flags: <z1r> - ZORA: <zora> - <zora.gg link>`, and the
+link opens zora.gg with both flag strings and the seed. Nothing in the z1r
+category changes. See "ZORA category" in
+[docs/oci-service-runbook.md](docs/oci-service-runbook.md).
+
 ## Requirements
 
 - Python ≥ 3.10 (tested on 3.13)

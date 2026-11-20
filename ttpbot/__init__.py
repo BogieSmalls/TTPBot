@@ -65,6 +65,10 @@ def main():
     unsafe = startup_problems(os.environ, config)
     if unsafe:
         parser.error('TTPBOT_REHEARSAL refused: ' + '; '.join(unsafe))
+    from .zora import startup_problems as zora_problems
+    misconfigured = zora_problems(os.environ, config)
+    if misconfigured:
+        parser.error('zora mode refused: ' + '; '.join(misconfigured))
     if args.check_config:
         print('TTPBOT_CONFIG=PASS destination={} league={}'.format(
             config.provider.destination_key,

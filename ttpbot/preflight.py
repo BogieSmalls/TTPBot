@@ -10,6 +10,7 @@ import requests
 
 from .bot import build_state_stores, is_ttp_scheduled_room
 from .state import StateStoreError, UNCERTAIN_RACE
+from .zora import is_zora_category
 
 
 class PreflightError(ValueError):
@@ -88,6 +89,13 @@ def _default_lock_probe(path='/run/ttpbot/scheduler.lock'):
     return False
 
 
+def _scheduler_lock(config):
+    """The lock its own service holds: ttpbot-zora.service's for the zora category."""
+    if config.provider is not None and is_zora_category(config.provider.category):
+        return '/run/ttpbot-zora/scheduler.lock'
+    return '/run/ttpbot/scheduler.lock'
+
+
 def _initial_checks(config):
     return {
         'configuration': bool(
@@ -131,7 +139,7 @@ def perform_preflight(
     )
 
     if probe:
-        held = (lock_probe or _default_lock_probe)()
+        held = lock_probe() if lock_probe else _default_lock_probe(_scheduler_lock(config))
         checks['scheduler_lock_available'] = not held
         provider_client = client or HttpPreflightClient(config)
         try:

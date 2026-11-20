@@ -1,0 +1,42 @@
+{
+  "_comment": "zora.gg's presets.json: Council's flagsets contract (flagsets-contract.json) read with validate_snapshot(snapshot, zora=True). Every case there means the same here; these are the cases only zora mode has.",
+  "valid": [
+    {"why": "a Z1R string with a ZORA string", "snapshot": {"schemaVersion": 1, "revision": 1, "updatedAt": "2026-11-17T20:00:00.000Z", "flagsets": [
+      {"name": "All Swords No Boards", "description": null, "shortcuts": ["asnb"], "strings": [{"flags": "8hq4BeR1JXo7yjOOHjbxryVQW!UJ3A", "zora": "4.T9Jvg", "isLatest": true}]}
+    ]}},
+    {"why": "an empty ZORA string, and none at all", "snapshot": {"schemaVersion": 1, "revision": 1, "flagsets": [
+      {"name": "Hopla", "description": null, "shortcuts": ["hopla"], "strings": [{"flags": "oIbnRjuMUKqwdnOXzOMO7PuDtwAvU3boJnaXW", "zora": "", "isLatest": true}]},
+      {"name": "Vanilla", "description": null, "shortcuts": ["vanilla"], "strings": [{"flags": "CEERPCkLslB6BApr1Him1SiR28Y", "isLatest": true}]}
+    ]}},
+    {"why": "one Z1R string in two flagsets with different ZORA strings", "snapshot": {"schemaVersion": 1, "revision": 3, "flagsets": [
+      {"name": "Zora The Explorer Week 1", "description": null, "shortcuts": ["zte1"], "strings": [{"flags": "143oNtDD4PAvB!U8nSk4yS8L09lgT10vRVe7sx", "zora": "10.J2EGOED", "isLatest": true}]},
+      {"name": "Zora The Explorer Week 2", "description": null, "shortcuts": ["zte2"], "strings": [{"flags": "143oNtDD4PAvB!U8nSk4yS8L09lgT10vRVe7sx", "zora": "10.J2EkcYg", "isLatest": true}]}
+    ]}},
+    {"why": "one Z1R string with and without a ZORA string", "snapshot": {"schemaVersion": 1, "revision": 3, "flagsets": [
+      {"name": "Consternation", "description": null, "shortcuts": [], "strings": [{"flags": "oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A", "isLatest": true}]},
+      {"name": "Consternation with ZORA", "description": null, "shortcuts": [], "strings": [{"flags": "oIbnPfPb01Hll3D29Bc2!etrojQOSjJQZUJ3A", "zora": "18.1DzN7gO9LZ4p", "isLatest": true}]}
+    ]}}
+  ],
+  "invalid": [
+    {"why": "the same pair in two flagsets", "snapshot": {"schemaVersion": 1, "revision": 1, "flagsets": [
+      {"name": "A", "description": null, "shortcuts": [], "strings": [{"flags": "AAAA", "zora": "4.T9Jvg", "isLatest": true}]},
+      {"name": "B", "description": null, "shortcuts": [], "strings": [{"flags": "AAAA", "zora": "4.T9Jvg", "isLatest": true}]}
+    ]}},
+    {"why": "an empty and an absent ZORA string are the same", "snapshot": {"schemaVersion": 1, "revision": 1, "flagsets": [
+      {"name": "A", "description": null, "shortcuts": [], "strings": [{"flags": "AAAA", "zora": "", "isLatest": true}]},
+      {"name": "B", "description": null, "shortcuts": [], "strings": [{"flags": "AAAA", "isLatest": true}]}
+    ]}},
+    {"why": "a ZORA string with no version", "snapshot": {"schemaVersion": 1, "revision": 1, "flagsets": [
+      {"name": "A", "description": null, "shortcuts": [], "strings": [{"flags": "AAAA", "zora": "T9Jvg", "isLatest": true}]}
+    ]}},
+    {"why": "a ZORA string written with _ for !", "snapshot": {"schemaVersion": 1, "revision": 1, "flagsets": [
+      {"name": "A", "description": null, "shortcuts": [], "strings": [{"flags": "AAAA", "zora": "4.T9_vg", "isLatest": true}]}
+    ]}},
+    {"why": "a ZORA string that is not a string", "snapshot": {"schemaVersion": 1, "revision": 1, "flagsets": [
+      {"name": "A", "description": null, "shortcuts": [], "strings": [{"flags": "AAAA", "zora": 4, "isLatest": true}]}
+    ]}},
+    {"why": "a null ZORA string", "snapshot": {"schemaVersion": 1, "revision": 1, "flagsets": [
+      {"name": "A", "description": null, "shortcuts": [], "strings": [{"flags": "AAAA", "zora": null, "isLatest": true}]}
+    ]}}
+  ]
+}
