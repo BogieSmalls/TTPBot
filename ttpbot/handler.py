@@ -223,12 +223,9 @@ class TTPRaceHandler(RaceHandler):
     #: A room in ZORA's own category (ttpbot/zora.py): TTPBot's seed commands
     #: with a ZORA flag string, and nothing else.
     zora_room = False
-    #: A zora room holds commands from begin() until chat history says whether
-    #: a seed stands (_zora_pending), and runs each command once (_zora_run,
-    #: racetime's message ids).
-    _zora_awaiting_history = False
-    _zora_pending = ()
-    _zora_run = frozenset()
+    #: A list while waiting for the first history, None once commands can run.
+    _pending_commands = None
+    _command_ids = None
     roll_state = picks.NONE
     _ttp_history_seen = False
     _ttp_started = False
@@ -297,11 +294,10 @@ class TTPRaceHandler(RaceHandler):
 
     async def begin(self):
         self.zora_room = is_zora_room(self.data)
-        if self.zora_room:
-            # A new handler knows nothing of the room's roll until history is in,
-            # and a roll before then could replace the seed racers are using.
-            self._zora_awaiting_history = True
-            self._zora_pending = []
+        # Commands can arrive before gethistory returns. Recover the roll and
+        # SahasrahBot's presence before letting a command spend or clear a seed.
+        self._pending_commands = []
+        self._command_ids = set()
         self.ttp_scheduled_room = is_ttp_scheduled_room(self.data)
         self.league_room = is_league_room(self.data)
         self.autumn_room = is_autumn_room(self.data)
@@ -1087,14 +1083,12 @@ class TTPRaceHandler(RaceHandler):
                 await self.send_message(GENERIC_WELCOME_MESSAGE)
             self.state['welcomed'] = True
 
-        # History is applied: a zora room's commands run from here, those it
-        # replays from history first, then those held since begin().
-        self._zora_awaiting_history = False
+        # History establishes seed state, then replays commands chronologically.
+        # A live copy of a replayed command carries the same racetime message id.
+        held, self._pending_commands = self._pending_commands, None
         await self._handle_recent_history_commands(messages)
-        if self.zora_room:
-            held, self._zora_pending = self._zora_pending, []
-            for command, args, message in held:
-                await self._zora_dispatch(command, args, message)
+        for command, args, message in held or ():
+            await self._dispatch_command(command, args, message)
 
         if self.ttp_tournament_room:
             await self._ttp_after_history()
@@ -1329,7 +1323,7 @@ class TTPRaceHandler(RaceHandler):
                 if not is_own_message(message):
                     await self._ttp_set_roll(picks.roll_state([message], start=self.roll_state))
                 return
-            if self.zora_room and is_own_message(message):
+            if is_own_message(message):
                 # Its own rolls and cancels took effect when it made them. Read
                 # back, a "complete" that arrives after a !cancel would undo it.
                 return
@@ -1354,40 +1348,9 @@ class TTPRaceHandler(RaceHandler):
         # Check for !commands first (via parent)
         words = text.lower().split()
         if words and words[0].startswith(self.command_prefix.lower()):
-            method = 'ex_' + words[0][len(self.command_prefix):]
             args = text.split()[1:]  # preserve original case for flag strings
             command = words[0][len(self.command_prefix):]
-            if self.zora_room:
-                await self._zora_dispatch(command, args, message)
-                return
-            if self.ttp_tournament_room:
-                try:
-                    if await self._ttp_command(command, message):
-                        return
-                except Exception:
-                    self.logger.error('Tournament pick command raised exception.', exc_info=True)
-                    return
-            if hasattr(self, method):
-                self.logger.info('[%(race)s] Calling handler for %(word)s' % {
-                    'race': self.data.get('name'),
-                    'word': words[0],
-                })
-                try:
-                    await getattr(self, method)(args, message)
-                except Exception:
-                    self.logger.error('Command raised exception.', exc_info=True)
-            elif seasons.by_random_command(command):
-                try:
-                    await self._roll_season_random(seasons.by_random_command(command), message)
-                except Exception:
-                    self.logger.error('Command raised exception.', exc_info=True)
-            elif registry.is_shortcut(command):
-                # !consternation is how people ask for a preset. SahasrahBot has
-                # no such command, so with it present this posts the flags.
-                try:
-                    await self._roll_unknown_to_sahasrahbot(command, message)
-                except Exception:
-                    self.logger.error('Command raised exception.', exc_info=True)
+            await self._dispatch_command(command, args, message)
             return
 
         # Check for confirmation from a different user than who proposed the hash
@@ -1993,27 +1956,38 @@ class TTPRaceHandler(RaceHandler):
             text = 'I could not confirm your TC choice was saved. Try again, or tell Council.'
         await self.send_message(text)
 
-    # -- zora rooms (ttpbot/zora.py) ------------------------------------------
-
-    async def _zora_dispatch(self, command, args, message):
-        """A zora room's command: held until chat history is in, and run once.
-
-        A command can arrive live and also be replayed from history; racetime's
-        message id runs it once.
-        """
-        if self._zora_awaiting_history:
+    async def _dispatch_command(self, command, args, message):
+        """Run live and replayed commands once, after history restores the room."""
+        if self._pending_commands is not None:
             self.logger.info('[%s] Holding !%s until chat history is in', self.data.get('name'), command)
-            self._zora_pending.append((command, args, message))
+            self._pending_commands.append((command, args, message))
             return
         key = message.get('id')
-        if key in self._zora_run:
-            return
-        if key:
-            self._zora_run = self._zora_run | {key}
+        if key and self._command_ids is not None:
+            if key in self._command_ids:
+                return
+            self._command_ids.add(key)
         try:
-            await self._zora_command(command, args, message)
+            if self.zora_room:
+                await self._zora_command(command, args, message)
+                return
+            if self.ttp_tournament_room and await self._ttp_command(command, message):
+                return
+            method = getattr(self, 'ex_' + command, None)
+            if method is not None:
+                self.logger.info('[%s] Calling handler for !%s', self.data.get('name'), command)
+                await method(args, message)
+                return
+            season = seasons.by_random_command(command)
+            if season:
+                await self._roll_season_random(season, message)
+            elif registry.is_shortcut(command):
+                # A preset shortcut posts the flags when SahasrahBot is present.
+                await self._roll_unknown_to_sahasrahbot(command, message)
         except Exception:
             self.logger.error('Command raised exception.', exc_info=True)
+
+    # -- zora rooms (ttpbot/zora.py) ------------------------------------------
 
     async def _zora_command(self, command, args, message):
         """A zora room's commands: TTPBot's seed commands and ZORA preset shortcuts.
