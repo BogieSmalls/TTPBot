@@ -192,6 +192,15 @@ class ZoraRoomTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('Item Shuffle: Random (No Vanilla)', reply)
         self.assertTrue(all(len(message) <= 500 for message in handler.messages))
 
+    async def test_base_print_quest_info_on_does_not_add_a_zora_rule(self):
+        handler = zora_handler()
+        # ASNB's base flag string, with only B51 (Print Quest Info) turned on.
+        await self.say(handler, '!summary 91250lSP91JdxpR4V55maWlQu8UJ3A none')
+        reply = ' '.join(handler.messages)
+        self.assertIn('Item Shuffle: Full', reply)
+        self.assertNotIn('Spoiler Log', reply)
+        self.assertNotIn('Print Quest Info', reply)
+
     async def test_summary_names_the_room_by_pair_with_loaded_feed_and_old_labels(self):
         self.reader.install(FEED)
         handler = zora_handler()

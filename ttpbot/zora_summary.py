@@ -80,7 +80,7 @@ def format_zora_summary(flags, extra, registry):
     controls = {}
     for control in spec['combined_controls']:
         keys = control['fields']
-        if not changed.intersection(keys) and not ('B51' in keys and values['B51']):
+        if not changed.intersection(keys):
             continue
         match = next((option for option in control['values']
                       if all(values[key] == value for key, value in option['fields'].items())), None)
