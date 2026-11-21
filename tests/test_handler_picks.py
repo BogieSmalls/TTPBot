@@ -193,7 +193,7 @@ class Room:
             'edition': '5', 'match_id': 'W1-25', 'game': self.game, 'runners': ['thomjay', 'specialk3782'],
             'when': START.isoformat(), 'round': 'Round 1'}
 
-    async def open(self, seeded=True):
+    async def open(self, seeded=True, deliver_history=True):
         """Connect: begin, then the chat history racetime sends back."""
         state = {}
         handler = TTPRaceHandler(conn=None, logger=LOG, state=state)
@@ -220,7 +220,8 @@ class Room:
         # TTP is switched on: with Z1RR_TTP_ENABLED off no room is a tournament room.
         with patch.dict('os.environ', {'Z1RR_TTP_ENABLED': 'true'}):
             await handler.begin()
-        await handler.chat_history({'messages': list(self.chat)})
+        if deliver_history:
+            await handler.chat_history({'messages': list(self.chat)})
         return handler
 
     async def land_seed(self):
@@ -284,6 +285,24 @@ def game3_engine():
 
 
 class CancelledRolls(unittest.IsolatedAsyncioTestCase):
+    async def test_a_cancel_received_before_history_warns_once_even_if_history_replays_it(self):
+        for replayed in (False, True):
+            with self.subTest(replayed=replayed):
+                room = Room(3, game3_engine())
+                completed, cancel = history(('TTPBot', ROLLED), ('host', '!cancel', True))
+                cancel['id'] = 'cancel-before-history'
+                room.chat = [completed]
+                room.data['info_bot'] = 'Seed: 1 - Flags: ' + PICK5
+                handler = await room.open(deliver_history=False)
+                await handler.chat_message({'message': cancel})
+                self.assertNotIn(CLEARED, room.said)
+                if replayed:
+                    handler.history_command_cutoff_utc = room.clock
+                await handler.chat_history({'messages': [completed, cancel] if replayed else [completed]})
+                self.assertEqual(handler.roll_state, tr.CANCELLED)
+                self.assertEqual(room.said.count(CLEARED), 1)
+                self.assertEqual(room.said.count(tr.CANCELLED_WARNING), 1)
+
     async def test_a_cancelled_roll_uses_nothing_up(self):  # Codex requirement 1, using the formats in the room logs
         room = Room(3, game3_engine())
         await room.open()

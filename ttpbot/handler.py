@@ -1083,15 +1083,17 @@ class TTPRaceHandler(RaceHandler):
                 await self.send_message(GENERIC_WELCOME_MESSAGE)
             self.state['welcomed'] = True
 
+        # Enable tournament warnings for the recovered roll before dispatching
+        # a cancel, including one received both live and in the history.
+        if self.ttp_tournament_room:
+            await self._ttp_after_history()
+
         # History establishes seed state, then replays commands chronologically.
         # A live copy of a replayed command carries the same racetime message id.
         held, self._pending_commands = self._pending_commands, None
         await self._handle_recent_history_commands(messages)
         for command, args, message in held or ():
             await self._dispatch_command(command, args, message)
-
-        if self.ttp_tournament_room:
-            await self._ttp_after_history()
 
     def _parse_history_timestamp(self, raw_timestamp):
         if not raw_timestamp:
