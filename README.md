@@ -93,7 +93,10 @@ seed commands with a second, optional flag string for ZORA:
 - `!flags <flagstring> [zora flags]` rolls with a Z1R flag string and a ZORA one
 - `!race <preset>` and `!<preset>` roll a ZORA preset (zora.gg's `presets.json`
   through `ZORA_PRESETS_URL`, or the built-in `ZORA_PRESETS`)
-- `!cancel`, `!summary` and `!help` work as in z1r
+- `!summary` describes the current seed. Use `!summary <preset>` or
+  `!summary <flagstring> [zora flags]` for another pair. The bot reads
+  ZORA 2.0.1 rules offline and reports ZORA settings first.
+- `!cancel` clears a roll and `!help` lists the room commands
 
 Race info reads `Seed: N - Flags: <z1r> - ZORA: <zora> - <zora.gg link>`, and the
 link opens zora.gg with both flag strings and the seed. Nothing in the z1r

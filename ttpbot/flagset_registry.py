@@ -159,6 +159,7 @@ class FlagsetRegistry:
         self._shortcuts = None
         self._names = None
         self._built_in_zora = {reduce(key): zora for key, zora in (zora_strings or {}).items()}
+        self._pair_names = {(presets[key], extra): key for key, extra in (zora_strings or {}).items()}
         for alias, key in aliases.items():
             if key in (zora_strings or {}):
                 self._built_in_zora[reduce(alias)] = zora_strings[key]
@@ -196,12 +197,17 @@ class FlagsetRegistry:
         """The name of the flagset holding this exact string, at any version."""
         return (self._names or {}).get(flags)
 
+    def name_of_pair(self, flags, extra):
+        """The ZORA name at any known version, or the built-in key before a feed has loaded."""
+        return self._pair_names.get((flags, extra))
+
     def install(self, snapshot):
         """Take a copy already known to be valid."""
         forms = {}
         shortcuts = set()
         names = {}
         zora_forms = {}
+        pair_names = {}
         for flagset in snapshot['flagsets']:
             latest_entry = next(entry for entry in flagset['strings'] if entry['isLatest'])
             latest = latest_entry['flags']
@@ -211,11 +217,14 @@ class FlagsetRegistry:
             shortcuts.update(reduce(shortcut) for shortcut in flagset['shortcuts'])
             for entry in flagset['strings']:
                 names[entry['flags']] = flagset['name']
+                if self.zora:
+                    pair_names[entry['flags'], entry.get('zora') or ''] = flagset['name']
         self._forms = forms
         self._shortcuts = shortcuts
         self._names = names
         if self.zora:
             self._zora_forms = zora_forms
+            self._pair_names = pair_names
 
     def load_cache(self):
         """The last good copy from disk, so a restart needs nothing from the network."""

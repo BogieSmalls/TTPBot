@@ -11,7 +11,7 @@ setup(
         'tzdata>=2026.3; platform_system=="Windows"',
     ],
     packages=find_packages(),
-    package_data={'ttpbot.league': ['roster.json']},
+    package_data={'ttpbot': ['zora_data/*.json'], 'ttpbot.league': ['roster.json']},
     include_package_data=True,
     entry_points={
         'console_scripts': [
