@@ -17,6 +17,7 @@ _LEAGUE_RESULTS = set()
 TOURNAMENT_LABELS = {'autumn': 'Autumn', 'corto': 'Torneo Corto', 'ttp': 'TTP tournament'}
 
 from .flag_summary import FlagStringError, decode as decode_flags, format_summary
+from .zora_summary import format_zora_summary, room_pair
 from .flagset_registry import reduce as reduce_word, registry, zora_registry
 from .grace import GRACE_START, STARTED, GraceRace, entrants_from
 from .matchup import matchup_reply
@@ -85,7 +86,7 @@ _ZORA_HELP_LINES = (
     '    !flags <flagstring> [zora flags]  Roll a seed with a Z1R flag string and, optionally, a ZORA one',
     '    !cancel                     Clear the rolled seed to roll again',
     '  Flags:',
-    "    !summary [flagstring]       Summarize a flag string or preset (default: this room's seed)",
+    "    !summary [preset or <flagstring> [zora flags]]  Summarize flags (default: this room's seed)",
     f'  {ZORA_PRESET_LIST}',
 )
 
@@ -1706,8 +1707,10 @@ class TTPRaceHandler(RaceHandler):
         flag string it reads the one this room's seed was rolled with.
         """
         # A shortcut, e.g. !summary ttp5uphill, stands for its latest string.
-        presets = zora_registry if self.zora_room else registry
-        flags = (presets.resolve(args[0]) or args[0]) if args else self._room_flag_string()
+        if self.zora_room:
+            await self._zora_summary(args)
+            return
+        flags = (registry.resolve(args[0]) or args[0]) if args else self._room_flag_string()
         if not flags:
             await self.send_message(
                 'Usage: !summary <flagstring> (no seed has been rolled here yet)'
@@ -2022,6 +2025,25 @@ class TTPRaceHandler(RaceHandler):
             await getattr(self, 'ex_' + command)(args, message)
         elif zora_registry.is_shortcut(command):
             await self._zora_race([command])
+
+    async def _zora_summary(self, args):
+        if not args:
+            pair = room_pair(self.data)
+        else:
+            # Look up a complete preset name first (it can contain spaces).
+            pair = zora_registry.resolve_pair(' '.join(args))
+            if pair is None and len(args) <= 2:
+                pair = (args[0], args[1] if len(args) == 2 else '')
+        if pair is None:
+            await self.send_message('Usage: !summary [preset or <flagstring> [zora flags]]')
+            return
+        try:
+            replies = format_zora_summary(*pair, zora_registry)
+        except FlagStringError:
+            await self.send_message("Couldn't read that flag string.")
+            return
+        for reply in replies:
+            await self.send_message(reply)
 
     async def _zora_flags(self, args):
         """!flags <flagstring> [zora flags]: z1r's checks on the Z1R string, and a ZORA string if given."""

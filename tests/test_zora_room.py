@@ -168,14 +168,72 @@ class ZoraRoomTests(unittest.IsolatedAsyncioTestCase):
         await self.say(handler, '!cancel')
         self.assertEqual(handler.messages, ['No seed has been rolled yet.'])
 
-    async def test_summary_reads_zora_presets_and_the_rooms_z1r_string(self):
+    async def test_summary_reads_a_preset_or_the_rooms_flag_pair(self):
         handler = zora_handler()
-        with patch('ttpbot.handler.format_summary', return_value=['summary']) as summary:
-            await self.say(handler, '!summary zte5')
-            summary.assert_called_with(ZTE5[0])
-            handler.data['info_bot'] = INFO
+        await self.say(handler, '!summary zte4')
+        self.assertIn('L4 Sword: added (extra floor item in Level 9)', ' '.join(handler.messages))
+        handler.messages.clear()
+        handler.data['info_bot'] = f'Seed: 1234 - Flags: {ASNB[0]} - ZORA: {ASNB[1]} - https://zora.gg/'
+        await self.say(handler, '!summary')
+        self.assertTrue(handler.messages[0].startswith('Flags (asnb)'))
+        reply = ' '.join(handler.messages)
+        for line in ('Progressive Items: On', 'L4 Sword: added (extra item staircase in Level 2)',
+                     'Level 9 Entrance: Level 4 sword'):
+            self.assertLess(reply.index(line), reply.index('Quest:'))
+
+    async def test_secondary_flags_override_the_base_summary_once_and_fit_in_chat(self):
+        handler = zora_handler()
+        flags, extra = ZORA_PRESETS['consternationplus']
+        await self.say(handler, f'!summary {flags} {extra}')
+        reply = ' '.join(handler.messages)
+        self.assertTrue(reply.startswith('Flags (consternationplus)'))
+        self.assertIn('Randomize Magical Sword: On', reply)
+        self.assertEqual(reply.count('Item Shuffle:'), 1)
+        self.assertIn('Item Shuffle: Random (No Vanilla)', reply)
+        self.assertTrue(all(len(message) <= 500 for message in handler.messages))
+
+    async def test_summary_names_the_room_by_pair_with_loaded_feed_and_old_labels(self):
+        self.reader.install(FEED)
+        handler = zora_handler()
+        for key, name in [('zte1', 'Zora The Explorer Week 1'), ('zte2', 'Zora The Explorer Week 2')]:
+            flags, extra = ZORA_PRESETS[key]
+            handler.data['info_bot'] = f'{name} - Seed: 1234 - Z1R Flags: {flags} - ZORA Flags: {extra}'
+            handler.messages.clear()
             await self.say(handler, '!summary')
-            summary.assert_called_with(ZTE5[0])
+            self.assertTrue(handler.messages[0].startswith(f'Flags ({name})'))
+
+    async def test_summary_reads_none_as_defaults_and_keeps_original_builtin_key(self):
+        handler = zora_handler()
+        for key in ('hopla', 'consternation-noenc'):
+            flags, _ = ZORA_PRESETS[key]
+            handler.data['info_bot'] = f'Seed: 1234 - Flags: {flags} - ZORA: none - https://zora.gg/'
+            handler.messages.clear()
+            await self.say(handler, '!summary')
+            self.assertTrue(handler.messages[0].startswith(f'Flags ({key})'))
+            self.assertNotIn('not readable', ' '.join(handler.messages))
+
+    async def test_unread_zora_flags_leave_the_base_settings_available(self):
+        handler = zora_handler()
+        for extra in ('99.0', 'oops', '1.zzzzzzz'):
+            handler.messages.clear()
+            await self.say(handler, f'!summary {ASNB[0]} {extra}')
+            reply = ' '.join(handler.messages)
+            self.assertIn(f'ZORA flags: {extra} (not readable here)', reply)
+            self.assertIn('Quest:', reply)
+            self.assertNotIn('Progressive Items:', reply)
+
+    async def test_unlisted_control_combinations_show_their_individual_values(self):
+        handler = zora_handler()
+        await self.say(handler, f'!summary {ASNB[0]} 4.99')
+        reply = ' '.join(handler.messages)
+        self.assertIn('Add L4 Sword: Random', reply)
+        self.assertIn('Add L4 Sword: Level 2: Off', reply)
+        handler.messages.clear()
+        # B51=Random with detailed_spoiler_log=On has no combined page value.
+        await self.say(handler, '!summary eQ1fE2lfz20zC5NQizeS7W0kI0000 22.7KrCi9O0yDms')
+        reply = ' '.join(handler.messages)
+        self.assertIn('Print Quest Info: Random', reply)
+        self.assertIn('Detailed Spoiler Log: On', reply)
 
     async def test_its_own_late_completion_does_not_undo_a_cancel(self):
         # A !cancel typed while the bot was still sending its roll is read
@@ -199,6 +257,7 @@ class ZoraRoomTests(unittest.IsolatedAsyncioTestCase):
         await self.say(handler, '!help')
         self.assertEqual(len(handler.messages), 1)
         self.assertIn('!flags <flagstring> [zora flags]', handler.messages[0])
+        self.assertIn('!summary [preset or <flagstring> [zora flags]]', handler.messages[0])
         for z1r_only in ('!ttp', '!leagueweek', '!schedule', '!grace', '!z1rr', '!ttpbot', '!matchup'):
             self.assertNotIn(z1r_only, handler.messages[0])
 

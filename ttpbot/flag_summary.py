@@ -299,6 +299,10 @@ def _abbreviate(line):
 def summary_lines(flag_string):
     """The lines worth saying in chat: filtered, then abbreviated."""
     combos, checkboxes = decode(flag_string)
+    return base_summary_lines(combos, checkboxes)
+
+
+def base_summary_lines(combos, checkboxes):
     cave_shuffle = combos['cavesToShuffle']
     return [
         # Filter before abbreviating, which rewrites labels the sets match on.
@@ -382,8 +386,12 @@ def format_summary(flag_string, limit=MESSAGE_LIMIT):
     Raises FlagStringError if the string cannot be decoded.
     """
     lines = summary_lines(flag_string)
-    preset = preset_name(flag_string)
-    items = _items(lines)
+    return pack_summary(preset_name(flag_string), lines, limit=limit)
+
+
+def pack_summary(preset, lines, first=(), limit=MESSAGE_LIMIT):
+    """Keep priority settings ahead of the grouped Z1R settings in chat."""
+    items = [(None, line) for line in first] + _items(lines)
     if not items:
         return [f"{_heading(1, 1, preset)}standard settings"]
     for total in range(1, 9):
