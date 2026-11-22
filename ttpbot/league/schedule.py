@@ -65,6 +65,7 @@ class LeagueRace:
     #: invites and the Discord post are unaffected - Phase 1 never needed it.
     fixture: Optional[object] = None
     tracker2: Optional[str] = None
+    autotracker: Optional[str] = None
 
     @property
     def away_racer(self):
@@ -242,6 +243,7 @@ def parse_schedule(csv_text, roster, logger, matchups=None):
             comms=comms,
             tracker=_cell(row, columns, 'tracker') or None,
             tracker2=_cell(row, columns, 'tracker2') or None,
+            autotracker=_cell(row, columns, 'autotracker') if columns.get('autotracker') is not None else None,
             game=int(game_text) if game_text.isdigit() else None,
             fixture=fixture,
         ))

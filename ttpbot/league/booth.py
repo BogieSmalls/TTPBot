@@ -70,6 +70,8 @@ async def request_booth(payload, base_url, token, logger, requester=None, *,
         return BoothOutcome()
 
     request = requester if requester is not None else aiohttp.request
+    if payload.get('clearDesktopSeatOnly'):
+        endpoint += '/clear-desktop-seat'
     url = base_url.rstrip('/') + endpoint
     try:
         async with request(

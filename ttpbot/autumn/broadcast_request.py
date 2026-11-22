@@ -2,11 +2,12 @@
 from datetime import timezone
 import re
 import math
+from ..league.broadcast_request import staffed_booking
 from ..room_policy import tournament_name
 from urllib.parse import urlsplit
 
 
-def build_broadcast_request(race, row, room_url, document, crew, logger, *, edition, number=None, prepare_only=False):
+def build_broadcast_request(race, row, room_url, document, crew, logger, *, edition, number=None, prepare_only=False, clear_unstaffed=False):
     if row is None or not row.channel:
         return None
     slug = urlsplit(room_url or '').path.strip('/')
@@ -65,7 +66,12 @@ def build_broadcast_request(race, row, room_url, document, crew, logger, *, edit
         'trackerUserId': crew_id(row.tracker),
         'tracker2UserId': crew_id(row.tracker2),
     }
+    name = getattr(row, 'autotracker', None)
+    if name == '':
+        payload['autoTrackerUserId'] = None
+    elif name and (seat := crew_id(name)):
+        payload['autoTrackerUserId'] = seat
     if not slug:
         del payload['raceSlug']
 
-    return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None
+    return staffed_booking(payload, clear_unstaffed)

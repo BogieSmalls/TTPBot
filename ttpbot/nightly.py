@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 import aiohttp
 
 from .booth_slate import SLATE_HORIZON, SlateEntry, booking_signature
+from .league.broadcast_request import staffed_booking
 from .league.booth import request_booth, send_heads_up
 from .league.wake import wake_control_plane
 from .config import ROOM_OPEN_MINUTES_BEFORE
@@ -93,7 +94,7 @@ def _room_slug(room_url):
     return urlparse(room_url).path.strip('/') or None
 
 
-def booth_request(race_time, occurrence, room_url, crew, logger):
+def booth_request(race_time, occurrence, room_url, crew, logger, *, clear_unstaffed=False):
     """The nightly booth request, or None when Council has not booked a channel for it."""
     bookings = occurrence.get('bookings') or []
     channel = bookings[0].get('channel') if bookings else None
@@ -123,12 +124,16 @@ def booth_request(race_time, occurrence, room_url, crew, logger):
         'trackerUserId': user_id('tracker'),
         'tracker2UserId': user_id('tracker2'),
     }
-    if not (payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId']):
-        return None
+    if 'autotracker' in people:
+        seat = user_id('autotracker')
+        if seat:
+            payload['autoTrackerUserId'] = seat
+    else:
+        payload['autoTrackerUserId'] = None
     slug = _room_slug(room_url)
     if slug:
         payload['raceSlug'] = slug
-    return payload
+    return staffed_booking(payload, clear_unstaffed)
 
 
 def _staffed_channel(occurrence):
@@ -235,7 +240,8 @@ class NightlyBooths:
             return None
         if not occurrence:
             return None
-        payload = booth_request(race_time, occurrence, room_url, self.crew, self.logger)
+        payload = booth_request(race_time, occurrence, room_url, self.crew, self.logger,
+                                clear_unstaffed=True)
         if payload is None:
             return None
         if self.slate is not None:
@@ -245,7 +251,7 @@ class NightlyBooths:
         signature = booking_signature(payload)
         if self._sent.get(key) == signature:
             return None
-        if self.relay_wake_url:
+        if self.relay_wake_url and not payload.get('clearDesktopSeatOnly'):
             try:
                 await wake_control_plane(self.relay_wake_url, self.logger, token=self.relay_wake_token,
                                          target=self.wake_target)

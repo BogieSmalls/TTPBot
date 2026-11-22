@@ -85,7 +85,7 @@ class BoothRequestTests(unittest.TestCase):
         self.assertEqual(payload, {
             'requestKey': 'ttp:2026-11-06T01:00:00.000Z', 'twitchChannel': 'Z1Rracing5',
             'scheduledAt': '2026-11-06T01:00:00+00:00', 'title': 'TTP Nightly · Torneo Corto qualifier',
-            'racers': [], 'commentatorUserIds': ['u-Alice'], 'trackerUserId': 'u-Bob', 'tracker2UserId': None,
+            'racers': [], 'commentatorUserIds': ['u-Alice'], 'trackerUserId': 'u-Bob', 'tracker2UserId': None, 'autoTrackerUserId': None,
             'raceSlug': 'z1r/brave-goriya-1234',
         })
 

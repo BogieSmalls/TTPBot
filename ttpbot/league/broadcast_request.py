@@ -64,6 +64,25 @@ def _crew_user_id(crew, name, logger):
     return user_id
 
 
+def _add_desktop_seat(payload, name, crew, logger):
+    if name is None:
+        return
+    if not name:
+        payload['autoTrackerUserId'] = None
+        return
+    resolved = _crew_user_id(crew, name, logger)
+    if resolved:
+        payload['autoTrackerUserId'] = resolved
+
+
+def staffed_booking(payload, clear_unstaffed=False):
+    if any((payload['commentatorUserIds'], payload['trackerUserId'], payload['tracker2UserId'], payload.get('autoTrackerUserId'))):
+        return payload
+    if clear_unstaffed and 'autoTrackerUserId' in payload:
+        return {**payload, 'clearDesktopSeatOnly': True}
+    return None
+
+
 def _drop_missing_room(payload):
     """A heads-up (`prepare_only`) goes before the race room exists: it carries no raceSlug at all."""
     if not payload.get('raceSlug'):
@@ -71,7 +90,7 @@ def _drop_missing_room(payload):
     return payload
 
 
-def _series_request(race, race_slug, crew, logger, prepare_only=False):
+def _series_request(race, race_slug, crew, logger, prepare_only=False, clear_unstaffed=False):
     """One booth for a series game: four racers, each row a pairing.
 
     Slots run row by row, lower seed then higher (1-2 the first pairing, 3-4
@@ -104,12 +123,13 @@ def _series_request(race, race_slug, crew, logger, prepare_only=False):
         'series': True,
     }
     _drop_missing_room(payload)
-    return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None
+    _add_desktop_seat(payload, getattr(race, 'autotracker', None), crew, logger)
+    return staffed_booking(payload, clear_unstaffed)
 
 
-def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=False, prepare_only=False):
+def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=False, prepare_only=False, clear_unstaffed=False):
     if series:
-        return _series_request(race, race_slug, crew, logger, prepare_only)
+        return _series_request(race, race_slug, crew, logger, prepare_only, clear_unstaffed)
     """The booth request body, or None when this race must not get a booth.
 
     `crew` resolves a schedule name to a managed-user id - not a Discord id.
@@ -169,14 +189,15 @@ def build_broadcast_request(race, race_slug, crew, logger, coop=False, series=Fa
         # banner off for this race room.
         payload['coop'] = True
     _drop_missing_room(payload)
-    return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None
+    _add_desktop_seat(payload, getattr(race, 'autotracker', None), crew, logger)
+    return staffed_booking(payload, clear_unstaffed)
 
 
 #: The booth's crew limits: the control plane refuses a request naming more.
 MAX_COMMENTATORS = 2
 
 
-def build_coop_broadcast_request(match, race_slug, crew, logger, prepare_only=False):
+def build_coop_broadcast_request(match, race_slug, crew, logger, prepare_only=False, clear_unstaffed=False):
     """One four-racer booth for a whole co-op match, or None.
 
     Both teams on one canvas: the away pair in slots 1-2 and the home pair in
@@ -236,4 +257,5 @@ def build_coop_broadcast_request(match, race_slug, crew, logger, prepare_only=Fa
         'coop': True,
     }
     _drop_missing_room(payload)
-    return payload if payload['commentatorUserIds'] or payload['trackerUserId'] or payload['tracker2UserId'] else None
+    _add_desktop_seat(payload, getattr(match, 'autotracker', None), crew, logger)
+    return staffed_booking(payload, clear_unstaffed)

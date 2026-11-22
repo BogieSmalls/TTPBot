@@ -111,6 +111,14 @@ class CoopMatch:
         return _unique(name for row in self.rows for name in row.comms)
 
     @property
+    def autotracker(self):
+        values = [getattr(row, 'autotracker', None) for row in self.rows]
+        names = {value for value in values if value}
+        if len(names) == 1:
+            return names.pop()
+        return '' if not names and '' in values else None
+
+    @property
     def trackers(self):
         """Every tracker either row names. Both are credited: silently
         picking one would drop a volunteer from the announcement."""

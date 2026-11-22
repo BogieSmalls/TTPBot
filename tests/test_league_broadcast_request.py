@@ -53,6 +53,26 @@ def race(**overrides):
 
 
 class BuildBroadcastRequestTests(unittest.TestCase):
+    def test_desktop_seat_reaches_booth_as_managed_user_without_taking_a_tracker_slot(self):
+        payload = build_broadcast_request(race(comms=(), tracker=None, autotracker='Bogie'), 'z1r/test', CREW, QUIET)
+        self.assertEqual(payload['autoTrackerUserId'], 'u-a')
+        self.assertIsNone(payload['trackerUserId'])
+        self.assertEqual(payload['commentatorUserIds'], [])
+
+    def test_one_person_can_be_the_commentator_and_desktop_operator(self):
+        booking = build_broadcast_request(race(comms=('Bogie',), autotracker='Bogie'), 'z1r/test', CREW, QUIET)
+        self.assertEqual(booking['commentatorUserIds'], ['u-a'])
+        self.assertEqual(booking['autoTrackerUserId'], 'u-a')
+
+    def test_removing_the_only_seat_reconciles_an_existing_booking(self):
+        empty = race(comms=(), tracker=None, autotracker='')
+        self.assertIsNone(build_broadcast_request(empty, 'z1r/test', CREW, QUIET))
+        change = build_broadcast_request(empty, 'z1r/test', CREW, QUIET, clear_unstaffed=True)
+        self.assertTrue(change['clearDesktopSeatOnly'])
+        self.assertIsNone(change['autoTrackerUserId'])
+        legacy = race(comms=(), tracker=None, autotracker=None)
+        self.assertIsNone(build_broadcast_request(legacy, 'z1r/test', CREW, QUIET, clear_unstaffed=True))
+
     def test_both_trackers_are_sent_without_commentators(self):
         payload = build_broadcast_request(race(comms=(), tracker='droois', tracker2='Bogie'), 'z1r/test', CREW, QUIET)
         self.assertEqual(payload['commentatorUserIds'], [])

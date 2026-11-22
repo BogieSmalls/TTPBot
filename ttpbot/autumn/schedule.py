@@ -72,11 +72,12 @@ class ScheduleRow:
     # Unknown bookings must never be interpreted as a verified booth update.
     crew_available: bool = True
     tracker2: str = ''
+    autotracker: Optional[str] = None
 
     @property
     def crew(self):
         """Whoever is on the restream, in the order the sheet lists them."""
-        return [name for name in (self.comms_one, self.comms_two, self.tracker, self.tracker2) if name]
+        return [name for name in (self.comms_one, self.comms_two, self.tracker, self.tracker2, self.autotracker) if name]
 
     def as_row(self):
         """The shape `matching.match_rows` takes."""
@@ -190,6 +191,7 @@ def parse_schedule(csv_text, logger=None):
             comms_two=cell(row, columns, 'comms_two'),
             tracker=cell(row, columns, 'tracker'),
             tracker2=cell(row, columns, 'tracker2'),
+            autotracker=cell(row, columns, 'autotracker') if columns.get('autotracker') is not None else None,
             channel=cell(row, columns, 'channel'),
             line=line, match_id=match_id, game=int(game_text) if game_text else None, status=status,
         ))
