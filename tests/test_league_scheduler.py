@@ -1517,6 +1517,17 @@ class CoopFourRacerBoothTests(CoopSchedulerTests):
         self.assertEqual(booth.await_count, 2)
         self.assertEqual(booth.await_args_list[0].args[0], booth.await_args_list[1].args[0])
 
+    async def test_desktop_invite_retry_keeps_the_same_league_booth(self):
+        from ttpbot.league.booth import _unwrap
+        staged = {'outcome': 'staged', 'broadcastId': 'b1'}
+        failure = dict(staged, desktopInvite={'result': 'failed', 'reason': 'failed'})
+        scheduler = self.scheduler(_coop_rows())
+        booth = AsyncMock(side_effect=[_unwrap(failure), _unwrap(dict(staged, desktopInvite={'result': 'sent'}))])
+        for minutes in (30, 29, 28):
+            await self.tick(scheduler, booth=booth, minutes=minutes)
+        self.assertEqual(booth.await_count, 2)
+        self.assertEqual(booth.await_args_list[0], booth.await_args_list[1])
+
     async def test_a_lane_that_cannot_host_four_racers_gets_the_row_booths_instead(self):
         scheduler = self.scheduler(_coop_rows(channel_two='Z1Rracing2'))
         booth = AsyncMock(side_effect=[

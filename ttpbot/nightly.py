@@ -260,7 +260,9 @@ class NightlyBooths:
                 return None
         outcome = await request_booth(payload, self.booth_url, self.booth_token, self.logger, self.requester,
                                       endpoint='/internal/relay/ttp/broadcast', label='TTP Nightly')
-        if outcome.outcome is not None:
+        if outcome.retry_desktop_invite:
+            self._sent.pop(key, None)
+        elif outcome.outcome is not None:
             self._sent[key] = signature
         return outcome
 
