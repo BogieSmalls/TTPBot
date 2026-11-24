@@ -87,6 +87,25 @@ class AutumnBoothTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.booths.request(self.race, self.row, ROOM_URL)).broadcast_id, 'b0')
             self.assertEqual(request.await_count, 1)
 
+    async def test_retries_definite_desktop_invite_failure_without_rebooking_after_delivery(self):
+        from dataclasses import replace
+        from ttpbot.league.booth import _unwrap
+        row = replace(self.row, tracker2='', autotracker='Trainee')
+        for reason, expected_calls in [('failed', 2), ('disabled', 2), ('seat_holder_unavailable', 2),
+                                       ('delivery_uncertain', 1)]:
+            with self.subTest(reason=reason):
+                self.booths._outcomes.clear()
+                staged = {'outcome': 'staged', 'broadcastId': 'one'}
+                failed = dict(staged, desktopInvite={'result': 'failed', 'reason': reason})
+                sent = dict(staged, desktopInvite={'result': 'sent'})
+                with patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:
+                    request.side_effect = [_unwrap(failed), _unwrap({'outcome': 'already_done', 'result': sent})]
+                    for _ in range(3):
+                        outcome = await self.booths.request(self.race, row, ROOM_URL)
+                        self.assertEqual((outcome.outcome, outcome.broadcast_id), ('staged', 'one'))
+                    self.assertEqual(request.await_count, expected_calls)
+                    self.assertEqual(request.await_args_list[0], request.await_args_list[-1])
+
     async def test_heads_up_is_sent_once_without_a_room(self):
         with patch('ttpbot.autumn.booths.send_heads_up', new_callable=AsyncMock) as heads_up, \
              patch('ttpbot.autumn.booths.request_booth', new_callable=AsyncMock) as request:

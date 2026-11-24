@@ -519,7 +519,9 @@ class LeagueScheduler:
             # A booth failure must never cost the room its announcement.
             self.logger.warning('League booth request failed for %s', race.title, exc_info=True)
             return BoothOutcome()
-        if outcome.outcome is not None:
+        if outcome.retry_desktop_invite:
+            self._booth_outcomes.pop(race.key, None)
+        elif outcome.outcome is not None:
             self._booth_outcomes[race.key] = (signature, outcome)
         return outcome
 

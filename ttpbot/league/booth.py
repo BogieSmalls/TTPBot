@@ -35,6 +35,8 @@ class BoothOutcome:
     broadcast_id: Optional[str] = None
     #: Why the control plane refused, when it said (a 409's `reason`).
     refusal: Optional[str] = None
+    #: The booth exists, but Restream confirmed the desktop link was not delivered.
+    retry_desktop_invite: bool = False
 
     @property
     def is_continuation(self) -> bool:
@@ -57,9 +59,14 @@ def _unwrap(payload):
     if not isinstance(outcome, str):
         return BoothOutcome()
     broadcast_id = payload.get('broadcastId')
+    invite = payload.get('desktopInvite')
     return BoothOutcome(
         outcome=outcome,
         broadcast_id=broadcast_id if isinstance(broadcast_id, str) else None,
+        retry_desktop_invite=(
+            isinstance(invite, dict) and invite.get('result') == 'failed'
+            and invite.get('reason') in ('failed', 'disabled', 'seat_holder_unavailable')
+        ),
     )
 
 

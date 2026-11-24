@@ -97,6 +97,22 @@ class BoothRequestTests(unittest.TestCase):
 
 
 class NightlyBoothsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_desktop_invite_retry_uses_existing_booking_until_confirmed(self):
+        occurrence = {**staffed(), 'crew': {'autotracker': {'name': 'Bogie'}}}
+        endpoint = '/internal/relay/ttp/broadcast'
+        staged = {'outcome': 'staged', 'broadcastId': 'one'}
+        requests = _Requests({'/games/': _Response(200, occurrence)})
+        nightly = booths(requests)
+        for minutes, delivery in [(30, {'result': 'failed', 'reason': 'failed'}),
+                                  (29, {'result': 'failed', 'reason': 'failed'}),
+                                  (28, {'result': 'sent'}), (27, {'result': 'sent'})]:
+            result = dict(staged, desktopInvite=delivery)
+            requests.answers[endpoint] = _Response(200, result if minutes == 30 else {'outcome': 'already_done', 'result': result})
+            await nightly.maybe_open_booth(EIGHT, ROOM, EIGHT - timedelta(minutes=minutes))
+        posts = [call['json'] for call in requests.calls if endpoint in call['url']]
+        self.assertEqual(len(posts), 3)
+        self.assertEqual(posts, [posts[0]] * 3)
+
     async def test_registers_the_coming_week_once_a_day_with_one_request_id_per_race(self):
         requests = _Requests({'/nightlies': _Response(200, {})})
         nightly = booths(requests)
