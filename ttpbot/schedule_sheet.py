@@ -49,6 +49,7 @@ COLUMN_ALIASES = {
     'comms_two': ('comms 2', 'comms two'),
     'tracker': ('tracker', 'tracker 1'),
     'tracker2': ('tracker 2',),
+    'autotracker': ('autotracker', 'auto tracker'),
     'channel': ('channel',),
     'game': ('game',),
     'match_id': ('match', 'match id'),

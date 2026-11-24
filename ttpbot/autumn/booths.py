@@ -41,7 +41,7 @@ class AutumnBooths:
         state = await self.engine.state()
         payload = build_broadcast_request(race, row, room_url, state.get('document') or {}, self.crew,
                                           self.logger, edition=self.edition, number=match.get('number'),
-                                          prepare_only=prepare_only)
+                                          prepare_only=prepare_only, clear_unstaffed=not prepare_only)
         if payload is not None and self.slate is not None:
             payload = {**payload, 'slate': self.slate.for_booking(row.channel, row.at)}
         return payload
@@ -78,7 +78,7 @@ class AutumnBooths:
                 return held[1]
             outcome = await request_booth(payload, self.base_url, self.token, self.logger,
                                           endpoint='/internal/relay/tournament/broadcast', label='Autumn')
-            if outcome.outcome in ('staged', 'continuation', 'next_race'):
+            if outcome.outcome in ('staged', 'continuation', 'next_race') or (payload.get('clearDesktopSeatOnly') and outcome.outcome == 'not_due'):
                 self._outcomes[payload['requestKey']] = (signature, outcome)
             return outcome
         except Exception:

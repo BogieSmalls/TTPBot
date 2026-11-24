@@ -427,7 +427,7 @@ class LeagueScheduler:
         so without this the T-30 post can tag nobody even though the control
         plane came up at T-35.
         """
-        signature = (race.channel, tuple(race.comms), tuple(race.trackers))
+        signature = (race.channel, tuple(race.comms), tuple(race.trackers), getattr(race, 'autotracker', None))
         if self._prepared.get(race.key) == signature:
             return
         if not race.channel or not self.relay_wake_url or not self.relay_wake_token:
@@ -493,7 +493,8 @@ class LeagueScheduler:
         if payload is None:
             payload = build_broadcast_request(
                 race, None if prepare_only else _room_slug(room_url), self.crew, self.logger,
-                coop=coop, series=series, prepare_only=prepare_only)
+                coop=coop, series=series, prepare_only=prepare_only,
+                clear_unstaffed=not prepare_only)
         if payload is None:
             return BoothOutcome()
         if self.slate is not None:
@@ -538,7 +539,7 @@ class LeagueScheduler:
         if self._four_racer_coop_booth(race):
             payload = build_coop_broadcast_request(
                 race, None if prepare_only else _room_slug(room_url), self.crew, self.logger,
-                prepare_only=prepare_only)
+                prepare_only=prepare_only, clear_unstaffed=not prepare_only)
             if payload is not None:
                 # Keyed by the primary row, like the booth it stands in for.
                 outcome = await self._request_booth(
